@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LEENAI B-06</title>
+<link rel="stylesheet" href="https://mhlee205.github.io/LEENAI_COMMON/v1/leenai-common.css">
+<script src="https://mhlee205.github.io/LEENAI_COMMON/v1/leenai-common.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){document.body.innerHTML=
+'<div style="padding:40px;font-family:sans-serif">共通ファイルの読み込みに失敗しました。ページを再読み込みしてください。</div>';});}
+</script>
+<style>
+#app{display:flex;flex-direction:column;min-height:100vh;background:var(--frame)}
+.b6-main{flex:1;display:flex;flex-direction:column;padding:10px 14px 0;min-height:0}
+.b6-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.b6-tab{background:none;border:1px solid transparent;border-bottom:none;color:var(--text2);padding:7px 14px;font:inherit;font-weight:600;cursor:pointer;border-radius:8px 8px 0 0}
+.b6-tab:hover{color:var(--text)}
+.b6-tab.on{background:var(--surface);border-color:var(--border);color:var(--accent);margin-bottom:-1px}
+.b6-pane{display:none;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:10px 12px;flex:1;min-height:0;flex-direction:column}
+.b6-pane.on{display:flex}
+.b6-sub{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.b6-chip{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:3px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.b6-chip.on{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff}
+.b6-chip .n{opacity:.8;font-size:11px;margin-left:4px}
+.b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
+.b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
+.b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
+.b6-btn{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.b6-btn:hover{border-color:var(--accent)}
+.b6-btn.pri{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff}
+.b6-btn.dng{color:var(--danger)}
+.b6-btn:disabled{opacity:.5;cursor:default}
+.b6-btn.sm{padding:1px 6px;font-size:11.5px}
+.b6-sum{display:flex;gap:14px;font-size:12.5px;color:var(--text2);margin-bottom:6px;flex-wrap:wrap}
+.b6-sum b{color:var(--text);font-size:14px}
+.b6-sum .warn b{color:var(--warn)}
+.b6-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:var(--read);min-height:300px}
+table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content;min-width:100%}
+.b6-t th{position:sticky;top:0;z-index:2;background:var(--surface2);color:var(--text2);font-weight:700;padding:5px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;text-align:left}
+.b6-t td{padding:3px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);vertical-align:top;white-space:pre-wrap;color:var(--text);max-width:260px}
+.b6-t tr.bk-first td{border-top:2px solid var(--border)}
+.b6-t td.ed{cursor:text}
+.b6-t td.ed:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.b6-t td.dt{white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+.b6-t td.saving{outline:2px solid color-mix(in srgb,var(--info) 60%,transparent);outline-offset:-2px}
+.b6-t td.saved{animation:b6ok 1.4s}
+.b6-t td.fail{outline:2px solid var(--danger);outline-offset:-2px}
+@keyframes b6ok{0%{background:color-mix(in srgb,var(--ok) 30%,transparent)}100%{background:transparent}}
+.b6-t tr.del td{opacity:.45;text-decoration:line-through}
+.b6-t tr.del td.ops{text-decoration:none;opacity:1}
+.b6-t tr.hl td{background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.b6-t td.ops{white-space:nowrap;padding:2px 3px;background:var(--surface)}
+.b6-t td textarea,.b6-t td input,.b6-t td select{width:100%;min-width:90px;background:var(--read);color:var(--text);border:1px solid var(--accent);border-radius:4px;font:inherit;font-size:12px;padding:2px 4px;box-sizing:border-box}
+.b6-t td textarea{resize:vertical;min-height:40px}
+.ob{border:none;background:none;color:var(--text3);cursor:pointer;padding:0 3px;font-size:12px}
+.ob:hover{color:var(--accent)}
+.st{display:flex;gap:4px;align-items:flex-start;min-width:46px}
+.st .tg{cursor:pointer;min-width:18px;text-align:center;border-radius:4px;user-select:none}
+.st .tg:hover{background:var(--surface3)}
+.st .tg.done{color:var(--ok);font-weight:700}
+.st .tg.na{color:var(--text3)}
+.st .tg.none{color:var(--text3);opacity:.5}
+.st .mm{font-size:11px;color:var(--text2);white-space:pre-wrap}
+.st .pe{opacity:0;border:none;background:none;color:var(--text3);cursor:pointer;padding:0;font-size:11px;margin-left:auto}
+td:hover .st .pe{opacity:1}
+.bdg{display:inline-block;font-size:10.5px;border-radius:4px;padding:0 5px;margin-left:3px;font-weight:700;white-space:nowrap}
+.bdg.w{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.bdg.d{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
+.bdg.o{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.bdg.i{background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)}
+.bdg.m{background:var(--surface3);color:var(--text2)}
+.ap-OK{color:var(--ok);font-weight:700}
+.ap-NONE{color:var(--text3)}
+.ap-REJECTED,.ap-CANCEL{color:var(--danger);font-weight:700}
+.ap-WAIT_ADD,.ap-WAIT_CHANGE,.ap-NOAPPROVAL,.ap-OTHER{color:var(--warn);font-weight:700}
+.muted{color:var(--text3)}
+.b6-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.b6-modal{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;width:100%;max-width:760px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.b6-modal.wide{max-width:1100px}
+.b6-modal h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px;display:flex;align-items:center;gap:8px}
+.b6-modal h3 .x{margin-left:auto}
+.b6-modal .bd{padding:12px 16px;max-height:70vh;overflow:auto;font-size:13px}
+.b6-modal .ft{padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+table.b6-s{border-collapse:collapse;font-size:12px;width:100%}
+.b6-s th,.b6-s td{border:1px solid var(--border);padding:3px 6px;text-align:left;vertical-align:top}
+.b6-s th{background:var(--surface2);color:var(--text2);white-space:nowrap}
+.b6-s td.num,.b6-s th.num{text-align:right;font-family:var(--mono)}
+.b6-card{background:var(--read);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.b6-card h4{margin:0 0 8px;font-size:13.5px}
+.b6-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:900px){.b6-grid2{grid-template-columns:1fr}}
+.prog{height:8px;background:var(--surface3);border-radius:4px;overflow:hidden;margin:6px 0}
+.prog i{display:block;height:100%;background:var(--accent-btn);width:0;transition:width .2s}
+details.rp{margin:4px 0}
+details.rp summary{cursor:pointer;font-size:12.5px}
+.pk-cell{font-family:var(--mono);font-size:11.5px}
+.pk-cell .h{font-weight:700;color:var(--text)}
+.pk-chip{display:inline-block;background:var(--surface3);border-radius:3px;padding:0 4px;margin:1px;font-size:10.5px;color:var(--text2)}
+.pk-wk td{background:color-mix(in srgb,var(--text3) 6%,transparent)}
+.b6-demo{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn);font-weight:700;font-size:12px;padding:4px 14px;text-align:center}
+.b6-menu{position:fixed;z-index:9500;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);padding:4px;min-width:180px;font-size:12.5px}
+.b6-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:6px 10px;border-radius:5px;cursor:pointer;font:inherit}
+.b6-menu button:hover{background:var(--surface2)}
+.b6-menu .meta{color:var(--text3);font-size:11px;padding:4px 10px;border-top:1px solid var(--border);margin-top:4px}
+.ok{color:var(--ok)}.ng{color:var(--danger)}.wn{color:var(--warn)}
+.b6-empty{padding:40px;text-align:center;color:var(--text3)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="b6-demo-bar" class="b6-demo" style="display:none">🧪 デモモード — ログインなし・合成サンプルデータ（ブラウザのメモリ内のみ。Dataverse には保存されません）</div>
+  <div class="b6-main">
+    <div class="b6-tabs" id="b6-tabs">
+      <button class="b6-tab on" data-tab="board">📋 スケジュール表</button>
+      <button class="b6-tab" data-tab="packer">👤 Packer日程</button>
+      <button class="b6-tab" data-tab="b05">⇄ B-05連携確認</button>
+      <button class="b6-tab" data-tab="io">📥 取込 / 📤 出力</button>
+    </div>
+
+    <!-- ① スケジュール表 -->
+    <section class="b6-pane on" id="pane-board">
+      <div class="b6-sub" id="b6-regions"></div>
+      <div class="b6-bar">
+        <label>ETD <input type="date" class="b6-in" id="f-from"> 〜 <input type="date" class="b6-in" id="f-to"></label>
+        <label><input type="checkbox" id="f-noetd" checked> ETD未定を含む</label>
+        <button class="b6-btn" id="f-reload">⟳ 再読込</button>
+        <span class="muted">|</span>
+        <label>港 <select class="b6-sel" id="f-port"></select></label>
+        <label>承認 <select class="b6-sel" id="f-appr"></select></label>
+        <label>Packer <input class="b6-in" id="f-packer" size="8"></label>
+        <label><input type="checkbox" id="f-nopk"> Packer未割当</label>
+        <label><input type="checkbox" id="f-nobkg"> Booking no.未取得</label>
+        <label>🔍 <input class="b6-in" id="f-q" size="14" placeholder="BKG・Invoice・Vessel"></label>
+      </div>
+      <div class="b6-bar">
+        <label>並び <select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></label>
+        <label><input type="checkbox" id="f-del"> 削除済みを表示</label>
+        <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
+        <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
+      </div>
+      <div class="b6-sum" id="b6-sum"></div>
+      <div class="b6-wrap" id="b6-board"></div>
+    </section>
+
+    <!-- ② Packer日程 -->
+    <section class="b6-pane" id="pane-packer">
+      <div class="b6-bar">
+        <label>月 <input type="month" class="b6-in" id="pk-month"></label>
+        <label>地域 <select class="b6-sel" id="pk-region"></select></label>
+        <button class="b6-btn" id="pk-load">表示</button>
+        <span class="muted">読み取り専用。期間スロット（〜）は開始日に表示し日別合計に含めません。略称にできない Packer 表記は ⚠ 付きで原文表示。</span>
+      </div>
+      <div id="pk-body" style="display:flex;gap:10px;flex:1;min-height:0">
+        <div class="b6-wrap" id="pk-grid" style="flex:3"></div>
+        <div class="b6-wrap" id="pk-undated" style="flex:1;min-width:220px;padding:8px"></div>
+      </div>
+    </section>
+
+    <!-- ③ B-05連携確認 -->
+    <section class="b6-pane" id="pane-b05">
+      <div class="b6-bar">
+        <label>月 <input type="month" class="b6-in" id="b5-month"></label>
+        <button class="b6-btn" id="b5-load">照合</button>
+        <label>状態 <select class="b6-sel" id="b5-filter"></select></label>
+        <button class="b6-btn" id="b5-map">Packer 表記マッピング</button>
+        <span class="muted">読み取り専用 — B-05 テーブルには書き込みません。行をクリックすると「B-05 へ送る場合」のプレビュー。</span>
+      </div>
+      <div class="b6-sum" id="b5-sum"></div>
+      <div class="b6-wrap" id="b5-body"></div>
+    </section>
+
+    <!-- ④ 取込 / 出力 -->
+    <section class="b6-pane" id="pane-io" style="overflow:auto">
+      <div class="b6-grid2">
+        <div>
+          <div class="b6-card">
+            <h4>📥 エクセル取込</h4>
+            <div class="b6-bar">
+              <input type="file" id="io-file" accept=".xlsx,.xlsm,.xls" multiple>
+              <button class="b6-btn" id="io-dry" disabled>ドライラン</button>
+              <button class="b6-btn pri" id="io-run" disabled>実行</button>
+            </div>
+            <div class="muted" style="font-size:12px">ファイルはブラウザ内だけで解析します（サーバー・外部へ送信しません）。MAIN と LOCAL を同時に選べます。自動修正はしません。</div>
+            <div class="prog" id="io-prog" style="display:none"><i></i></div>
+            <div id="io-status" style="font-size:12.5px"></div>
+          </div>
+          <div class="b6-card">
+            <h4>↩ 取込取消（テスト取込を元に戻す）</h4>
+            <div class="muted" style="font-size:12px;margin-bottom:6px">バッチ全体に削除フラグを立てます（物理削除はしません）。「取消を元に戻す」で復元できます。</div>
+            <button class="b6-btn" id="io-batches">バッチ一覧を読む</button>
+            <div id="io-batch-list" style="margin-top:6px"></div>
+          </div>
+          <div class="b6-card">
+            <h4>📤 エクセル出力</h4>
+            <div class="muted" style="font-size:12px;margin-bottom:6px">元のシート構成（BKG(関東) 〜 スポット港）・地域別の列・結合で出力します。削除済みは含めません。</div>
+            <button class="b6-btn pri" id="io-export">エクセル出力（全件）</button>
+          </div>
+        </div>
+        <div class="b6-card" id="io-report"><h4>検証リポート</h4><div class="muted">ファイルを選ぶとここに表示されます。</div></div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+/*PARSE-BEGIN*/
+/* ══════════ PARSE — QTY 解析 (DOC-B-06 §2-5 d) ══════════
+   不確実なら解析しない (other)。qty_raw は常に原文のまま保存する。 */
+const PARSE = (function(){
+  const DAY = 86400000;
+  function nfkcSame(s){ /* 1文字ずつ NFKC (長さを変えない → 元文字列と位置が一致) */
+    let o=''; for(let i=0;i<s.length;i++){ const ch=s[i]; const n=ch.normalize('NFKC'); o += (n.length===1 ? n : ch); }
+    return o;
+  }
+  function ymd(y,m,d){ return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+  function validMD(m,d){ return m>=1&&m<=12&&d>=1&&d<=31; }
+  function utc(s){ const p=s.split('-'); return Date.UTC(+p[0],+p[1]-1,+p[2]); }
+  /* 年のない M/D → 基準日 ±60 日で最も近い年。合わなければ null */
+  function resolveYear(m,d,ref,limit){
+    if(!validMD(m,d)) return null;
+    const r=utc(ref), y=+ref.slice(0,4); let best=null, bd=Infinity;
+    for(const yy of [y-1,y,y+1]){
+      const t=Date.UTC(yy,m-1,d); const chk=new Date(t);
+      if(chk.getUTCMonth()!==m-1) continue; /* 2/30 等 */
+      const diff=Math.abs(t-r); if(diff<bd){bd=diff;best=ymd(yy,m,d);}
+    }
+    if(best===null) return null;
+    if(limit!=null && bd>limit*DAY) return null;
+    return best;
+  }
+  const DT = '(?<![\\d/])(\\d{1,2})\\/(\\d{1,2})(?![\\d/])';
+  const TM = '(?:\\s*(\\d{1,2}:\\d{2}))?';
+  const SEP_ONLY = /^[\s,、，。+・&と\-ー－~〜]*$/;
+
+  function parse(raw, ctx){
+    ctx = ctx||{};
+    const src = raw==null ? '' : String(raw);
+    if(!src.trim()) return {parse:'empty', slots:[], total:null, note:'', w09:false};
+    const ref = ctx.open || ctx.etd || ctx.today || new Date().toISOString().slice(0,10);
+    const N = nfkcSame(src);
+    let W = N.split('');               /* 作業用 (消費済み = \u0001) */
+    const used = new Array(N.length).fill(false);
+    const slots = [];
+    let fail = false;
+    function work(){ return W.join(''); }
+    function consume(st,len){ for(let i=st;i<st+len;i++){used[i]=true;W[i]='\u0001';} }
+    function date(m,d){ const v=resolveYear(+m,+d,ref,60); if(!v) fail=true; return v; }
+    function run(re, fn){
+      re.lastIndex=0; const s=work(); let m; const hits=[];
+      while((m=re.exec(s))){ hits.push(m); if(m[0].length===0) re.lastIndex++; }
+      hits.forEach(h=>{ if(fn(h)!==false) consume(h.index,h[0].length); });
+    }
+    /* ② 期間 (先に検出: 1/26-1/29(1) の 1/29(1) を A で取らないため)
+       前に nC があればその n、後ろに (n) があればその n */
+    run(new RegExp('(?:(\\d+)\\s*[Cc]\\s*[-ー－]?\\s*)?'+DT+'\\s*[-~〜～ー－]\\s*(?:(\\d{1,2})\\/)?(\\d{1,2})(?![\\d/本Cc])(?:\\s*\\((\\d+)\\))?'+TM,'g'), h=>{
+      const m1=+h[2], d1=+h[3], m2=h[4]?+h[4]:m1, d2=+h[5];
+      const a=date(m1,d1), b=date(m2,d2); if(!a||!b) return false;
+      if(utc(b)<utc(a) || utc(b)-utc(a)>31*DAY){ fail=true; return false; }
+      const n = h[6]!=null ? +h[6] : (h[1]!=null ? +h[1] : null);
+      const s={d:a,d2:b,n:n}; if(h[7]) s.t=h[7]; slots.push({pos:h.index,s:s});
+    });
+    /* ① 自前の本数を持つ形式: A M/D(n) · D M/D n本 */
+    run(new RegExp(DT+'\\s*\\((\\d+)\\)'+TM,'g'), h=>{
+      const d=date(h[1],h[2]); if(!d) return false;
+      const s={d:d,n:+h[3]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
+    });
+    run(new RegExp(DT+'\\s*(\\d+)\\s*本'+TM,'g'), h=>{
+      const d=date(h[1],h[2]); if(!d) return false;
+      const s={d:d,n:+h[3]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
+    });
+    /* ③ B nC 日付 / C (n)日付 */
+    run(new RegExp('(?<!\\d)(\\d+)\\s*[Cc]\\s*[-ー－]?\\s*'+DT+TM,'g'), h=>{
+      const d=date(h[2],h[3]); if(!d) return false;
+      const s={d:d,n:+h[1]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
+    });
+    run(new RegExp('\\((\\d+)\\)\\s*'+DT+TM,'g'), h=>{
+      const d=date(h[2],h[3]); if(!d) return false;
+      const s={d:d,n:+h[1]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
+    });
+    if(fail) return {parse:'other', slots:[], total:null, note:'', w09:false};
+    /* ④ 先頭の nC- は総本数 */
+    let total=null;
+    if(slots.length){
+      const m=/^\s*(\d+)\s*[Cc]\s*[-ー－:]?/.exec(work());
+      if(m){ total=+m[1]; consume(m.index,m[0].length); }
+    }
+    /* 残り文字列 (元の文字で — nfkcSame は長さを変えないので位置が一致) */
+    const segs=[]; let cur='';
+    for(let i=0;i<N.length;i++){
+      if(used[i]){ if(cur){segs.push(cur);cur='';} } else cur+=src[i];
+    }
+    if(cur) segs.push(cur);
+    const rest = segs.map(x=>x.replace(/^[\s,、，]+|[\s,、，]+$/g,'')).filter(x=>x && !SEP_ONLY.test(x));
+    const restN = nfkcSame(rest.join(' '));
+    if(!slots.length){
+      const all = nfkcSame(src).trim();
+      let m;
+      if((m=/^(\d+)\s*(?:[Cc]|本)\s*[-ー－]?$/.exec(all)) || (m=/^\((\d+)\)$/.exec(all)))
+        return {parse:'count', slots:[], total:+m[1], note:'', w09:false, count:+m[1]};
+      return {parse:'other', slots:[], total:null, note:'', w09:false};
+    }
+    /* 残りに日付トークンが残る = 一部しか読めていない → 解析しない */
+    if(new RegExp(DT).test(restN)) return {parse:'other', slots:[], total:null, note:'', w09:false};
+    slots.sort((a,b)=>a.pos-b.pos);
+    const out = slots.map(x=>x.s);
+    const note = rest.join('');
+    const nNull = out.some(s=>s.n==null);
+    const sum = out.reduce((a,s)=>a+(s.n||0),0);
+    const w09 = total!=null && !nNull && total!==sum;
+    return {parse:(note||nNull)?'partial':'pairs', slots:out, total:total, note:note, w09:w09};
+  }
+  /* 슬롯 → 엑셀 표기 (M/D(n), M/D(n)) */
+  function md(s){ return (+s.slice(5,7))+'/'+(+s.slice(8,10)); }
+  function format(slots){
+    return (slots||[]).map(s=>{
+      let t = s.d2 ? md(s.d)+'-'+md(s.d2) : md(s.d);
+      if(s.n!=null) t+='('+s.n+')';
+      if(s.t) t+=' '+s.t;
+      return t;
+    }).join(', ');
+  }
+  function summary(slots){
+    const ds=[]; let tot=0, has=false;
+    (slots||[]).forEach(s=>{ if(s.d)ds.push(s.d); if(s.d2)ds.push(s.d2); if(s.n!=null){tot+=s.n;has=true;} });
+    ds.sort();
+    return {datefrom:ds[0]||null, dateto:ds[ds.length-1]||null, totalhon:has?tot:null};
+  }
+  return {parse:parse, format:format, summary:summary, resolveYear:resolveYear, nfkcSame:nfkcSame};
+})();
+/*PARSE-END*/
+'use strict';
+/* ════════════════════════════════════════════
+   B-06 ブッキングスケジュール — DOC-B-06 v0.3 / 指示書 v1.1(+v0.3 決定事項)
+   区分: CONFIG / CONST / UTIL / STORE / MASTER(PACKERMAP) / BOARD / PACKER / B05CHECK / IMPORT / EXPORT / DIAG / UI
+   ════════════════════════════════════════════ */
+
+/* ══════════ CONFIG ══════════ */
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.1', date:'2026-11-10', desc:'ブッキング承認・Packer日程配分の管理'};
+const CFG = {
+  DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
+  API:    '/api/data/v9.2/',
+  ES_BOOK:'leenai_b06_bookings',    LN_BOOK:'leenai_b06_booking',    PK_BOOK:'leenai_b06_bookingid',
+  ES_ASG: 'leenai_b06_assignments', LN_ASG: 'leenai_b06_assignment', PK_ASG: 'leenai_b06_assignmentid',
+  ES_B05: 'leenai_b05_drayschedules', LN_B05:'leenai_b05_drayschedule',   /* 読み取り専用 */
+  REFRESH_MS: 20000,
+  IDB: 'leenai_b06_v1',
+  DEMO: new URLSearchParams(location.search).get('demo') === '1',
+};
+
+/* ══════════ CONST (DOC-B-06 §2-5 — 値を変えるのはここ 1 か所) ══════════ */
+const REGIONS = [
+  {code:'KANTO',  tab:'関東',       sheet:'BKG(関東)',       ports:['TOKYO','YOKOHAMA']},
+  {code:'KANSAI', tab:'関西',       sheet:'BKG(関西)',       ports:['OSAKA','KOBE']},
+  {code:'NORTH',  tab:'北エリア',   sheet:'BKG(北エリア)',   ports:['SENDAI','ISHIKARI','NIIGATA','TOMAKOMAI']},
+  {code:'CHUBU',  tab:'中部・四国', sheet:'BKG(中部・四国)', ports:['NAGOYA','KANAZAWA','FUKUYAMA','SHIMIZU','TAKAMATSU']},
+  {code:'KYUSHU', tab:'九州・沖縄', sheet:'BKG(九州・沖縄)', ports:['NAHA','HAKATA','KUMAMOTO']},
+  {code:'SPOT',   tab:'スポット港', sheet:'スポット港',      ports:['MIZUSHIMA','HIROSHIMA','TOYAMA']},
+];
+/* (a) 港 → 地域。表にない港は SPOT */
+const PORT_REGION = {};
+REGIONS.forEach(r => r.ports.forEach(p => { PORT_REGION[p] = r.code; }));
+/* (b) 承認 */
+const APPROVAL_OPTIONS = [
+  {code:'OK',          label:'承認済',     raw:'✔'},
+  {code:'NONE',        label:'未承認',     raw:''},
+  {code:'REJECTED',    label:'Rejected',   raw:'Rejected'},
+  {code:'CANCEL',      label:'キャンセル', raw:'キャンセル'},
+  {code:'NOAPPROVAL',  label:'承認無し',   raw:'承認無し'},
+  {code:'WAIT_ADD',    label:'追加待',     raw:'追加待'},
+  {code:'WAIT_CHANGE', label:'変更待',     raw:'変更待'},
+];
+/* (e) 地域別の列 (状態列 + 備考)。搬入先は KANTO のみ (ブッキング列) */
+const REGION_COLUMNS = {
+  KANTO:  ['customs','poapply','podist','banyu','memo'],
+  KANSAI: ['customs','poapply','podist','banyu','memo'],
+  NORTH:  ['customs','dray','poapply','podist','banyu','memo'],
+  CHUBU:  ['customs','dray','poapply','podist','banyu','memo'],
+  KYUSHU: ['customs','dray','poapply','drayfax','banyu','memo'],
+  SPOT:   ['customs','dray','poapply','podist','banyu','memo'],
+};
+/* (f) 結合表示する列 (後続 Packer 行に値があれば結合しない) */
+const ROW_SPAN_COLUMNS = {
+  KANTO:['customs','poapply'], KANSAI:['customs','poapply'],
+  NORTH:['customs'], CHUBU:['customs'], KYUSHU:['customs'], SPOT:['customs'],
+};
+const COL_LABEL = {
+  port:'港', approval:'承認', bkgno:'Booking no.', invoiceno:'Invoice no.', pod:'POD', carrier:'船社(本数)', vessel:'Vessel Voyage',
+  grade:'Grade', packer:'Packer', qty_raw:'QTY', cyopen:'OPEN', cycut:'Cut', etd:'ETD', eta:'ETA', delivery:'搬入先',
+  customs:'通関依頼', dray:'ドレ配車', poapply:'P/O申込', podist:'P/O配布', drayfax:'ドレーFAX', banyu:'搬入表送付', memo:'検査番号/備考',
+};
+const STATUS_KEYS = ['customs','dray','poapply','podist','drayfax','banyu'];
+const BOOKING_KEYS = ['port','approval','bkgno','invoiceno','pod','carrier','vessel','cyopen','cycut','etd','eta','delivery'];
+const DATE_KEYS = ['cyopen','cycut','etd','eta'];
+/* ブッキング開始行の判定に使う核心列 (v0.3 — Grade・港は含めない) */
+const CORE_KEYS = ['approval','bkgno','invoiceno','pod','carrier','vessel','cyopen','cycut','etd','eta'];
+/* Dataverse 列 (leenai_ + key) */
+const BK_FIELDS = ['bookkey','region','seq','port','approval','approval_raw','bkgno','invoiceno','pod','carrier','vessel',
+  'cyopen','cycut','etd','eta','cy_note','etd_note','eta_note','delivery','source','batch','importkey','createdby','deleted'];
+const AS_FIELDS = ['bookkey','seq','bkgno','pol','grade','packer','qty_raw','slots','datefrom','dateto','totalhon','parse',
+  'customs','dray','poapply','podist','drayfax','banyu','memo','source','batch','importkey','createdby','deleted'];
+const DATE_FIELDS = new Set(['cyopen','cycut','etd','eta','datefrom','dateto']);
+/* B-05 の値リスト (B-05 v6.2 TRUCK_LIST — 照合・プレビューの形式確認に使う。読み取りのみ) */
+const B05_TRUCKS = ['未定','池谷','IT','国際','山勝','日正','東方','アサヒ','今井','IS','EA','セイユー'];
+const B05_PORTS = ['TOKYO','YOKOHAMA'];
+/* エクセル見出し → キー (正規化後の完全一致) */
+const HEADER_ALIASES = {
+  port:['港','みなと','port','pol'], approval:['承認'], bkgno:['bookingno','bkgno','booking','bookingnumber'],
+  invoiceno:['invoiceno','invoice','invno'], pod:['pod'], carrier:['船社本数','船社'], vessel:['vesselvoyage','vessel','vesselvoy','本船'],
+  grade:['grade','品目','アイテム'], packer:['packer'], qty_raw:['qty','本数'], cyopen:['open','cyopen'], cycut:['cut','cycut'],
+  etd:['etd'], eta:['eta'], delivery:['搬入先'], customs:['通関依頼'], dray:['ドレ配車','ドレー配車'], poapply:['po申込'],
+  podist:['po配布'], drayfax:['ドレーfax','ドレfax'], banyu:['搬入表送付','搬入表'], memo:['検査番号備考','検査番号','備考'],
+};
+const HEADER_UNUSED = ['通関','depo','振込','fd送付日'];   /* 使わない列 (形兄決定 2026-11-02) */
+
+/* ══════════ UTIL ══════════ */
+const $ = (s, el) => (el||document).querySelector(s);
+const $$ = (s, el) => Array.from((el||document).querySelectorAll(s));
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function str(v){ return v==null ? '' : String(v); }
+function blank(v){ return v==null || String(v).trim()===''; }
+function firstLine(s){ return str(s).split('\n')[0].trim(); }
+function uuid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16);})); }
+function pad2(n){ return String(n).padStart(2,'0'); }
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function addDays(s, n){ const p=s.split('-'); const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]+n)); return d.toISOString().slice(0,10); }
+function addYears(s, n){ return (+s.slice(0,4)+n)+s.slice(4); }
+function dayDiff(a, b){ return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400000); }
+function fmtMD(s){ if(!s) return ''; const y=+s.slice(0,4), m=+s.slice(5,7), d=+s.slice(8,10); return (y!==new Date().getFullYear()? (y%100)+'/' : '')+m+'/'+d; }
+function fmtDT(iso){ if(!iso) return ''; const d=new Date(iso); return d.getFullYear()+'/'+pad2(d.getMonth()+1)+'/'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
+function monthRange(ym){ const y=+ym.slice(0,4), m=+ym.slice(5,7); const last=new Date(y,m,0).getDate(); return {from:ym+'-01', to:ym+'-'+pad2(last), days:last}; }
+function hash(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193)>>>0; } return h.toString(16).padStart(8,'0'); }
+function normBkg(s){ return firstLine(s).toUpperCase().replace(/\s+/g,''); }
+function toast(m, t){ LEENAI.toast(m, t||'info'); }
+function userEmail(){ return (LEENAI.user && LEENAI.user.email) || (CFG.DEMO ? 'demo@example.invalid' : ''); }
+async function pool(items, size, fn){
+  let i=0; const run=async()=>{ while(i<items.length){ const k=i++; await fn(items[k], k); } };
+  await Promise.all(Array.from({length:Math.min(size, items.length)}, run));
+}
+function bkLabel(b){ return firstLine(b.bkgno) || firstLine(b.invoiceno) || str(b.bookkey).slice(0,8); }
+function bkName(b){ return ((b.etd||'未定')+'_'+bkLabel(b)).slice(0,200); }
+function asName(b, a){ return (bkLabel(b)+'_'+a.seq).slice(0,200); }
+function approvalOf(raw){
+  const s = str(raw).trim();
+  if(s==='') return 'NONE';
+  if(s==='✔' || s==='✓') return 'OK';
+  if(/^rejected$/i.test(s)) return 'REJECTED';
+  const o = APPROVAL_OPTIONS.find(x => x.raw && x.raw===s);
+  return o ? o.code : 'OTHER';
+}
+function approvalLabel(b){
+  if(b.approval==='OTHER') return str(b.approval_raw);
+  const o = APPROVAL_OPTIONS.find(x => x.code===(b.approval||'NONE')); return o ? o.label : str(b.approval);
+}
+/* (c) 状態セル: 原文を保存し画面でだけ解釈 */
+function statusOf(raw){
+  const s = str(raw);
+  let m = /^\s*[✔✓]/.exec(s);
+  if(m) return {st:'done', memo:s.slice(m[0].length)};
+  m = /^\s*[-ー－](?=\s|$)/.exec(s);
+  if(m) return {st:'na', memo:s.slice(m[0].length)};
+  return {st: s.trim() ? 'memo' : 'none', memo:s};
+}
+function statusCycle(raw){
+  /* 空 → ✔ → - → 空 。メモ部分は保持 */
+  const o = statusOf(raw), memo = o.memo;
+  const tail = memo.trim() ? (/^\s/.test(memo) ? memo : ' '+memo) : '';
+  if(o.st==='none' || o.st==='memo') return '✔' + tail;
+  if(o.st==='done') return '-' + tail;
+  return memo.replace(/^\s+/,'');   /* na → 空 (メモは残す) */
+}
+function noteKey(k){ return (k==='cyopen'||k==='cycut') ? 'cy_note' : k+'_note'; }
+
+/* ── IndexedDB (leenai_b06_v1 / settings) ── */
+const IDB = {
+  _db:null,
+  open(){ if(this._db) return Promise.resolve(this._db);
+    return new Promise((res, rej) => { try{
+      const r = indexedDB.open(CFG.IDB, 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('settings'); };
+      r.onsuccess = () => { this._db = r.result; res(this._db); };
+      r.onerror = () => rej(r.error);
+    }catch(e){ rej(e); } }); },
+  async get(k){ try{ const db=await this.open(); return await new Promise(res=>{ const q=db.transaction('settings').objectStore('settings').get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>res(undefined); }); }catch(e){ return undefined; } },
+  async set(k, v){ try{ const db=await this.open(); await new Promise(res=>{ const t=db.transaction('settings','readwrite'); t.objectStore('settings').put(v,k); t.oncomplete=res; t.onerror=res; }); }catch(e){} },
+};
+
+/* ══════════ STORE — Dataverse 接続層 ══════════ */
+async function dvFetch(path, opt){
+  opt = opt || {};
+  const tok = await LEENAI.auth.token('dataverse');
+  const h = Object.assign({'Authorization':'Bearer '+tok, 'OData-MaxVersion':'4.0', 'OData-Version':'4.0', 'Accept':'application/json'}, opt.headers||{});
+  const r = await fetch(CFG.DV_URL+CFG.API+path, {method:opt.method||'GET', headers:h, body:opt.body});
+  if(!r.ok){ let t=''; try{ t=await r.text(); }catch(e){} const e=new Error(r.status+': '+t.slice(0,300)); e.status=r.status; throw e; }
+  return r;
+}
+const FV = 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"';
+async function dvGet(path){ return (await dvFetch(path, {headers:{'Prefer':FV}})).json(); }
+async function dvGetAll(path){
+  let url = path, out = [];
+  while(url){
+    const j = await (await dvFetch(url, {headers:{'Prefer':'odata.maxpagesize=500,'+FV}})).json();
+    out = out.concat(j.value||[]);
+    const nl = j['@odata.nextLink'];
+    url = nl ? nl.slice(nl.indexOf(CFG.API)+CFG.API.length) : null;
+  }
+  return out;
+}
+/* 書き込みは B-06 テーブルだけ (B-05・COMPASS への書き込みはコード上も不可能にする) */
+function assertB06(es){ if(es!==CFG.ES_BOOK && es!==CFG.ES_ASG) throw new Error('write blocked: '+es); }
+async function dvCreate(es, body){
+  assertB06(es);
+  const r = await dvFetch(es, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation,'+FV}, body:JSON.stringify(body)});
+  return r.json();
+}
+async function dvUpdate(es, id, body, etag){
+  assertB06(es);
+  const h = {'Content-Type':'application/json', 'Prefer':'return=representation,'+FV, 'If-Match': etag || '*'};
+  const r = await dvFetch(es+'('+id+')', {method:'PATCH', headers:h, body:JSON.stringify(body)});
+  return r.json();
+}
+function selOf(kind){
+  const F = kind==='B' ? BK_FIELDS : AS_FIELDS;
+  return ['leenai_name'].concat(F.map(f=>'leenai_'+f)).concat([kind==='B'?CFG.PK_BOOK:CFG.PK_ASG, 'modifiedon', '_modifiedby_value']).join(',');
+}
+function fromDv(kind, r){
+  const F = kind==='B' ? BK_FIELDS : AS_FIELDS, o = {};
+  F.forEach(f => { const v = r['leenai_'+f]; o[f] = v===undefined ? null : v; });
+  o.id = r[kind==='B' ? CFG.PK_BOOK : CFG.PK_ASG];
+  o.etag = r['@odata.etag'];
+  o.modifiedon = r.modifiedon || null;
+  o.modifiedby = r['_modifiedby_value@OData.Community.Display.V1.FormattedValue'] || '';
+  DATE_FIELDS.forEach(f => { if(o[f]) o[f] = String(o[f]).slice(0,10); });
+  if(kind==='A'){ try{ o.slots = o.slots ? JSON.parse(o.slots) : []; }catch(e){ o.slots = []; } }
+  o.deleted = !!o.deleted;
+  return o;
+}
+function toDv(o, fields){
+  const b = {};
+  fields.forEach(f => {
+    if(f==='name'){ b.leenai_name = o.name; return; }
+    let v = o[f];
+    if(f==='slots') v = JSON.stringify(v||[]);
+    if(v===undefined) v = null;
+    if(v==='' && (DATE_FIELDS.has(f) || f==='seq' || f==='totalhon')) v = null;
+    b['leenai_'+f] = v;
+  });
+  return b;
+}
+const notDel = 'leenai_deleted ne true';
+function orChunks(keys, n){ const out=[]; for(let i=0;i<keys.length;i+=n) out.push(keys.slice(i,i+n)); return out; }
+function qk(s){ return "'"+String(s).replace(/'/g,"''")+"'"; }
+
+const DvStore = {
+  name:'Dataverse',
+  async loadBookings(o){
+    let f = [];
+    if(!o.deleted) f.push(notDel);
+    if(o.from && o.to){
+      const r = '(leenai_etd ge '+o.from+' and leenai_etd le '+o.to+')';
+      f.push(o.noEtd ? '('+r+' or leenai_etd eq null)' : r);
+    }
+    return (await dvGetAll(CFG.ES_BOOK+'?$select='+selOf('B')+(f.length?'&$filter='+encodeURIComponent(f.join(' and ')):''))).map(r=>fromDv('B',r));
+  },
+  async loadAssignments(keys, deleted){
+    let out = [];
+    for(const ch of orChunks(keys, 25)){
+      const f = '('+ch.map(k=>'leenai_bookkey eq '+qk(k)).join(' or ')+')' + (deleted ? '' : ' and '+notDel);
+      out = out.concat((await dvGetAll(CFG.ES_ASG+'?$select='+selOf('A')+'&$filter='+encodeURIComponent(f))).map(r=>fromDv('A',r)));
+    }
+    return out;
+  },
+  async bookingsByKeys(keys){
+    let out = [];
+    for(const ch of orChunks(keys, 25)){
+      const f = '('+ch.map(k=>'leenai_bookkey eq '+qk(k)).join(' or ')+') and '+notDel;
+      out = out.concat((await dvGetAll(CFG.ES_BOOK+'?$select='+selOf('B')+'&$filter='+encodeURIComponent(f))).map(r=>fromDv('B',r)));
+    }
+    return out;
+  },
+  async allAssignments(){ return (await dvGetAll(CFG.ES_ASG+'?$select='+selOf('A')+'&$filter='+encodeURIComponent(notDel))).map(r=>fromDv('A',r)); },
+  async asgByDate(from, to){
+    const f = 'leenai_datefrom le '+to+' and leenai_dateto ge '+from+' and '+notDel;
+    return (await dvGetAll(CFG.ES_ASG+'?$select='+selOf('A')+'&$filter='+encodeURIComponent(f))).map(r=>fromDv('A',r));
+  },
+  async changes(since){
+    const f = encodeURIComponent('modifiedon gt '+since);
+    const [B, A] = await Promise.all([
+      dvGetAll(CFG.ES_BOOK+'?$select='+selOf('B')+'&$filter='+f),
+      dvGetAll(CFG.ES_ASG+'?$select='+selOf('A')+'&$filter='+f)]);
+    return {B:B.map(r=>fromDv('B',r)), A:A.map(r=>fromDv('A',r))};
+  },
+  async get(kind, id){
+    const es = kind==='B' ? CFG.ES_BOOK : CFG.ES_ASG;
+    return fromDv(kind, await dvGet(es+'('+id+')?$select='+selOf(kind)));
+  },
+  async create(kind, o){
+    const F = (kind==='B' ? BK_FIELDS : AS_FIELDS).concat(['name']);
+    return fromDv(kind, await dvCreate(kind==='B'?CFG.ES_BOOK:CFG.ES_ASG, toDv(o, F)));
+  },
+  async update(kind, o, fields){
+    return fromDv(kind, await dvUpdate(kind==='B'?CFG.ES_BOOK:CFG.ES_ASG, o.id, toDv(o, fields), o.etag));
+  },
+  async importKeys(){
+    const rows = await dvGetAll(CFG.ES_BOOK+'?$select=leenai_importkey&$filter='+encodeURIComponent("leenai_source eq 'excel'"));
+    return new Set(rows.map(r=>r.leenai_importkey).filter(Boolean));
+  },
+  async batches(){
+    const rows = await dvGetAll(CFG.ES_BOOK+'?$select=leenai_batch,leenai_deleted,createdon&$filter='+encodeURIComponent("leenai_batch ne null"));
+    return groupBatches(rows.map(r=>({batch:r.leenai_batch, deleted:!!r.leenai_deleted, at:r.createdon})));
+  },
+  async batchRecords(batch){
+    const f = encodeURIComponent('leenai_batch eq '+qk(batch));
+    const [B, A] = await Promise.all([
+      dvGetAll(CFG.ES_BOOK+'?$select='+CFG.PK_BOOK+',leenai_deleted&$filter='+f),
+      dvGetAll(CFG.ES_ASG+'?$select='+CFG.PK_ASG+',leenai_deleted&$filter='+f)]);
+    return {B:B.map(r=>({id:r[CFG.PK_BOOK], deleted:!!r.leenai_deleted})), A:A.map(r=>({id:r[CFG.PK_ASG], deleted:!!r.leenai_deleted}))};
+  },
+  async setDeletedById(kind, id, flag){
+    await dvUpdate(kind==='B'?CFG.ES_BOOK:CFG.ES_ASG, id, {leenai_deleted:flag}, '*');
+  },
+  /* B-05 — 読み取りのみ (B-05 v6.2 loadData と同じ列 + leenai_cycut) */
+  async b05(from, to){
+    const base = 'leenai_name,leenai_truck,leenai_packer,leenai_scheduletime,leenai_cttype,leenai_hon,leenai_status,leenai_pol,leenai_bkgno,leenai_comment,leenai_createdby,leenai_scheddate';
+    const f = '&$filter='+encodeURIComponent('leenai_scheddate ge '+from+'T00:00:00Z and leenai_scheddate le '+to+'T23:59:59Z');
+    let rows;
+    try{ rows = await dvGetAll(CFG.ES_B05+'?$select='+base+',leenai_cycut'+f); }
+    catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(CFG.ES_B05+'?$select='+base+f); }
+    return rows.map(r=>({name:r.leenai_name, date:str(r.leenai_scheddate).slice(0,10), rawdate:r.leenai_scheddate, truck:r.leenai_truck||'', packer:r.leenai_packer||'',
+      time:r.leenai_scheduletime||'', cttype:r.leenai_cttype||'', hon:r.leenai_hon, status:r.leenai_status||'', pol:r.leenai_pol||'',
+      bkgno:r.leenai_bkgno||'', cycut:r.leenai_cycut, hasCycut:('leenai_cycut' in r)}));
+  },
+};
+function groupBatches(rows){
+  const m = {};
+  rows.forEach(r => { const g = m[r.batch] || (m[r.batch] = {batch:r.batch, total:0, deleted:0, at:r.at}); g.total++; if(r.deleted) g.deleted++; if(r.at && (!g.at || r.at<g.at)) g.at=r.at; });
+  return Object.values(m).sort((a,b)=>String(b.batch).localeCompare(String(a.batch)));
+}
+
+/* ── MemStore (メモリ — デモ・試験用。DvStore と同じ形) ── */
+function makeMemStore(){
+  const T = {B:new Map(), A:new Map()};
+  let ver = 1;
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const stamp = o => { o.etag = 'W/"'+(ver++)+'"'; o.modifiedon = new Date().toISOString(); o.modifiedby = (LEENAI.user&&LEENAI.user.name) || 'デモユーザー'; };
+  const all = k => Array.from(T[k].values());
+  const S = {
+    name:'Memory', T:T,
+    async loadBookings(o){ return all('B').filter(b => (o.deleted || !b.deleted) && (!o.from || (b.etd ? (b.etd>=o.from && b.etd<=o.to) : !!o.noEtd))).map(clone); },
+    async loadAssignments(keys, deleted){ const s=new Set(keys); return all('A').filter(a => s.has(a.bookkey) && (deleted || !a.deleted)).map(clone); },
+    async bookingsByKeys(keys){ const s=new Set(keys); return all('B').filter(b => s.has(b.bookkey) && !b.deleted).map(clone); },
+    async allAssignments(){ return all('A').filter(a=>!a.deleted).map(clone); },
+    async asgByDate(from, to){ return all('A').filter(a => !a.deleted && a.datefrom && a.datefrom<=to && a.dateto>=from).map(clone); },
+    async changes(since){ return {B:all('B').filter(b=>b.modifiedon>since).map(clone), A:all('A').filter(a=>a.modifiedon>since).map(clone)}; },
+    async get(kind, id){ const r=T[kind].get(id); if(!r){ const e=new Error('404'); e.status=404; throw e; } return clone(r); },
+    async create(kind, o){ const r = clone(o); r.id = uuid(); r.deleted = !!r.deleted; stamp(r); T[kind].set(r.id, r); return clone(r); },
+    async update(kind, o, fields){
+      const r = T[kind].get(o.id);
+      if(!r){ const e=new Error('404: not found'); e.status=404; throw e; }
+      if(o.etag && o.etag!=='*' && r.etag!==o.etag){ const e=new Error('412: Precondition Failed'); e.status=412; throw e; }
+      fields.forEach(f => { r[f] = clone(o[f]===undefined?null:o[f]); });
+      stamp(r); return clone(r);
+    },
+    async importKeys(){ return new Set(all('B').filter(b=>b.source==='excel').map(b=>b.importkey).filter(Boolean)); },
+    async batches(){ return groupBatches(all('B').filter(b=>b.batch).map(b=>({batch:b.batch, deleted:b.deleted, at:b._created}))); },
+    async batchRecords(batch){ return {B:all('B').filter(b=>b.batch===batch).map(b=>({id:b.id,deleted:b.deleted})), A:all('A').filter(a=>a.batch===batch).map(a=>({id:a.id,deleted:a.deleted}))}; },
+    async setDeletedById(kind, id, flag){ const r=T[kind].get(id); if(r){ r.deleted=flag; stamp(r); } },
+    b05rows: [],
+    async b05(from, to){ return S.b05rows.filter(r => r.date>=from && r.date<=to).map(clone); },
+    /* デモ: 他の人が更新した状況を再現 */
+    simulateOther(bookkey){
+      const b = all('B').find(x=>x.bookkey===bookkey); if(!b) return null;
+      b.vessel = str(b.vessel).replace(/\s*\(他者更新\d*\)$/,'') + ' (他者更新)'; stamp(b); b.modifiedby='他のユーザー（デモ）';
+      return b;
+    },
+  };
+  return S;
+}
+
+/* ══════════ STATE ══════════ */
+const S = {
+  store: null, ready:false,
+  region: 'KANTO',
+  bk: new Map(),            /* bookkey → booking (rows[] 付き) */
+  range: {from:null, to:null, noEtd:true},
+  lastSync: null, refreshing:false, editing:null, pending:null,
+  cellFx: {}, hl: null,
+  masters: {packerShort:[], packerNames:[], cy:[], forwarder:[], loaded:false, err:''},
+  report: null,             /* 取込の検証結果 */
+  b05: null,
+};
+
+/* ══════════ MASTER / PACKERMAP (LEENAI.master — 読み取り) ══════════ */
+function masterNames(items){
+  return (items||[]).map(r => {
+    if(r.active===false) return '';
+    const v = r.name || r.name_ja || r.short_name || r.short || r.code;
+    if(v) return String(v);
+    const k = Object.keys(r).find(x => typeof r[x]==='string' && r[x].trim());
+    return k ? r[k] : '';
+  }).filter(Boolean);
+}
+async function loadMasters(){
+  const M = S.masters, errs = [];
+  try{
+    const items = await LEENAI.master.get('dray_packer');
+    const short = [], names = [];
+    items.forEach(r => {   /* B-05 loadPackerMaster と同じ規則 (圧縮場・別名) */
+      const kind = str(r.kind).trim(), name = str(r.name).trim(), sh = str(r.short).trim();
+      if(!name) return;
+      if(kind==='圧縮場'){ names.push(name); if(sh) short.push([name, sh]); }
+      else if(kind==='別名' && sh) short.push([name, sh]);
+    });
+    M.packerShort = short; M.packerNames = names; M.dray_packer = items.length;
+  }catch(e){ errs.push('dray_packer: '+e.message); }
+  for(const n of ['cy','forwarder']){
+    try{ const items = await LEENAI.master.get(n); M[n] = masterNames(items); M[n+'_n'] = items.length; }
+    catch(e){ errs.push(n+': '+e.message); }
+  }
+  M.loaded = true; M.err = errs.join(' / ');
+  if(errs.length) toast('マスター読込に一部失敗: '+M.err, 'warn');
+  fillDatalists();
+}
+/* Packer 表記 → 略称。B-05 getPackerShort と同じ部分一致。推測フォールバック (先頭2文字) は使わない */
+function packerShort(raw){
+  const s = str(raw); if(!s.trim()) return null;
+  for(const [full, sh] of S.masters.packerShort){ if(s.includes(full)) return sh; }
+  return null;
+}
+function fillDatalists(){
+  const set = (id, arr) => { const el=document.getElementById(id); if(el) el.innerHTML = Array.from(new Set(arr)).map(v=>'<option value="'+esc(v)+'">').join(''); };
+  set('dl-packer', S.masters.packerNames);
+  set('dl-cy', S.masters.cy);
+  set('dl-forwarder', S.masters.forwarder);
+  set('dl-port', Object.keys(PORT_REGION));
+}
+
+/* ══════════ BOARD (① スケジュール表) ══════════ */
+function regionOf(port){ return PORT_REGION[str(port).trim().toUpperCase()] || 'SPOT'; }
+function boardCols(region){
+  const c = [
+    {k:'port',lv:'B'},{k:'approval',lv:'B'},{k:'bkgno',lv:'B'},{k:'invoiceno',lv:'B'},{k:'pod',lv:'B'},{k:'carrier',lv:'B'},{k:'vessel',lv:'B'},
+    {k:'grade',lv:'A'},{k:'packer',lv:'A'},{k:'qty_raw',lv:'A'},
+    {k:'cyopen',lv:'B',dt:1},{k:'cycut',lv:'B',dt:1},{k:'etd',lv:'B',dt:1},{k:'eta',lv:'B',dt:1}];
+  if(region==='KANTO') c.push({k:'delivery',lv:'B'});
+  REGION_COLUMNS[region].forEach(k => c.push({k:k, lv:'A', st:k!=='memo'}));
+  c.forEach(x => x.l = COL_LABEL[x.k]);
+  return c;
+}
+function sortRows(b){ b.rows.sort((x,y)=>(x.seq||0)-(y.seq||0)); }
+function visRows(b, showDel){ return b.rows.filter(a => showDel || !a.deleted); }
+function filt(){
+  return {
+    port: $('#f-port').value, appr: $('#f-appr').value, packer: $('#f-packer').value.trim().toLowerCase(),
+    nopk: $('#f-nopk').checked, nobkg: $('#f-nobkg').checked, q: $('#f-q').value.trim().toLowerCase(),
+    del: $('#f-del').checked, sort: $('#f-sort').value,
+  };
+}
+function noPacker(b){ return b.rows.filter(a=>!a.deleted).every(a => blank(a.packer)); }
+function visibleBookings(){
+  const F = filt();
+  let list = Array.from(S.bk.values()).filter(b => b.region===S.region && (F.del || !b.deleted));
+  if(F.port) list = list.filter(b => str(b.port).trim().toUpperCase()===F.port);
+  if(F.appr) list = list.filter(b => (b.approval||'NONE')===F.appr);
+  if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
+  if(F.nopk) list = list.filter(noPacker);
+  if(F.nobkg) list = list.filter(b => blank(b.bkgno));
+  if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].some(v => str(v).toLowerCase().includes(F.q)));
+  if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
+  else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
+  return list;
+}
+function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return v ? ' '+v : ''; }
+function cellHtml(col, b, a){
+  const k = col.k;
+  if(col.lv==='B'){
+    const v = b[k];
+    if(k==='approval') return '<span class="ap-'+esc(b.approval||'NONE')+'">'+esc(b.approval==='NONE'||!b.approval ? '' : approvalLabel(b))+'</span>';
+    if(col.dt){
+      const note = str(b[noteKey(k)]);
+      let h = esc(fmtMD(v));
+      if(note) h += ' <span class="bdg m" title="'+esc(note)+'">※</span>';
+      if(k==='eta' && b.eta && b.etd && b.eta<b.etd) h += ' <span class="bdg d" title="ETA が ETD より前です">ETA&lt;ETD</span>';
+      return h;
+    }
+    return esc(v);
+  }
+  const v = a[k];
+  if(k==='qty_raw'){
+    let h = esc(v);
+    if(a.parse==='partial'||a.parse==='other') h += ' <span class="bdg w">要確認</span>';
+    else if(a.parse==='manual') h += ' <span class="bdg i">手動</span>';
+    if(a.totalhon!=null && a.totalhon!=='') h += ' <span class="bdg m">計'+esc(a.totalhon)+'</span>';
+    return h || '<span class="muted">—</span>';
+  }
+  if(k==='packer' && !blank(v) && S.masters.loaded && S.masters.packerShort.length){
+    const sh = packerShort(v);
+    return esc(v) + (sh ? ' <span class="bdg m">'+esc(sh)+'</span>' : ' <span class="bdg w" title="dray_packer マスターで略称にできません">⚠</span>');
+  }
+  if(col.st){
+    const o = statusOf(v);
+    const sym = o.st==='done' ? '✔' : o.st==='na' ? '-' : '·';
+    return '<div class="st"><span class="tg '+o.st+'" title="クリックで ✔ → - → 空">'+sym+'</span><span class="mm">'+esc(o.st==='memo'?o.memo:o.memo.replace(/^\s+/,''))+'</span></div>';
+  }
+  return esc(v);
+}
+function renderBoard(){
+  if(S.editing){ S.renderPending = true; return; }
+  const cols = boardCols(S.region), F = filt();
+  const list = visibleBookings();
+  /* 地域チップ件数 */
+  const cnt = {}; S.bk.forEach(b => { if(!b.deleted) cnt[b.region] = (cnt[b.region]||0)+1; });
+  $('#b6-regions').innerHTML = REGIONS.map(r => '<button class="b6-chip'+(r.code===S.region?' on':'')+'" data-region="'+r.code+'">'+r.tab+'<span class="n">'+(cnt[r.code]||0)+'</span></button>').join('');
+  /* 要約 */
+  let unap=0, nopk=0, hon=0;
+  list.forEach(b => { if(b.deleted) return; if((b.approval||'NONE')==='NONE') unap++; if(noPacker(b)) nopk++; b.rows.forEach(a => { if(!a.deleted && a.totalhon) hon += +a.totalhon; }); });
+  $('#b6-sum').innerHTML = '<span>ブッキング <b>'+list.filter(b=>!b.deleted).length+'</b></span><span class="warn">未承認 <b>'+unap+'</b></span><span class="warn">Packer未割当 <b>'+nopk+'</b></span><span>本数合計 <b>'+hon+'</b></span>';
+  if(!list.length){ $('#b6-board').innerHTML = '<div class="b6-empty">表示するブッキングがありません（ETD 期間・フィルターを確認してください）</div>'; return; }
+  const span = ROW_SPAN_COLUMNS[S.region] || [];
+  let h = '<table class="b6-t"><thead><tr><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th>'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
+  list.forEach(b => {
+    const rows = visRows(b, F.del); if(!rows.length) return;
+    const n = rows.length;
+    const merged = {};
+    span.forEach(k => { merged[k] = n>1 && rows.slice(1).every(a => blank(a[k])); });
+    rows.forEach((a, i) => {
+      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':''].join(' ');
+      h += '<tr class="'+cls+'" data-k="'+esc(b.bookkey)+'" data-a="'+esc(a.id)+'">';
+      if(i===0) h += '<td class="ops" rowspan="'+n+'"><button class="ob" data-act="bmenu" title="ブッキング操作">≡</button></td>';
+      h += '<td class="ops"><button class="ob" data-act="rmenu" title="Packer 行の操作">⋮</button></td>';
+      cols.forEach(c => {
+        if(c.lv==='B'){
+          if(i>0) return;
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+        } else if(merged[c.k]){
+          if(i>0) return;
+          h += '<td rowspan="'+n+'" class="ed'+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+'</td>';
+        } else {
+          h += '<td class="ed'+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+        }
+      });
+      h += '</tr>';
+    });
+  });
+  h += '</tbody></table>';
+  const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
+  wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
+  S.renderPending = false;
+}
+function fillFilterOptions(){
+  const r = REGIONS.find(x=>x.code===S.region);
+  const ports = new Set(r.ports);
+  S.bk.forEach(b => { if(b.region===S.region && !blank(b.port)) ports.add(str(b.port).trim().toUpperCase()); });
+  const cur = $('#f-port').value;
+  $('#f-port').innerHTML = '<option value="">すべて</option>'+Array.from(ports).map(p=>'<option'+(p===cur?' selected':'')+'>'+esc(p)+'</option>').join('');
+  if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
+}
+function findAsg(id){ for(const b of S.bk.values()){ const a = b.rows.find(x=>x.id===id); if(a) return {b:b, a:a}; } return null; }
+
+async function loadBoard(){
+  S.range = {from:$('#f-from').value, to:$('#f-to').value, noEtd:$('#f-noetd').checked};
+  LEENAI.loading.show('データ読込中…');
+  try{
+    const syncAt = new Date().toISOString();
+    const bks = await S.store.loadBookings({from:S.range.from, to:S.range.to, noEtd:S.range.noEtd, deleted:true});
+    LEENAI.loading.update('Packer 行を読込中… ('+bks.length+' 件)');
+    const asgs = await S.store.loadAssignments(bks.map(b=>b.bookkey), true);
+    const m = new Map();
+    bks.forEach(b => { b.rows = []; m.set(b.bookkey, b); });
+    asgs.forEach(a => { const b = m.get(a.bookkey); if(b) b.rows.push(a); });
+    m.forEach(sortRows);
+    S.bk = m; S.lastSync = syncAt; S.ready = true;
+    fillFilterOptions(); renderBoard(); updSync();
+  }catch(e){
+    toast('読込エラー: '+e.message.slice(0,120), 'danger');
+    $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
+  }finally{ LEENAI.loading.hide(); }
+}
+function updSync(){ $('#b6-sync').textContent = S.lastSync ? '最終同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP')+' ・ 20秒ごとに自動更新（'+S.store.name+'）' : ''; }
+
+/* ── 20 秒自動更新 (modifiedon 基準・編集中のセルは上書きしない・非表示タブでは停止) ── */
+async function refreshTick(){
+  if(document.hidden || !S.ready || S.refreshing) return;
+  S.refreshing = true;
+  try{
+    const now = new Date().toISOString();
+    const since = new Date(Date.parse(S.lastSync) - 5000).toISOString();
+    const ch = await S.store.changes(since);
+    S.lastSync = now;
+    if(S.editing){ S.pending = mergeChanges(S.pending, ch); }
+    else await applyChanges(ch);
+    updSync();
+  }catch(e){ /* 一時的な失敗は次回に再試行 */ }
+  finally{ S.refreshing = false; }
+}
+function mergeChanges(p, ch){ if(!p) return ch; return {B:p.B.concat(ch.B), A:p.A.concat(ch.A)}; }
+async function applyChanges(ch){
+  let changed = false; const newKeys = [];
+  ch.B.forEach(nb => {
+    const cur = S.bk.get(nb.bookkey);
+    if(cur){ if(cur.etag===nb.etag) return; const rows = cur.rows; Object.assign(cur, nb); cur.rows = rows; changed = true; }
+    else {
+      const inRange = nb.etd ? (nb.etd>=S.range.from && nb.etd<=S.range.to) : S.range.noEtd;
+      if(!inRange) return;
+      nb.rows = []; S.bk.set(nb.bookkey, nb); newKeys.push(nb.bookkey); changed = true;
+    }
+  });
+  ch.A.forEach(na => {
+    const b = S.bk.get(na.bookkey); if(!b) return;
+    const i = b.rows.findIndex(x=>x.id===na.id);
+    if(i>=0){ if(b.rows[i].etag===na.etag) return; b.rows[i] = na; } else b.rows.push(na);
+    sortRows(b); changed = true;
+  });
+  if(newKeys.length){
+    const extra = await S.store.loadAssignments(newKeys, true);
+    extra.forEach(a => { const b=S.bk.get(a.bookkey); if(b && !b.rows.some(x=>x.id===a.id)) b.rows.push(a); });
+    newKeys.forEach(k => sortRows(S.bk.get(k)));
+  }
+  if(changed){ fillFilterOptions(); renderBoard(); }
+}
+function endEditing(){
+  S.editing = null;
+  const p = S.pending; S.pending = null;
+  if(p) applyChanges(p); else if(S.renderPending) renderBoard();
+}
+
+/* ── 保存 (即時保存・If-Match・412 は再読込) ── */
+function setFx(lv, id, k, v){
+  const key = lv+'|'+id+'|'+k;
+  if(v) S.cellFx[key] = v; else delete S.cellFx[key];
+  if(v==='saved') setTimeout(()=>{ if(S.cellFx[key]==='saved'){ delete S.cellFx[key]; } }, 1500);
+}
+async function on412(kind, obj){
+  try{
+    const fresh = await S.store.get(kind, obj.id);
+    if(kind==='B'){ const cur=S.bk.get(fresh.bookkey); if(cur){ const rows=cur.rows; Object.assign(cur, fresh); cur.rows=rows; } }
+    else { const f=findAsg(obj.id); if(f){ const i=f.b.rows.indexOf(f.a); f.b.rows[i]=fresh; } }
+  }catch(e){}
+  toast('他の人が更新しました。最新の内容を読み込みました', 'warn');
+}
+async function saveBooking(b, patch, cellKey){
+  const prev = {}; Object.keys(patch).forEach(k => prev[k] = b[k]);
+  Object.assign(b, patch); b.name = bkName(b);
+  const fields = Object.keys(patch).concat(['name']);
+  const fk = cellKey || Object.keys(patch)[0];
+  setFx('B', b.id, fk, 'saving'); renderBoard();
+  try{
+    const saved = await S.store.update('B', b, fields);
+    b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
+    setFx('B', b.id, fk, 'saved');
+    /* Booking no.・港 のコピーを Packer 行にも反映 */
+    if('bkgno' in patch || 'port' in patch){
+      for(const a of b.rows){
+        a.bkgno = b.bkgno; a.pol = b.port; a.name = asName(b, a);
+        try{ const s2 = await S.store.update('A', a, ['bkgno','pol','name']); a.etag = s2.etag; a.modifiedon = s2.modifiedon; }
+        catch(e){ if(e.status===412) await on412('A', a); else toast('Packer 行のコピー更新に失敗: '+e.message.slice(0,80), 'danger'); }
+      }
+    }
+  }catch(e){
+    Object.assign(b, prev); b.name = bkName(b);
+    if(e.status===412){ setFx('B', b.id, fk, null); await on412('B', b); }
+    else { setFx('B', b.id, fk, 'fail'); toast('保存に失敗しました: '+e.message.slice(0,120), 'danger'); }
+  }
+  renderBoard();
+}
+async function saveAsg(b, a, patch, cellKey){
+  const prev = {}; Object.keys(patch).forEach(k => prev[k] = a[k]);
+  Object.assign(a, patch); a.name = asName(b, a);
+  const fields = Object.keys(patch).concat(['name']);
+  const fk = cellKey || Object.keys(patch)[0];
+  setFx('A', a.id, fk, 'saving'); renderBoard();
+  try{
+    const saved = await S.store.update('A', a, fields);
+    a.etag = saved.etag; a.modifiedon = saved.modifiedon; a.modifiedby = saved.modifiedby;
+    setFx('A', a.id, fk, 'saved');
+    renderBoard(); return true;
+  }catch(e){
+    Object.assign(a, prev); a.name = asName(b, a);
+    if(e.status===412){ setFx('A', a.id, fk, null); await on412('A', a); }
+    else { setFx('A', a.id, fk, 'fail'); toast('保存に失敗しました: '+e.message.slice(0,120), 'danger'); }
+    renderBoard(); return false;
+  }
+}
+
+/* ── セル編集 ── */
+function startEdit(td){
+  const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
+  const k = td.dataset.f, lv = td.dataset.lv;
+  if(b.deleted) { toast('削除済みのブッキングです。復元してから編集してください', 'warn'); return; }
+  let a = null;
+  if(lv==='A'){ a = b.rows.find(x=>x.id===td.dataset.aid); if(!a) return; if(a.deleted){ toast('削除済みの行です', 'warn'); return; } }
+  if(k==='qty_raw'){ openQty(b, a); return; }
+  S.editing = {lv:lv, id: lv==='B'?b.id:a.id, k:k};
+  const cur = lv==='B' ? b[k] : a[k];
+  let el;
+  if(k==='approval'){
+    el = document.createElement('select');
+    el.innerHTML = APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'"'+(o.code===(b.approval||'NONE')?' selected':'')+'>'+o.label+'</option>').join('')
+      + (b.approval==='OTHER' ? '<option value="OTHER" selected>'+esc(b.approval_raw)+'（原文）</option>' : '');
+  } else if(DATE_KEYS.includes(k)){
+    el = document.createElement('input'); el.type = 'date'; el.value = cur || '';
+  } else {
+    const multi = /\n/.test(str(cur)) || ['bkgno','invoiceno','pod','carrier','vessel','memo','grade'].includes(k) || STATUS_KEYS.includes(k) && k!=='customs';
+    if(multi){ el = document.createElement('textarea'); el.rows = Math.max(2, str(cur).split('\n').length); }
+    else {
+      el = document.createElement('input'); el.type = 'text';
+      const dl = {packer:'dl-packer', delivery:'dl-cy', customs:'dl-forwarder', port:'dl-port'}[k];
+      if(dl) el.setAttribute('list', dl);
+    }
+    el.value = str(cur);
+  }
+  td.innerHTML = ''; td.appendChild(el); td.classList.remove('saved','fail');
+  el.focus(); if(el.select && el.tagName!=='SELECT' && el.type!=='date') el.select();
+  let done = false;
+  const finish = (commit) => {
+    if(done) return; done = true;
+    let v = el.value;
+    endEditing();
+    if(!commit){ renderBoard(); return; }
+    if(k==='approval'){
+      if(v===(b.approval||'NONE') ) { renderBoard(); return; }
+      if(v==='OTHER'){ renderBoard(); return; }
+      const o = APPROVAL_OPTIONS.find(x=>x.code===v);
+      saveBooking(b, {approval:v, approval_raw:o.raw}, 'approval'); return;
+    }
+    if(k==='port') v = v.trim().toUpperCase();
+    if(str(cur)===str(v) || (cur==null && v==='')){ renderBoard(); return; }
+    if(lv==='B') saveBooking(b, {[k]: DATE_KEYS.includes(k) ? (v||null) : v}, k);
+    else saveAsg(b, a, {[k]: v}, k);
+  };
+  el.addEventListener('blur', () => finish(true));
+  el.addEventListener('change', () => { if(el.tagName==='SELECT') finish(true); });
+  el.addEventListener('keydown', ev => {
+    if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
+    else if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing && (el.tagName!=='TEXTAREA' || ev.ctrlKey)){ ev.preventDefault(); finish(true); }
+    else if(ev.key==='Enter' && el.tagName==='TEXTAREA' && !ev.shiftKey && !ev.isComposing && !ev.altKey){ ev.preventDefault(); finish(true); }
+  });
+}
+function toggleStatus(td){
+  const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b || b.deleted) return;
+  const a = b.rows.find(x=>x.id===td.dataset.aid); if(!a || a.deleted) return;
+  const k = td.dataset.f;
+  saveAsg(b, a, {[k]: statusCycle(a[k])}, k);
+}
+
+/* ── 行・ブッキング操作 ── */
+function menu(ev, items){
+  closeMenu();
+  const m = document.createElement('div'); m.className = 'b6-menu'; m.id = 'b6-menu';
+  items.forEach(it => {
+    if(it.meta){ const d=document.createElement('div'); d.className='meta'; d.innerHTML=it.meta; m.appendChild(d); return; }
+    const bt = document.createElement('button'); bt.textContent = it.label; if(it.danger) bt.style.color='var(--danger)';
+    bt.addEventListener('click', () => { closeMenu(); it.fn(); }); m.appendChild(bt);
+  });
+  document.body.appendChild(m);
+  const r = ev.target.getBoundingClientRect();
+  m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8)+'px';
+  m.style.top = Math.min(r.bottom+2, innerHeight - m.offsetHeight - 8)+'px';
+  setTimeout(()=>document.addEventListener('click', closeMenu, {once:true}), 0);
+}
+function closeMenu(){ const m = $('#b6-menu'); if(m) m.remove(); }
+function metaHtml(o){ return '更新: '+esc(o.modifiedby||'—')+' · '+esc(fmtDT(o.modifiedon))+'<br>作成者: '+esc(o.createdby||'—')+' · 由来: '+esc(o.source||'—')+(o.batch?' ('+esc(o.batch)+')':''); }
+function bookingMenu(ev, b){
+  const items = [];
+  if(!b.deleted){
+    items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
+    items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
+  } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
+  items.push({meta:metaHtml(b)});
+  menu(ev, items);
+}
+function rowMenu(ev, b, a){
+  const live = b.rows.filter(x=>!x.deleted); const i = live.indexOf(a);
+  const items = [];
+  if(!a.deleted && !b.deleted){
+    items.push({label:'＋ 下に Packer 行を追加（末尾）', fn:()=>addRow(b)});
+    if(i>0) items.push({label:'↑ 上へ', fn:()=>moveRow(b, a, -1)});
+    if(i>=0 && i<live.length-1) items.push({label:'↓ 下へ', fn:()=>moveRow(b, a, 1)});
+    items.push({label:'🗑 この Packer 行を削除', danger:true, fn:()=>deleteRow(b, a)});
+  } else if(a.deleted && !b.deleted) items.push({label:'↩ この行を復元', fn:()=>restoreRow(b, a)});
+  items.push({meta:metaHtml(a)});
+  menu(ev, items);
+}
+function newAsg(b, seq, prevRow){
+  const a = {bookkey:b.bookkey, seq:seq, bkgno:b.bkgno||'', pol:b.port||'',
+    grade: prevRow ? prevRow.grade||'' : '', packer: prevRow ? prevRow.packer||'' : '',   /* (h) 直上行を引き継ぐ */
+    qty_raw:'', slots:[], datefrom:null, dateto:null, totalhon:null, parse:'empty',
+    customs:'', dray:'', poapply:'', podist:'', drayfax:'', banyu:'', memo:'',
+    source:'web', batch:null, importkey:null, createdby:userEmail(), deleted:false};
+  a.name = asName(b, a);
+  return a;
+}
+async function addRow(b){
+  const live = b.rows.filter(x=>!x.deleted);
+  const last = live[live.length-1];
+  const seq = b.rows.reduce((m,x)=>Math.max(m, x.seq||0), 0) + 1;
+  try{
+    const saved = await S.store.create('A', newAsg(b, seq, last));
+    b.rows.push(saved); sortRows(b); renderBoard();
+    toast('Packer 行を追加しました（Grade・Packer は直上行の値）', 'ok');
+  }catch(e){ toast('追加に失敗: '+e.message.slice(0,120), 'danger'); }
+}
+async function moveRow(b, a, dir){
+  const live = b.rows.filter(x=>!x.deleted); const i = live.indexOf(a), o = live[i+dir]; if(!o) return;
+  const s1 = a.seq, s2 = o.seq;
+  const ok = await saveAsg(b, a, {seq:s2}, 'seq');
+  if(ok){ const ok2 = await saveAsg(b, o, {seq:s1}, 'seq'); if(!ok2) await saveAsg(b, a, {seq:s1}, 'seq'); }
+  sortRows(b); renderBoard();
+}
+async function deleteRow(b, a){
+  if(b.rows.filter(x=>!x.deleted).length<=1){ toast('ブッキングは Packer 行を 1 つ以上持ちます。ブッキングごと削除してください', 'warn'); return; }
+  if(!confirm('この Packer 行を削除します（削除フラグ・復元可能）。よろしいですか？')) return;
+  await saveAsg(b, a, {deleted:true}, 'packer');
+}
+async function restoreRow(b, a){ await saveAsg(b, a, {deleted:false}, 'packer'); }
+async function deleteBooking(b){
+  if(!confirm('ブッキング「'+bkLabel(b)+'」を削除します（削除フラグ・「削除済みを表示」から復元できます）。よろしいですか？')) return;
+  for(const a of b.rows.filter(x=>!x.deleted)) await saveAsg(b, a, {deleted:true}, 'packer');
+  await saveBooking(b, {deleted:true}, 'port');
+  toast('削除しました（削除フラグ）', 'ok');
+}
+async function restoreBooking(b){
+  if(!confirm('ブッキング「'+bkLabel(b)+'」と、その Packer 行をすべて復元します。よろしいですか？')) return;
+  await saveBooking(b, {deleted:false}, 'port');
+  for(const a of b.rows.filter(x=>x.deleted)) await saveAsg(b, a, {deleted:false}, 'packer');
+}
+async function addBooking(){
+  const r = REGIONS.find(x=>x.code===S.region);
+  let seq = 0; S.bk.forEach(b => { if(b.region===S.region) seq = Math.max(seq, b.seq||0); });
+  const b = {bookkey:uuid(), region:S.region, seq:seq+10, port:r.ports[0], approval:'NONE', approval_raw:'',
+    bkgno:'', invoiceno:'', pod:'', carrier:'', vessel:'', cyopen:null, cycut:null, etd:null, eta:null,
+    cy_note:'', etd_note:'', eta_note:'', delivery:'', source:'web', batch:null, importkey:null, createdby:userEmail(), deleted:false};
+  b.name = bkName(b);
+  LEENAI.loading.show('ブッキングを作成中…');
+  try{
+    const saved = await S.store.create('B', b);
+    const a = await S.store.create('A', newAsg(saved, 1, null));   /* ブッキングは常に Packer 行 1 つ以上 */
+    saved.rows = [a]; S.bk.set(saved.bookkey, saved);
+    S.hl = saved.bookkey;
+    ['#f-port','#f-appr','#f-packer','#f-q'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false; $('#f-nobkg').checked=false;
+    fillFilterOptions(); renderBoard();
+    const tr = document.querySelector('tr[data-k="'+saved.bookkey+'"]'); if(tr) tr.scrollIntoView({block:'center'});
+    toast('ブッキングを追加しました（ETD 未定 — 表の末尾）', 'ok');
+    setTimeout(()=>{ S.hl=null; renderBoard(); }, 4000);
+  }catch(e){ toast('作成に失敗: '+e.message.slice(0,120), 'danger'); }
+  finally{ LEENAI.loading.hide(); }
+}
+
+/* ── モーダル ── */
+function modal(title, bodyHtml, buttons, wide){
+  const bg = document.createElement('div'); bg.className = 'b6-modal-bg';
+  bg.innerHTML = '<div class="b6-modal'+(wide?' wide':'')+'"><h3>'+title+'<button class="b6-btn sm x">✕</button></h3><div class="bd">'+bodyHtml+'</div><div class="ft"></div></div>';
+  const close = () => bg.remove();
+  bg.querySelector('.x').addEventListener('click', close);
+  bg.addEventListener('mousedown', ev => { if(ev.target===bg) close(); });
+  const ft = bg.querySelector('.ft');
+  (buttons||[]).forEach(bt => { const e=document.createElement('button'); e.className='b6-btn'+(bt.pri?' pri':''); e.textContent=bt.label; e.addEventListener('click', ()=>bt.fn(close)); ft.appendChild(e); });
+  if(!(buttons||[]).length) ft.style.display = 'none';
+  document.body.appendChild(bg);
+  return {el:bg, close:close, body:bg.querySelector('.bd')};
+}
+
+/* ── QTY 編集 (スロット UI + 原文) ── */
+function qtyCtx(b){ return {open:b.cyopen, etd:b.etd, today:todayStr()}; }
+function applyParse(a, raw, b){
+  const r = PARSE.parse(raw, qtyCtx(b));
+  const slots = r.slots.map((s,i)=> (i===0 && r.note) ? Object.assign({}, s, {note:r.note}) : s);
+  const sm = PARSE.summary(slots);
+  return {qty_raw:raw, slots:slots, parse:r.parse, datefrom:sm.datefrom, dateto:sm.dateto, totalhon: sm.totalhon!=null ? sm.totalhon : (r.count!=null ? r.count : null), _r:r};
+}
+function openQty(b, a){
+  const parseBadge = p => ({pairs:'<span class="bdg o">pairs</span>', partial:'<span class="bdg w">partial 要確認</span>', count:'<span class="bdg i">count 本数のみ</span>', other:'<span class="bdg w">other 解析不可</span>', empty:'<span class="bdg m">empty</span>', manual:'<span class="bdg i">manual</span>'}[p]||esc(p));
+  let slots = JSON.parse(JSON.stringify(a.slots||[]));
+  const html = '<div style="font-size:12px;margin-bottom:6px" class="muted">'+esc(bkLabel(b))+' / Packer: '+esc(a.packer||'—')+' / 基準日 OPEN '+esc(b.cyopen||'—')+' · ETD '+esc(b.etd||'—')+'（年のない M/D は ±60 日で最も近い年）</div>'
+    + '<div><b>原文（エクセル表記）</b> — 原文はどんな場合も消しません</div><textarea id="q-raw" class="b6-in" style="width:100%;min-height:70px;font-family:var(--mono)">'+esc(a.qty_raw)+'</textarea>'
+    + '<div id="q-prev" style="margin:6px 0;font-size:12.5px"></div>'
+    + '<div style="margin-top:10px"><b>スロット</b>（日付・本数・時刻・期間）</div><div id="q-slots"></div>'
+    + '<button class="b6-btn sm" id="q-add" style="margin-top:4px">＋ スロット</button>'
+    + '<div class="muted" style="font-size:11.5px;margin-top:6px">「原文で保存」= 原文を再解析して保存 / 「スロットで保存」= スロットから原文を M/D(n) 形式で作り直し、解析区分を manual にします。</div>';
+  const md = modal('QTY 編集', html, [
+    {label:'キャンセル', fn:c=>c()},
+    {label:'スロットで保存', fn:async c=>{
+      const clean = slots.filter(s=>s.d).map(s=>{ const o={d:s.d, n:(s.n===''||s.n==null)?null:+s.n}; if(s.d2) o.d2=s.d2; if(s.t) o.t=s.t; return o; });
+      const raw = PARSE.format(clean); const sm = PARSE.summary(clean);
+      c(); await saveAsg(b, a, {qty_raw:raw, slots:clean, parse:'manual', datefrom:sm.datefrom, dateto:sm.dateto, totalhon:sm.totalhon}, 'qty_raw');
+    }},
+    {label:'原文で保存', pri:true, fn:async c=>{
+      const raw = $('#q-raw', md.el).value; const p = applyParse(a, raw, b); delete p._r;
+      c(); await saveAsg(b, a, p, 'qty_raw');
+    }},
+  ]);
+  const drawPrev = () => {
+    const r = PARSE.parse($('#q-raw', md.el).value, qtyCtx(b));
+    $('#q-prev', md.el).innerHTML = '解析: '+parseBadge(r.parse)
+      + (r.slots.length ? ' → '+r.slots.map(s=>esc(s.d2? s.d+'〜'+s.d2 : s.d)+'('+(s.n==null?'?':s.n)+')'+(s.t?' '+esc(s.t):'')).join(', ') : '')
+      + (r.total!=null ? ' / 総本数 '+r.total : '') + (r.note ? ' / note: <code>'+esc(r.note)+'</code>' : '')
+      + (r.w09 ? ' <span class="bdg w">W09 総本数と合計が不一致</span>' : '')
+      + (a.parse ? ' <span class="muted">（保存中の区分: '+esc(a.parse)+'）</span>' : '');
+  };
+  const drawSlots = () => {
+    $('#q-slots', md.el).innerHTML = '<table class="b6-s"><tr><th>日付</th><th>〜期間終了</th><th>本数</th><th>時刻</th><th></th></tr>'
+      + slots.map((s,i)=>'<tr><td><input type="date" class="b6-in" data-i="'+i+'" data-f="d" value="'+esc(s.d||'')+'"></td><td><input type="date" class="b6-in" data-i="'+i+'" data-f="d2" value="'+esc(s.d2||'')+'"></td><td><input type="number" min="0" class="b6-in" style="width:70px" data-i="'+i+'" data-f="n" value="'+esc(s.n==null?'':s.n)+'"></td><td><input class="b6-in" style="width:70px" placeholder="8:00" data-i="'+i+'" data-f="t" value="'+esc(s.t||'')+'"></td><td><button class="b6-btn sm dng" data-del="'+i+'">✕</button></td></tr>').join('')
+      + '</table>';
+  };
+  md.body.addEventListener('input', ev => {
+    if(ev.target.id==='q-raw'){ drawPrev(); return; }
+    const i = ev.target.dataset.i; if(i==null) return; slots[+i][ev.target.dataset.f] = ev.target.value;
+  });
+  md.body.addEventListener('click', ev => {
+    if(ev.target.id==='q-add'){ slots.push({d:'', n:null}); drawSlots(); }
+    if(ev.target.dataset.del!=null){ slots.splice(+ev.target.dataset.del, 1); drawSlots(); }
+  });
+  drawPrev(); drawSlots();
+}
+
+/* ══════════ PACKER (② Packer日程 — 読み取り専用) ══════════ */
+async function loadPackerTab(){
+  const ym = $('#pk-month').value; if(!ym) return;
+  const reg = $('#pk-region').value;
+  const R = monthRange(ym);
+  LEENAI.loading.show('Packer日程を読込中…');
+  try{
+    const as = await S.store.asgByDate(R.from, R.to);
+    const keys = Array.from(new Set(as.map(a=>a.bookkey)));
+    const bks = new Map((await S.store.bookingsByKeys(keys)).map(b=>[b.bookkey,b]));
+    const cells = {}, cols = new Map();   /* colKey → {label, mapped} */
+    as.forEach(a => {
+      const b = bks.get(a.bookkey); if(!b) return;
+      if(reg && b.region!==reg) return;
+      const sh = packerShort(a.packer);
+      const ck = sh ? sh : (blank(a.packer) ? '（Packer 空）' : '⚠ '+str(a.packer).replace(/\s+/g,' '));
+      if(!cols.has(ck)) cols.set(ck, {label:ck, mapped:!!sh});
+      (a.slots||[]).forEach(s => {
+        if(!s.d) return;
+        if(s.d2){ if(s.d>=R.from && s.d<=R.to){ const c = cells[s.d+'|'+ck] || (cells[s.d+'|'+ck]={sum:0, chips:[]}); c.chips.push('〜'+fmtMD(s.d2)+(s.n!=null?'('+s.n+')':'')+' '+bkLabel(b)); } return; }
+        if(s.d<R.from || s.d>R.to) return;
+        const c = cells[s.d+'|'+ck] || (cells[s.d+'|'+ck]={sum:0, chips:[]});
+        if(s.n!=null) c.sum += +s.n;
+        c.chips.push(bkLabel(b)+(s.n!=null?'('+s.n+')':''));
+      });
+    });
+    const colList = Array.from(cols.values()).sort((x,y)=> (y.mapped-x.mapped) || x.label.localeCompare(y.label,'ja'));
+    if(!colList.length){ $('#pk-grid').innerHTML = '<div class="b6-empty">この月・地域に日付のあるスロットはありません</div>'; }
+    else {
+      const wd = ['日','月','火','水','木','金','土'];
+      let h = '<table class="b6-t"><thead><tr><th>日付</th>'+colList.map(c=>'<th>'+esc(c.label)+'</th>').join('')+'<th>計</th></tr></thead><tbody>';
+      for(let d=1; d<=R.days; d++){
+        const ds = ym+'-'+pad2(d), w = new Date(ds+'T00:00:00').getDay();
+        let tot = 0;
+        h += '<tr class="'+((w===0||w===6)?'pk-wk':'')+'"><td class="dt">'+d+' ('+wd[w]+')</td>';
+        colList.forEach(c => {
+          const x = cells[ds+'|'+c.label];
+          if(!x){ h += '<td></td>'; return; }
+          tot += x.sum;
+          h += '<td class="pk-cell">'+(x.sum?'<span class="h">'+x.sum+'</span> ':'')+x.chips.map(t=>'<span class="pk-chip">'+esc(t)+'</span>').join('')+'</td>';
+        });
+        h += '<td class="pk-cell"><span class="h">'+(tot||'')+'</span></td></tr>';
+      }
+      h += '</tbody></table>';
+      $('#pk-grid').innerHTML = h;
+    }
+    /* 日付未確定 (count・other — 読込済みのスケジュール表データから) */
+    const und = {};
+    S.bk.forEach(b => {
+      if(b.deleted || (reg && b.region!==reg)) return;
+      b.rows.forEach(a => {
+        if(a.deleted || (a.slots||[]).some(s=>s.d)) return;
+        if(blank(a.packer) && blank(a.qty_raw)) return;
+        const ck = packerShort(a.packer) || (blank(a.packer)?'（Packer 空）':'⚠ '+a.packer);
+        (und[ck] = und[ck]||[]).push(bkLabel(b)+' : '+(str(a.qty_raw)||'—'));
+      });
+    });
+    const uk = Object.keys(und).sort();
+    $('#pk-undated').innerHTML = '<b>日付未確定</b><div class="muted" style="font-size:11px;margin-bottom:6px">本数のみ・解析不可の行（スケジュール表の読込範囲から）</div>'
+      + (uk.length ? uk.map(k=>'<div style="margin-bottom:6px"><div style="font-weight:700;font-size:12px">'+esc(k)+' <span class="muted">'+und[k].length+'</span></div>'+und[k].map(t=>'<div style="font-size:11.5px;white-space:pre-wrap">・'+esc(t)+'</div>').join('')+'</div>').join('') : '<div class="muted">なし</div>');
+  }catch(e){ toast('Packer日程の読込に失敗: '+e.message.slice(0,120), 'danger'); }
+  finally{ LEENAI.loading.hide(); }
+}
+
+/* ══════════ B05CHECK (③ — 読み取り専用。B-05 への書き込みは一切しない) ══════════ */
+async function loadB05Tab(){
+  const ym = $('#b5-month').value; if(!ym) return;
+  const R = monthRange(ym);
+  LEENAI.loading.show('B-05 と照合中…');
+  try{
+    const as = await S.store.asgByDate(R.from, R.to);
+    const bks = new Map((await S.store.bookingsByKeys(Array.from(new Set(as.map(a=>a.bookkey))))).map(b=>[b.bookkey,b]));
+    const b05 = (await S.store.b05(R.from, R.to)).filter(r => B05_PORTS.includes(str(r.pol).toUpperCase()));
+    const slots = [];
+    as.forEach(a => {
+      const b = bks.get(a.bookkey); if(!b || b.region!=='KANTO') return;
+      const port = str(b.port).trim().toUpperCase(); if(!B05_PORTS.includes(port)) return;
+      (a.slots||[]).forEach(s => {
+        if(!s.d) return;
+        const end = s.d2 || s.d;
+        if(end<R.from || s.d>R.to) return;
+        slots.push({d:s.d, d2:s.d2||null, n:s.n, t:s.t||'', bkg:normBkg(b.bkgno), bkgRaw:firstLine(b.bkgno), packer:a.packer, short:packerShort(a.packer), port:port, b:b, a:a});
+      });
+    });
+    const used = new Set();
+    const inR = (r, s) => s.d2 ? (r.date>=s.d && r.date<=s.d2) : r.date===s.d;
+    const res = slots.map(s => {
+      let m = b05.map((r,i)=>({r,i})).filter(x => x.r.bkgno && normBkg(x.r.bkgno)===s.bkg && s.bkg && inR(x.r, s));
+      let st;
+      if(m.length){
+        const sum = m.reduce((t,x)=>t+(+x.r.hon||0), 0);
+        st = (s.n!=null && sum===+s.n) ? '一致' : '本数差異';
+        m.forEach(x=>used.add(x.i));
+        return {s:s, st:st+(s.d2?'(期間)':''), b05:m.map(x=>x.r), sum:sum};
+      }
+      m = b05.map((r,i)=>({r,i})).filter(x => !used.has(x.i) && s.short && x.r.packer===s.short && str(x.r.pol).toUpperCase()===s.port && inR(x.r, s));
+      if(m.length){ m.forEach(x=>used.add(x.i)); return {s:s, st:'候補一致(BKG不一致)'+(s.d2?'(期間)':''), b05:m.map(x=>x.r), sum:m.reduce((t,x)=>t+(+x.r.hon||0),0)}; }
+      return {s:s, st:'B-05未登録'+(s.d2?'(期間)':''), b05:[], sum:null};
+    });
+    b05.forEach((r,i) => { if(!used.has(i)) res.push({s:null, st:'B-05のみ', b05:[r], sum:+r.hon||0, date:r.date}); });
+    res.forEach(x => x.date = x.s ? x.s.d : x.date);
+    res.sort((x,y)=> x.date.localeCompare(y.date));
+    let undated = 0;
+    S.bk.forEach(b => { if(b.region==='KANTO' && !b.deleted) b.rows.forEach(a => { if(!a.deleted && !(a.slots||[]).some(s=>s.d) && !blank(a.qty_raw)) undated++; }); });
+    S.b05 = {res:res, b05:b05, slots:slots, undated:undated, ym:ym};
+    const states = ['一致','本数差異','候補一致(BKG不一致)','B-05未登録','B-05のみ'];
+    $('#b5-filter').innerHTML = '<option value="">すべて</option>'+states.map(s=>'<option>'+s+'</option>').join('');
+    renderB05();
+  }catch(e){ toast('照合に失敗: '+e.message.slice(0,140), 'danger'); $('#b5-body').innerHTML='<div class="b6-empty">'+esc(e.message)+'</div>'; }
+  finally{ LEENAI.loading.hide(); }
+}
+function b5Base(st){ return st.replace('(期間)',''); }
+function renderB05(){
+  const D = S.b05; if(!D) return;
+  const cnt = {}; D.res.forEach(x => { const k=b5Base(x.st); cnt[k]=(cnt[k]||0)+1; });
+  $('#b5-sum').innerHTML = ['一致','本数差異','候補一致(BKG不一致)','B-05未登録','B-05のみ'].map(k=>'<span>'+k+' <b>'+(cnt[k]||0)+'</b></span>').join('')
+    + '<span>日付未確定 <b>'+D.undated+'</b></span><span class="muted">B-06 スロット '+D.slots.length+' / B-05 '+D.b05.length+' 件（TOKYO・YOKOHAMA）</span>';
+  const fl = $('#b5-filter').value;
+  const rows = D.res.filter(x => !fl || b5Base(x.st)===fl);
+  if(!rows.length){ $('#b5-body').innerHTML = '<div class="b6-empty">該当なし</div>'; return; }
+  const cls = st => /^一致/.test(st)?'o':/本数差異|候補/.test(st)?'w':'d';
+  let h = '<table class="b6-t"><thead><tr><th>日付</th><th>状態</th><th>港</th><th>Booking no. (B-06)</th><th>Packer (B-06 → 略称)</th><th>本数 B-06</th><th>本数 B-05</th><th>B-05 レコード</th></tr></thead><tbody>';
+  rows.forEach((x, i) => {
+    const s = x.s;
+    h += '<tr data-i="'+D.res.indexOf(x)+'" style="cursor:pointer"><td class="dt">'+esc(s ? (s.d2 ? fmtMD(s.d)+'〜'+fmtMD(s.d2) : fmtMD(s.d)) : fmtMD(x.date))+'</td>'
+      + '<td><span class="bdg '+cls(x.st)+'">'+esc(x.st)+'</span></td>'
+      + '<td>'+esc(s ? s.port : x.b05[0].pol)+'</td>'
+      + '<td>'+esc(s ? s.bkgRaw : '')+'</td>'
+      + '<td>'+(s ? esc(s.packer)+' → '+(s.short ? '<b>'+esc(s.short)+'</b>' : '<span class="bdg w">⚠ 略称なし</span>') : '')+'</td>'
+      + '<td class="dt">'+esc(s ? (s.n==null?'—':s.n) : '')+'</td>'
+      + '<td class="dt">'+esc(x.sum==null?'':x.sum)+'</td>'
+      + '<td style="font-size:11px">'+x.b05.map(r=>esc(r.truck+' / '+r.packer+' / '+(r.bkgno||'—')+' / '+r.hon+'本'+(r.time?' '+r.time:''))).join('<br>')+'</td></tr>';
+  });
+  $('#b5-body').innerHTML = h + '</tbody></table>';
+}
+function fmtClass(v){
+  if(v==null || v==='') return 'empty';
+  if(typeof v==='number') return 'number';
+  const s = String(v);
+  if(/^\d{4}-\d{2}-\d{2}T00:00:00Z$/.test(s)) return 'date(T00:00:00Z)';
+  if(/^\d{4}-\d{2}-\d{2}T/.test(s)) return 'datetime';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return 'date(YYYY-MM-DD)';
+  if(/^\d{1,2}\/\d{1,2}/.test(s)) return 'M/D';
+  if(/^\d+$/.test(s)) return 'digits';
+  return 'text';
+}
+function b05Preview(i){
+  const x = S.b05.res[i]; if(!x || !x.s){ if(x) modal('B-05 のみ', '<pre style="white-space:pre-wrap">'+esc(JSON.stringify(x.b05[0], null, 2))+'</pre>'); return; }
+  const s = x.s;
+  const body = {
+    leenai_name: s.d+'_未定_フリー_(新規)',
+    leenai_scheddate: s.d+'T00:00:00Z',
+    leenai_truck: '未定',
+    leenai_packer: s.short || ('⚠ '+str(s.packer)),
+    leenai_hon: s.n==null ? '⚠ 空' : +s.n,
+    leenai_pol: s.port,
+    leenai_bkgno: s.bkgRaw,
+    leenai_cycut: s.b.cycut || '',
+    leenai_status: 'pending',
+    leenai_cttype: '',
+    leenai_scheduletime: '',
+  };
+  /* 最も近い既存 B-05 レコード: 同じ港で日付が近い順 */
+  const near = S.b05.b05.slice().sort((p,q)=> (str(p.pol).toUpperCase()===s.port?0:1)-(str(q.pol).toUpperCase()===s.port?0:1) || Math.abs(dayDiff(p.date,s.d))-Math.abs(dayDiff(q.date,s.d)))[0];
+  const ex = near ? {leenai_name:near.name, leenai_scheddate:near.rawdate, leenai_truck:near.truck, leenai_packer:near.packer, leenai_hon:near.hon, leenai_pol:near.pol,
+    leenai_bkgno:near.bkgno, leenai_cycut: near.hasCycut ? near.cycut : '(列なし/読めず)', leenai_status:near.status, leenai_cttype:near.cttype, leenai_scheduletime:near.time} : null;
+  const judge = (k, v, e) => {
+    if(k==='leenai_cttype' || k==='leenai_scheduletime') return '<span class="muted">B-06 にない値 — B-05 で決める</span>';
+    if(typeof v==='string' && v.startsWith('⚠')) return '<span class="ng">不一致 ❌</span>';
+    if(k==='leenai_name') return /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_.+$/.test(v) && (!e || /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_.+$/.test(e)) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span>';
+    if(k==='leenai_truck') return B05_TRUCKS.includes(v) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span>';
+    if(!ex) return '<span class="muted">比較対象なし</span>';
+    if(e==null || e==='' || e==='(列なし/読めず)') return '<span class="muted">既存値が空 — 比較不可</span>';
+    if(v==='' ) return '<span class="wn">B-06 側が空</span>';
+    return fmtClass(v)===fmtClass(e) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span> <span class="muted">('+fmtClass(v)+' / '+fmtClass(e)+')</span>';
+  };
+  let h = '<div class="muted" style="font-size:12px;margin-bottom:6px">状態: <b>'+esc(x.st)+'</b> — これは<b>プレビューのみ</b>です（送信ボタンはありません。B-05 への書き込み連携は v0.2 で別途）。</div>'
+    + '<table class="b6-s"><tr><th>B-05 列</th><th>B-05 へ送る場合の値</th><th>最も近い既存 B-05 レコード'+(near?' ('+esc(near.date)+')':'')+'</th><th>判定</th></tr>';
+  Object.keys(body).forEach(k => {
+    h += '<tr><td><code>'+k+'</code></td><td>'+esc(body[k])+'</td><td>'+(ex?esc(ex[k]):'—')+'</td><td>'+judge(k, body[k], ex?ex[k]:null)+'</td></tr>';
+  });
+  h += '</table>';
+  modal('B-05 へ送る場合（プレビュー）', h, [], true);
+}
+function b05MapReport(){
+  const raw = {};
+  S.bk.forEach(b => { if(b.deleted) return; b.rows.forEach(a => { if(a.deleted || blank(a.packer)) return; if(!packerShort(a.packer)){ const k=str(a.packer).trim(); raw[k]=(raw[k]||0)+1; } }); });
+  const b06Shorts = new Set(); S.bk.forEach(b => b.rows.forEach(a => { const s=packerShort(a.packer); if(s) b06Shorts.add(s); }));
+  const b05Only = {};
+  if(S.b05) S.b05.b05.forEach(r => { if(r.packer && !b06Shorts.has(r.packer)) b05Only[r.packer]=(b05Only[r.packer]||0)+1; });
+  const rk = Object.keys(raw).sort((p,q)=>raw[q]-raw[p]);
+  let h = '<div class="muted" style="font-size:12px">dray_packer マスター: '+(S.masters.loaded ? S.masters.packerShort.length+' 件の名称→略称' : '未読込')+'。マスターへの追加は形兄の判断（DOC-Z-07 §9-2）— ここでは提案だけです。</div>'
+    + '<h4 style="margin:10px 0 4px">① B-06 の Packer 表記で略称にできないもの（スケジュール表の読込範囲・全地域）: '+rk.length+' 種</h4>'
+    + (rk.length ? '<table class="b6-s"><tr><th>表記</th><th class="num">行数</th></tr>'+rk.map(k=>'<tr><td>'+esc(k)+'</td><td class="num">'+raw[k]+'</td></tr>').join('')+'</table>' : '<div class="muted">なし</div>')
+    + '<h4 style="margin:10px 0 4px">② B-05 にあり B-06 に対応がない Packer（照合した月）</h4>'
+    + (S.b05 ? (Object.keys(b05Only).length ? '<table class="b6-s"><tr><th>B-05 Packer</th><th class="num">件数</th></tr>'+Object.keys(b05Only).map(k=>'<tr><td>'+esc(k)+'</td><td class="num">'+b05Only[k]+'</td></tr>').join('')+'</table>' : '<div class="muted">なし</div>') : '<div class="muted">先に「照合」を実行してください</div>');
+  modal('Packer 表記マッピング', h, [], true);
+}
+
+/* ══════════ IMPORT (④ 取込 — SheetJS, ブラウザ内のみ) ══════════ */
+function normHeader(h){ return PARSE.nfkcSame(str(h)).replace(/\s+/g,'').toLowerCase().replace(/[.・\/()（）\-_:：]/g,''); }
+function headerKey(h){
+  const n = normHeader(h); if(!n) return null;
+  if(HEADER_UNUSED.includes(n)) return '__unused';
+  for(const k of Object.keys(HEADER_ALIASES)) if(HEADER_ALIASES[k].includes(n)) return k;
+  return null;
+}
+function sheetRegion(name){
+  const n = PARSE.nfkcSame(name);
+  if(n.includes('関東')) return 'KANTO';
+  if(n.includes('関西')) return 'KANSAI';
+  if(n.includes('北エリア') || n.includes('北')) return 'NORTH';
+  if(n.includes('中部') || n.includes('四国')) return 'CHUBU';
+  if(n.includes('九州') || n.includes('沖縄')) return 'KYUSHU';
+  if(n.includes('スポット')) return 'SPOT';
+  return null;
+}
+function serialToDate(v){
+  const ms = Math.round((v - 25569) * 86400000);
+  const d = new Date(ms); if(isNaN(d)) return null;
+  return {date:d.toISOString().slice(0,10), time: (v % 1) ? d.toISOString().slice(11,16) : ''};
+}
+/* 日付セル → {date, note, w02, w04, pend} (文字列は後で年を推定) */
+function convDate(v){
+  if(v==null || (typeof v==='string' && !v.trim())) return {date:null, note:''};
+  if(typeof v==='number'){
+    const r = serialToDate(v); if(!r) return {date:null, note:'[元の値: '+v+']', w02:true};
+    const y = +r.date.slice(0,4);
+    if(y<1990 || y>2100) return {date:null, note:'[元の値: '+r.date+']', w02:true, orig:r.date};
+    return {date:r.date, note: r.time && r.time!=='00:00' ? r.time : ''};
+  }
+  if(v instanceof Date) return convDate((v.getTime()/86400000)+25569);
+  const s = str(v);
+  const m = /(?:(\d{4})[\/\-.])?(\d{1,2})[\/\-.](\d{1,2})/.exec(PARSE.nfkcSame(s));
+  if(!m) return {date:null, note:s, w04:true};
+  const rest = (s.slice(0, m.index) + s.slice(m.index + m[0].length)).trim();
+  return {date:null, y:m[1]?+m[1]:null, m:+m[2], d:+m[3], note:rest, w04:true, pend:true, raw:s};
+}
+function finishDate(c, ref){
+  if(!c.pend) return c;
+  let date = null;
+  if(c.y){ const t = new Date(Date.UTC(c.y, c.m-1, c.d)); if(t.getUTCMonth()===c.m-1) date = t.toISOString().slice(0,10); }
+  else date = PARSE.resolveYear(c.m, c.d, ref || todayStr(), null);
+  if(!date) return {date:null, note:c.raw, w04:true};
+  return {date:date, note:c.note, w04:true, raw:c.raw};
+}
+async function readImportFiles(files){
+  const R = {files:[], sheets:[], bookings:[], skipped:[], issues:{}, hdr:{}};
+  const add = (code, it) => (R.issues[code] = R.issues[code] || []).push(it);
+  for(const f of files){
+    const wb = XLSX.read(await f.arrayBuffer(), {type:'array'});   /* cellDates は使わない (DEC-010) */
+    R.files.push(f.name);
+    wb.SheetNames.forEach((name, si) => {
+      const ws = wb.Sheets[name];
+      const hidden = !!(wb.Workbook && wb.Workbook.Sheets && wb.Workbook.Sheets[si] && wb.Workbook.Sheets[si].Hidden);
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null, raw:true, blankrows:true});
+      const region = hidden ? null : sheetRegion(name);
+      if(!region){ R.skipped.push({file:f.name, sheet:name, hidden:hidden, rows:rows.filter(r=>r && r.some(v=>!blank(v))).length}); return; }
+      parseSheet(R, add, f.name, name, region, rows);
+    });
+  }
+  return R;
+}
+function parseSheet(R, add, file, sheet, region, rows){
+  /* 見出し行: 先頭 10 行で認識できる列が最も多い行 (最低 6) */
+  let hi = -1, best = 0;
+  for(let i=0; i<Math.min(10, rows.length); i++){
+    const n = (rows[i]||[]).filter(h => { const k=headerKey(h); return k && k!=='__unused'; }).length;
+    if(n>best){ best=n; hi=i; }
+  }
+  const SH = {file:file, sheet:sheet, region:region, bookings:0, rows:0, i01:0, i02:0, i03:0, qty:{pairs:0,partial:0,count:0,other:0,empty:0}, unknown:[], cols:{}};
+  R.sheets.push(SH);
+  if(hi<0 || best<6){ SH.error = '見出し行が見つかりません'; return; }
+  const col = {}, order = [];
+  (rows[hi]||[]).forEach((h, ci) => {
+    const k = headerKey(h);
+    if(k && k!=='__unused' && col[k]==null){ col[k] = ci; order.push(k); }
+    else if(!k && !blank(h)) SH.unknown.push(str(h).replace(/\n/g,' '));
+  });
+  SH.cols = col; R.hdr[region] = order;
+  const get = (row, k) => col[k]!=null ? row[col[k]] : null;
+  const ROWKEYS = ['grade','packer','qty_raw'].concat(STATUS_KEYS, ['memo']);
+  const spanCols = ROW_SPAN_COLUMNS[region] || [];
+  let cur = null;
+  for(let r=hi+1; r<rows.length; r++){
+    const row = rows[r] || [], rn = r+1;
+    if(row.some(v => /Powered by LEENAI/.test(str(v)))) break;
+    const any = Object.keys(col).some(k => !blank(get(row,k)));
+    if(!any) continue;
+    const core = CORE_KEYS.some(k => !blank(get(row,k)));
+    if(core){
+      const coreVals = CORE_KEYS.map(k => str(get(row,k))).join('\u0001');
+      cur = {sheet:sheet, file:file, row:rn, region:region, rows:[], c:{}, b:{
+        bookkey:uuid(), region:region, port:str(get(row,'port')).trim(), approval_raw:str(get(row,'approval')).trim(),
+        bkgno:str(get(row,'bkgno')), invoiceno:str(get(row,'invoiceno')), pod:str(get(row,'pod')), carrier:str(get(row,'carrier')),
+        vessel:str(get(row,'vessel')), delivery:str(get(row,'delivery')), source:'excel',
+        importkey:(sheet+'|'+rn+'|'+hash(coreVals)).slice(0,200), createdby:'', deleted:false}};
+      DATE_KEYS.forEach(k => { cur.c[k] = convDate(get(row,k)); });
+      cur.b.approval = approvalOf(cur.b.approval_raw);
+      R.bookings.push(cur); SH.bookings++;
+    } else if(!cur){ add('W08', {sheet:sheet, row:rn, msg:'ブッキング開始行より前の Packer 行（取込対象外）'}); continue; }
+    else {
+      /* ブッキング属性の列なのに後続行に値 (W08) */
+      ['port','delivery'].concat(spanCols).forEach(k => { if(!blank(get(row,k))) add('W08', {sheet:sheet, row:rn, msg:COL_LABEL[k]+' = '+str(get(row,k)).replace(/\n/g,' ')}); });
+    }
+    const a = {seq:cur.rows.length+1, row:rn, inherit:[]};
+    ROWKEYS.forEach(k => { a[k] = str(get(row,k)); });
+    /* (h) 同じブッキングの 2 行目以降: 空 Grade・空 Packer は直上行を引き継ぐ (ブッキング境界は越えない) */
+    const prev = cur.rows[cur.rows.length-1];
+    if(prev){
+      if(blank(a.grade) && !blank(prev.grade)){ a.grade = prev.grade; a.inherit.push('Grade'); }
+      if(blank(a.packer) && !blank(prev.packer)){ a.packer = prev.packer; a.inherit.push('Packer'); }
+      if(a.inherit.length){ SH.i03++; add('I03', {sheet:sheet, row:rn, msg:a.inherit.join('・')+' ← '+(prev.row)+' 行目'}); }
+    }
+    cur.rows.push(a); SH.rows++;
+  }
+  /* ブッキング単位の後処理・検証 */
+  R.bookings.filter(x => x.sheet===sheet && x.file===file).forEach(x => {
+    const b = x.b, loc = {sheet:sheet, row:x.row};
+    const realRef = DATE_KEYS.map(k=>x.c[k].date).find(Boolean);
+    DATE_KEYS.forEach(k => {
+      let c = finishDate(x.c[k], realRef);
+      b[k] = c.date || null;
+      if(c.w02) add('W02', Object.assign({msg:COL_LABEL[k]+' '+str(c.orig||c.note)}, loc));
+      if(c.w04) add('W04', Object.assign({msg:COL_LABEL[k]+' 「'+str(c.raw||c.note).replace(/\n/g,' ')+'」 → '+(c.date||'解析不可')}, loc));
+      x.c[k] = c;
+    });
+    const nl = (k, lbl) => { const n = x.c[k].note; return n ? (lbl? lbl+': ' : '')+n : ''; };
+    b.cy_note = [nl('cyopen','OPEN'), nl('cycut','Cut')].filter(Boolean).join('\n');
+    b.etd_note = nl('etd'); b.eta_note = nl('eta');
+    if(b.eta && b.etd && b.eta<b.etd){
+      const cand = addYears(b.eta, 1); const ok = dayDiff(b.etd, cand)>=0 && dayDiff(b.etd, cand)<=90;
+      add('W01', Object.assign({msg:'ETD '+b.etd+' / ETA '+b.eta+(ok ? ' → +1年補正候補 '+cand+'（自動適用しない）' : '')}, loc));
+    }
+    if(!blank(b.port) && !PORT_REGION[b.port.toUpperCase()]) add('W03', Object.assign({msg:'港 = '+b.port}, loc));
+    if(/\n/.test(b.bkgno) || /[぀-ヿ一-鿿]/.test(b.bkgno)) add('W05', Object.assign({msg:b.bkgno.replace(/\n/g,' ⏎ ')}, loc));
+    if(b.approval==='OTHER') add('W06', Object.assign({msg:'承認 = '+b.approval_raw}, loc));
+    const SH = R.sheets.find(s=>s.sheet===sheet && s.file===file);
+    if(blank(b.bkgno)){ SH.i01++; add('I01', Object.assign({msg:'Invoice '+firstLine(b.invoiceno)}, loc)); }
+    if(x.rows.every(a=>blank(a.packer))){ SH.i02++; add('I02', Object.assign({msg:firstLine(b.bkgno)||firstLine(b.invoiceno)||'—'}, loc)); }
+    const ref = {open:b.cyopen, etd:b.etd, today:todayStr()};
+    x.rows.forEach(a => {
+      const r = PARSE.parse(a.qty_raw, ref);
+      const slots = r.slots.map((s,i)=> (i===0 && r.note) ? Object.assign({}, s, {note:r.note}) : s);
+      const sm = PARSE.summary(slots);
+      a.slots = slots; a.parse = r.parse; a.datefrom = sm.datefrom; a.dateto = sm.dateto;
+      a.totalhon = sm.totalhon!=null ? sm.totalhon : (r.count!=null ? r.count : null);
+      SH.qty[r.parse]++;
+      if(r.parse==='partial' || r.parse==='other') add('W07', {sheet:sheet, row:a.row, msg:'['+r.parse+'] '+a.qty_raw.replace(/\n/g,' ⏎ ')});
+      if(r.w09) add('W09', {sheet:sheet, row:a.row, msg:'総本数 '+r.total+' ≠ 合計 '+sm.totalhon+' : '+a.qty_raw.replace(/\n/g,' ⏎ ')});
+    });
+  });
+}
+const ISSUE_DEF = {
+  W01:'ETA < ETD', W02:'日付が 1990〜2100 外・異常（日付を空にし note に元の値）', W03:'港が港リストにない', W04:'日付セルが文字列',
+  W05:'Booking no. にメモ混入（改行・日本語）', W06:'承認が既定 7 種以外', W07:'QTY 判定 partial / other（要確認）', W08:'ブッキング属性列なのに後続行に値',
+  W09:'QTY 総本数(nC-)と合計の不一致', I01:'Booking no. なし', I02:'Packer 行なし（Packer 未割当）', I03:'引き継ぎで埋めた行（Grade・Packer）',
+};
+function renderReport(R){
+  let h = '<h4>検証リポート <span class="muted" style="font-weight:400;font-size:12px">'+esc(R.files.join(' / '))+'</span></h4>';
+  h += '<table class="b6-s"><tr><th>シート</th><th class="num">ブッキング</th><th class="num">Packer 行</th><th class="num">I01</th><th class="num">I02</th><th class="num">I03</th><th class="num">pairs</th><th class="num">partial</th><th class="num">count</th><th class="num">other</th><th class="num">empty</th></tr>';
+  const tot = {bookings:0, rows:0, i01:0, i02:0, i03:0, pairs:0, partial:0, count:0, other:0, empty:0};
+  R.sheets.forEach(s => {
+    h += '<tr><td>'+esc(s.sheet)+(s.error?' <span class="bdg d">'+esc(s.error)+'</span>':'')+'</td>'+['bookings','rows','i01','i02','i03'].map(k=>'<td class="num">'+s[k]+'</td>').join('')
+      + ['pairs','partial','count','other','empty'].map(k=>'<td class="num">'+s.qty[k]+'</td>').join('')+'</tr>';
+    ['bookings','rows','i01','i02','i03'].forEach(k=>tot[k]+=s[k]); ['pairs','partial','count','other','empty'].forEach(k=>tot[k]+=s.qty[k]);
+  });
+  h += '<tr><th>合計</th>'+['bookings','rows','i01','i02','i03','pairs','partial','count','other','empty'].map(k=>'<th class="num">'+tot[k]+'</th>').join('')+'</tr></table>';
+  const unk = R.sheets.filter(s=>s.unknown.length);
+  if(unk.length) h += '<div style="font-size:12px;margin-top:6px">⚠ 認識できない見出し（取込しない）: '+unk.map(s=>esc(s.sheet)+': '+s.unknown.map(esc).join(', ')).join(' / ')+'</div>';
+  if(R.skipped.length) h += '<div style="font-size:12px;margin-top:4px" class="muted">取込しないシート: '+R.skipped.map(s=>esc(s.sheet)+(s.hidden?'（非表示）':'')+' '+s.rows+'行').join(' / ')+'</div>';
+  h += '<div style="margin-top:8px"><b>警告・情報</b>（自動修正はしません）</div>';
+  Object.keys(ISSUE_DEF).forEach(code => {
+    const L = R.issues[code] || [];
+    h += '<details class="rp"><summary><span class="bdg '+(code[0]==='W'?'w':'i')+'">'+code+'</span> '+esc(ISSUE_DEF[code])+' — <b>'+L.length+'</b> 件</summary>'
+      + (L.length ? '<table class="b6-s"><tr><th>シート</th><th class="num">行</th><th>内容</th></tr>'+L.slice(0,300).map(x=>'<tr><td>'+esc(x.sheet)+'</td><td class="num">'+x.row+'</td><td>'+esc(x.msg)+'</td></tr>').join('')+(L.length>300?'<tr><td colspan="3" class="muted">… 他 '+(L.length-300)+' 件</td></tr>':'')+'</table>' : '')
+      + '</details>';
+  });
+  $('#io-report').innerHTML = h;
+}
+async function onImportFiles(){
+  const files = Array.from($('#io-file').files); if(!files.length) return;
+  $('#io-status').textContent = '解析中…'; $('#io-dry').disabled = $('#io-run').disabled = true;
+  try{
+    S.report = await readImportFiles(files);
+    renderReport(S.report);
+    $('#io-status').textContent = '解析完了: ブッキング '+S.report.bookings.length+' 件 / Packer 行 '+S.report.bookings.reduce((t,x)=>t+x.rows.length,0)+' 行。次に「ドライラン」。';
+    $('#io-dry').disabled = false;
+  }catch(e){ $('#io-status').textContent = '解析エラー: '+e.message; }
+}
+function warnSet(R){ const s = new Set(); Object.keys(R.issues).filter(c=>c[0]==='W').forEach(c => R.issues[c].forEach(x => s.add(x.sheet+'|'+x.row))); return s; }
+async function onDryRun(){
+  const R = S.report; if(!R) return;
+  $('#io-status').textContent = '既存データを確認中…';
+  try{
+    const keys = await S.store.importKeys();
+    const ws = warnSet(R);
+    let create = 0, skip = 0, chk = 0;
+    R.bookings.forEach(x => {
+      x.skip = keys.has(x.b.importkey);
+      if(x.skip) skip++; else create++;
+      if(!x.skip && (ws.has(x.sheet+'|'+x.row) || x.rows.some(a=>ws.has(x.sheet+'|'+a.row)))) chk++;
+    });
+    const asg = R.bookings.filter(x=>!x.skip).reduce((t,x)=>t+x.rows.length,0);
+    $('#io-status').innerHTML = '<b>ドライラン</b>（書き込みなし）: 作成 <b>'+create+'</b> 件（Packer 行 '+asg+'） / スキップ <b>'+skip+'</b> 件（同じ取込キーが既にある） / 要確認 <b>'+chk+'</b> 件（W 警告あり — 作成はされます） <span class="muted">→ 保存先: '+S.store.name+'</span>';
+    $('#io-run').disabled = create===0;
+  }catch(e){ $('#io-status').textContent = 'ドライラン失敗: '+e.message.slice(0,160); }
+}
+async function onRunImport(){
+  const R = S.report; if(!R) return;
+  const todo = R.bookings.filter(x => !x.skip);
+  if(!todo.length) return;
+  if(!confirm('ブッキング '+todo.length+' 件を '+S.store.name+' に作成します。よろしいですか？\n（テスト取込は「取込取消」で元に戻せます）')) return;
+  const d = new Date();
+  const batch = 'imp_'+d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+'_'+pad2(d.getHours())+pad2(d.getMinutes());
+  const em = userEmail();
+  let seqBase = {}; S.bk.forEach(b => { seqBase[b.region] = Math.max(seqBase[b.region]||0, b.seq||0); });
+  const prog = $('#io-prog'); prog.style.display = ''; const bar = prog.querySelector('i');
+  $('#io-run').disabled = $('#io-dry').disabled = true;
+  let done = 0, fail = 0; const errs = []; const made = {};
+  const seqCounter = {};
+  todo.forEach(x => { seqCounter[x.region] = (seqCounter[x.region]||seqBase[x.region]||0) + 10; x.b.seq = seqCounter[x.region]; });
+  await pool(todo, 5, async x => {
+    try{
+      const b = Object.assign({}, x.b, {batch:batch, createdby:em});
+      b.name = bkName(b);
+      const sb = await S.store.create('B', b);
+      for(const a of x.rows){
+        const o = {bookkey:sb.bookkey, seq:a.seq, bkgno:b.bkgno, pol:b.port, grade:a.grade, packer:a.packer, qty_raw:a.qty_raw, slots:a.slots,
+          datefrom:a.datefrom, dateto:a.dateto, totalhon:a.totalhon, parse:a.parse, customs:a.customs, dray:a.dray, poapply:a.poapply,
+          podist:a.podist, drayfax:a.drayfax, banyu:a.banyu, memo:a.memo, source:'excel', batch:batch,
+          importkey:(x.b.importkey+'|'+a.seq).slice(0,200), createdby:em, deleted:false};
+        o.name = asName(b, o);
+        await S.store.create('A', o);
+      }
+      const m = made[x.sheet] || (made[x.sheet] = {b:0, a:0}); m.b++; m.a += x.rows.length;
+    }catch(e){ fail++; errs.push(x.sheet+' '+x.row+'行: '+e.message.slice(0,120)); }
+    done++; bar.style.width = (done/todo.length*100)+'%';
+  });
+  await IDB.set('header_order', Object.assign((await IDB.get('header_order'))||{}, R.hdr));
+  /* 元の件数との照合 */
+  let h = '<b>実行完了</b> バッチ <code>'+esc(batch)+'</code> — 成功 '+(todo.length-fail)+' / 失敗 '+fail+'<table class="b6-s" style="margin-top:6px"><tr><th>シート</th><th class="num">元 ブッキング</th><th class="num">作成</th><th class="num">元 Packer 行</th><th class="num">作成</th><th>一致</th></tr>';
+  R.sheets.forEach(s => {
+    const src = R.bookings.filter(x=>x.sheet===s.sheet && x.file===s.file && !x.skip);
+    const sb = src.length, sa = src.reduce((t,x)=>t+x.rows.length,0), m = made[s.sheet]||{b:0,a:0};
+    h += '<tr><td>'+esc(s.sheet)+'</td><td class="num">'+sb+'</td><td class="num">'+m.b+'</td><td class="num">'+sa+'</td><td class="num">'+m.a+'</td><td>'+(sb===m.b && sa===m.a ? '<span class="ok">✅</span>' : '<span class="ng">❌</span>')+'</td></tr>';
+  });
+  h += '</table>' + (errs.length ? '<details class="rp" open><summary class="ng">エラー '+errs.length+' 件</summary>'+errs.slice(0,50).map(e=>'<div style="font-size:11.5px">'+esc(e)+'</div>').join('')+'</details>' : '');
+  $('#io-status').innerHTML = h;
+  prog.style.display = 'none';
+  $('#io-dry').disabled = false;
+  toast('取込完了: '+(todo.length-fail)+' 件', fail?'warn':'ok');
+  await loadBoard();
+}
+async function loadBatches(){
+  const el = $('#io-batch-list'); el.innerHTML = '<span class="muted">読込中…</span>';
+  try{
+    const L = await S.store.batches();
+    if(!L.length){ el.innerHTML = '<span class="muted">取込バッチはありません</span>'; return; }
+    el.innerHTML = '<table class="b6-s"><tr><th>バッチ</th><th class="num">ブッキング</th><th>状態</th><th></th></tr>'
+      + L.map(g => '<tr><td><code>'+esc(g.batch)+'</code></td><td class="num">'+g.total+'</td><td>'+(g.deleted===g.total ? '<span class="wn">取消済み</span>' : g.deleted ? '一部削除 '+g.deleted : '有効')+'</td><td>'
+        + (g.deleted<g.total ? '<button class="b6-btn sm dng" data-bt="cancel" data-b="'+esc(g.batch)+'">取消</button>' : '')
+        + (g.deleted>0 ? ' <button class="b6-btn sm" data-bt="undo" data-b="'+esc(g.batch)+'">取消を元に戻す</button>' : '') + '</td></tr>').join('') + '</table>';
+  }catch(e){ el.innerHTML = '<span class="ng">'+esc(e.message.slice(0,160))+'</span>'; }
+}
+async function batchSet(batch, flag){
+  if(!confirm(flag ? 'バッチ '+batch+' のレコードすべてに削除フラグを立てます（Packer 行 → ブッキングの順）。よろしいですか？' : 'バッチ '+batch+' の削除フラグを外して復元します。よろしいですか？')) return;
+  LEENAI.loading.show(flag ? '取込取消中…' : '復元中…');
+  try{
+    const rec = await S.store.batchRecords(batch);
+    const A = rec.A.filter(x=>x.deleted!==flag), B = rec.B.filter(x=>x.deleted!==flag);
+    let n = 0; const tot = A.length + B.length;
+    const step = async (kind, x) => { await S.store.setDeletedById(kind, x.id, flag); n++; if(n%20===0) LEENAI.loading.update((flag?'取込取消中… ':'復元中… ')+n+'/'+tot); };
+    if(flag){ await pool(A, 5, x=>step('A',x)); await pool(B, 5, x=>step('B',x)); }
+    else { await pool(B, 5, x=>step('B',x)); await pool(A, 5, x=>step('A',x)); }
+    toast((flag?'取込取消':'復元')+'しました: '+tot+' レコード', 'ok');
+  }catch(e){ toast('失敗: '+e.message.slice(0,140), 'danger'); }
+  finally{ LEENAI.loading.hide(); }
+  await loadBatches(); await loadBoard();
+}
+
+/* ══════════ EXPORT (④ 出力 — 元のシート構成・列・結合) ══════════ */
+function dateSerial(s){ return (Date.parse(s+'T00:00:00Z') - Date.UTC(1899,11,30)) / 86400000; }
+async function exportExcel(){
+  LEENAI.loading.show('全件を読込中…');
+  try{
+    const bks = await S.store.loadBookings({deleted:false});
+    const asgs = await S.store.allAssignments();
+    const map = new Map(); bks.forEach(b => { b.rows=[]; map.set(b.bookkey, b); });
+    asgs.forEach(a => { const b = map.get(a.bookkey); if(b) b.rows.push(a); });
+    const savedOrder = (await IDB.get('header_order')) || {};
+    const wb = XLSX.utils.book_new();
+    REGIONS.forEach(R => {
+      const def = boardCols(R.code).map(c=>c.k);
+      let order = (savedOrder[R.code]||[]).filter(k => def.includes(k));
+      def.forEach(k => { if(!order.includes(k)) order.push(k); });
+      const ws = {}; const merges = [];
+      const put = (r, c, cell) => { ws[XLSX.utils.encode_cell({r:r, c:c})] = cell; };
+      order.forEach((k, c) => put(0, c, {t:'s', v:COL_LABEL[k]}));
+      let r = 1;
+      const list = Array.from(map.values()).filter(b => b.region===R.code).sort((a,b)=>(a.seq||0)-(b.seq||0));
+      list.forEach(b => {
+        sortRows(b);
+        const rows = b.rows.length ? b.rows : [{}];
+        const n = rows.length;
+        const spanOk = {}; (ROW_SPAN_COLUMNS[R.code]||[]).forEach(k => { spanOk[k] = n>1 && rows.slice(1).every(a=>blank(a[k])); });
+        rows.forEach((a, i) => {
+          order.forEach((k, c) => {
+            const isB = BOOKING_KEYS.includes(k);
+            if(isB && i>0) return;
+            if(!isB && spanOk[k] && i>0) return;
+            let cell = null;
+            if(isB){
+              if(DATE_KEYS.includes(k)){
+                const note = k==='cyopen' ? str(b.cy_note).split('\n').filter(l=>/^OPEN:/.test(l)).map(l=>l.replace(/^OPEN:\s*/,'')).join(' ')
+                  : k==='cycut' ? str(b.cy_note).split('\n').filter(l=>/^Cut:/.test(l)).map(l=>l.replace(/^Cut:\s*/,'')).join(' ')
+                  : str(b[noteKey(k)]);
+                if(b[k]){ cell = {t:'n', v:dateSerial(b[k]), z:'yyyy/m/d'}; if(note){ cell.c = [{a:'LEENAI', t:note}]; cell.c.hidden = true; } }
+                else if(note) cell = {t:'s', v:note};
+              } else if(k==='approval'){
+                const v = b.approval_raw!=null && b.approval_raw!=='' ? b.approval_raw : ((APPROVAL_OPTIONS.find(o=>o.code===b.approval)||{}).raw||'');
+                if(v) cell = {t:'s', v:v};
+              } else if(!blank(b[k])) cell = {t:'s', v:str(b[k])};
+              if(n>1) merges.push({s:{r:r, c:c}, e:{r:r+n-1, c:c}});
+            } else {
+              if(!blank(a[k])) cell = {t:'s', v:str(a[k])};
+              if(spanOk[k] && i===0) merges.push({s:{r:r, c:c}, e:{r:r+n-1, c:c}});
+            }
+            if(cell) put(r+i, c, cell);
+          });
+        });
+        r += n;
+      });
+      put(r+1, 0, {t:'s', v:'✦ Powered by LEENAI Automation System'});   /* 最終データ行の 2 行下 */
+      ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:r+1, c:order.length-1}});
+      ws['!merges'] = merges;
+      ws['!cols'] = order.map(k => ({wch: {vessel:22, bkgno:16, invoiceno:14, qty_raw:24, memo:20, packer:14, carrier:10}[k] || (DATE_KEYS.includes(k)?10:9)}));
+      XLSX.utils.book_append_sheet(wb, ws, R.sheet);
+    });
+    const d = new Date();
+    XLSX.writeFile(wb, 'BOOKING_SCHEDULE_'+d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+'_'+pad2(d.getHours())+pad2(d.getMinutes())+'.xlsx');
+    toast('エクセルを出力しました: ブッキング '+bks.length+' 件', 'ok');
+  }catch(e){ toast('出力に失敗: '+e.message.slice(0,140), 'danger'); }
+  finally{ LEENAI.loading.hide(); }
+}
+
+/* ══════════ DIAG (⚙ 診断 — 形兄が画面で一括確認) ══════════ */
+const EXPECT = {
+  [CFG.LN_BOOK]: [['leenai_name','S',200],['leenai_bookkey','S',40],['leenai_region','S',20],['leenai_seq','I'],['leenai_port','S',40],['leenai_approval','S',20],
+    ['leenai_approval_raw','M',200],['leenai_bkgno','M',500],['leenai_invoiceno','M',500],['leenai_pod','M',500],['leenai_carrier','M',500],['leenai_vessel','M',1000],
+    ['leenai_cyopen','D'],['leenai_cycut','D'],['leenai_etd','D'],['leenai_eta','D'],['leenai_cy_note','M',500],['leenai_etd_note','M',500],['leenai_eta_note','M',500],
+    ['leenai_delivery','M',500],['leenai_source','S',20],['leenai_batch','S',40],['leenai_importkey','S',200],['leenai_createdby','S',200],
+    ['leenai_compass_id','S',40],['leenai_compass_status','S',20],['leenai_compass_at','DT'],['leenai_deleted','B']],
+  [CFG.LN_ASG]: [['leenai_name','S',200],['leenai_bookkey','S',40],['leenai_seq','I'],['leenai_bkgno','M',500],['leenai_pol','S',40],['leenai_grade','M',200],
+    ['leenai_packer','M',500],['leenai_qty_raw','M',2000],['leenai_slots','M',4000],['leenai_datefrom','D'],['leenai_dateto','D'],['leenai_totalhon','I'],
+    ['leenai_parse','S',20],['leenai_customs','M',500],['leenai_dray','M',500],['leenai_poapply','M',500],['leenai_podist','M',500],['leenai_drayfax','M',500],
+    ['leenai_banyu','M',500],['leenai_memo','M',2000],['leenai_compass_detailid','S',40],['leenai_source','S',20],['leenai_batch','S',40],
+    ['leenai_importkey','S',200],['leenai_createdby','S',200],['leenai_deleted','B']],
+};
+const TYPE_NAME = {S:'String', M:'Memo', I:'Integer', D:'DateTime', DT:'DateTime', B:'Boolean'};
+async function readAttrs(ln){
+  const base = "EntityDefinitions(LogicalName='"+ln+"')/Attributes";
+  const all = (await dvGet(base+'?$select=LogicalName,AttributeType')).value;
+  const m = {}; all.forEach(a => m[a.LogicalName] = {type:a.AttributeType});
+  for(const t of ['String','Memo']){
+    try{ (await dvGet(base+'/Microsoft.Dynamics.CRM.'+t+'AttributeMetadata?$select=LogicalName,MaxLength')).value.forEach(a => { if(m[a.LogicalName]) m[a.LogicalName].len = a.MaxLength; }); }catch(e){}
+  }
+  try{ (await dvGet(base+'/Microsoft.Dynamics.CRM.DateTimeAttributeMetadata?$select=LogicalName,Format')).value.forEach(a => { if(m[a.LogicalName]) m[a.LogicalName].fmt = a.Format; }); }catch(e){}
+  return m;
+}
+async function openDiag(){
+  if(CFG.DEMO){ modal('⚙ 診断', '<div class="muted">デモモードでは Dataverse に接続しないため診断できません。ログインして使ってください。</div>'); return; }
+  const md = modal('⚙ 診断', '<div id="dg">確認中…</div>', [], true);
+  const out = []; const w = s => { out.push(s); $('#dg', md.el).innerHTML = out.join(''); };
+  out.length = 0; $('#dg', md.el).innerHTML = '';
+  try{ const who = await dvGet('WhoAmI()'); w('<div>✅ Dataverse 接続 OK — '+esc((LEENAI.user||{}).name||'')+' ('+esc((LEENAI.user||{}).email||'')+') / UserId '+esc(who.UserId)+'</div>'); }
+  catch(e){ w('<div class="ng">❌ Dataverse 接続: '+esc(e.message.slice(0,160))+'</div>'); }
+  for(const ln of [CFG.LN_BOOK, CFG.LN_ASG]){
+    try{
+      const m = await readAttrs(ln); let bad = 0;
+      let h = '<h4 style="margin:12px 0 4px">'+ln+'</h4><table class="b6-s"><tr><th>列</th><th>期待</th><th>実際</th><th></th></tr>';
+      EXPECT[ln].forEach(([n, t, len]) => {
+        const a = m[n]; let ok = true, why = '';
+        if(!a){ ok=false; why='列がありません'; }
+        else {
+          if(a.type!==TYPE_NAME[t]){ ok=false; why='形式が違います'; }
+          if(len && a.len!=null && a.len<len){ ok=false; why='長さ不足'; }
+          if(t==='D' && a.fmt && a.fmt!=='DateOnly'){ ok=false; why='日付のみ ではありません'; }
+        }
+        if(!ok) bad++;
+        h += '<tr><td><code>'+n+'</code></td><td>'+TYPE_NAME[t]+(t==='D'?' (DateOnly)':'')+(len?' '+len:'')+'</td><td>'+(a? esc(a.type)+(a.fmt?' ('+esc(a.fmt)+')':'')+(a.len!=null?' '+a.len:'') : '—')+'</td><td>'+(ok?'✅':'<span class="ng">❌ '+why+'</span>')+'</td></tr>';
+      });
+      w('<div>'+(bad?'<span class="ng">❌ '+ln+': '+bad+' 列に問題</span>':'✅ '+ln+': 全 '+EXPECT[ln].length+' 列 OK')+'</div><details class="rp"'+(bad?' open':'')+'><summary>列の詳細</summary>'+h+'</table></details>');
+    }catch(e){ w('<div class="ng">❌ '+ln+': '+esc(e.message.slice(0,160))+'</div>'); }
+  }
+  try{
+    const m = await readAttrs(CFG.LN_B05);
+    const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
+    w('<h4 style="margin:12px 0 4px">B-05 '+CFG.LN_B05+'（読み取りのみ）</h4><div>leenai_cycut: '+(m.leenai_cycut ? '<b>'+esc(m.leenai_cycut.type)+(m.leenai_cycut.fmt?' ('+esc(m.leenai_cycut.fmt)+')':'')+(m.leenai_cycut.len!=null?' '+m.leenai_cycut.len:'')+'</b>' : '<span class="ng">列なし</span>')+'</div>'
+      + '<details class="rp"><summary>列一覧 ('+names.length+')</summary><div style="font-size:11.5px">'+names.map(n=>esc(n)+' <span class="muted">'+esc(m[n].type)+(m[n].fmt?'/'+esc(m[n].fmt):'')+'</span>').join('<br>')+'</div></details>');
+  }catch(e){ w('<div class="ng">❌ B-05 メタデータ: '+esc(e.message.slice(0,160))+'</div>'); }
+  const M = S.masters;
+  w('<h4 style="margin:12px 0 4px">マスター (LEENAI.master)</h4><div>dray_packer: '+(M.dray_packer!=null?M.dray_packer+' 件（略称対応 '+M.packerShort.length+'）':'<span class="ng">未読込</span>')
+    + ' / cy: '+(M.cy_n!=null?M.cy_n+' 件':'<span class="ng">未読込</span>')+' / forwarder: '+(M.forwarder_n!=null?M.forwarder_n+' 件':'<span class="ng">未読込</span>')
+    + (M.err?'<div class="ng" style="font-size:12px">'+esc(M.err)+'</div>':'')+'</div>'
+    + '<div class="muted" style="font-size:11.5px;margin-top:8px">Graph 状態: '+esc(JSON.stringify(LEENAI.auth.status))+'</div>');
+}
+
+/* ══════════ DEMO — 合成データ (実データではない。Public レポのため架空の名称のみ) ══════════ */
+function buildDemoStore(){
+  const M = makeMemStore();
+  let seed = 20261110; const rnd = () => (seed = (seed*1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = a => a[Math.floor(rnd()*a.length)];
+  S.masters.packerShort = [['サンプル紙業','サ紙'],['テスト資源','テ資'],['デモ再生','デ再'],['みほん商事','みほ'],['レイ紙材','レイ']];
+  S.masters.packerNames = ['サンプル紙業','テスト資源','デモ再生','みほん商事','レイ紙材'];
+  S.masters.cy = ['デモCY 大井','デモCY 本牧']; S.masters.forwarder = ['デモ通関A','デモ通関B'];
+  S.masters.loaded = true; S.masters.dray_packer = 5;
+  const packers = ['サンプル紙業(東)','テスト資源 本社','デモ再生(横)','みほん商事','レイ紙材','ナゾ紙業'];
+  const grades = ['OCC','ONP','MIX','SOP','OCC(B)'];
+  const pods = ['PEN','HCM','KHH','PKL','LCB'];
+  const carriers = ['ONE(2)','EMC(3)','YML(1)','SITC(2)','ONE(4)4〆'];
+  const today = todayStr();
+  let bno = 1;
+  const md = s => (+s.slice(5,7))+'/'+(+s.slice(8,10));
+  REGIONS.forEach((R, ri) => {
+    const n = [26, 22, 10, 12, 16, 5][ri];
+    for(let i=0; i<n; i++){
+      const etdOff = Math.floor(rnd()*70) - 12;
+      const noEtd = rnd() < 0.06;
+      const etd = noEtd ? null : addDays(today, etdOff);
+      const open = etd ? addDays(etd, -7) : null;
+      const b = {bookkey:uuid(), region:R.code, seq:(i+1)*10, port:pick(R.ports), approval:'NONE', approval_raw:'',
+        bkgno: rnd()<0.08 ? '' : 'DEMO'+String(bno).padStart(6,'0'), invoiceno:'INV-D'+String(bno).padStart(4,'0'), pod:pick(pods), carrier:pick(carriers),
+        vessel:'SAMPLE '+pick(['STAR','OCEAN','BRIDGE','WAVE'])+' '+String(Math.floor(rnd()*900)+100)+pick(['E','W','S','N']),
+        cyopen:open, cycut: etd ? addDays(etd, -3) : null, etd:etd, eta: etd ? addDays(etd, 10+Math.floor(rnd()*20)) : null,
+        cy_note:'', etd_note:'', eta_note:'', delivery: R.code==='KANTO' ? pick(['デモCY 大井','デモCY 本牧']) : '',
+        source:'demo', batch:null, importkey:null, createdby:'demo', deleted:false};
+      bno++;
+      const ar = rnd(); const ap = ar<0.55 ? APPROVAL_OPTIONS[0] : ar<0.8 ? APPROVAL_OPTIONS[1] : pick(APPROVAL_OPTIONS.slice(2));
+      b.approval = ap.code; b.approval_raw = ap.raw;
+      if(i===3 && etd){ b.eta = addYears(b.eta, -1); }  /* ETA<ETD の例 */
+      b.name = bkName(b);
+      const sb = M.T.B; b.id = uuid(); b.etag='W/"0"'; b.modifiedon = new Date(Date.now()-86400000).toISOString(); b.modifiedby='demo'; sb.set(b.id, b);
+      const nr = rnd()<0.12 ? 1 : 1 + Math.floor(rnd()*3);
+      const noPk = rnd() < 0.1;
+      let prevPk = noPk ? '' : pick(packers), prevGr = pick(grades);
+      for(let j=0; j<nr; j++){
+        const pk = j===0 ? prevPk : (rnd()<0.5 ? prevPk : pick(packers));
+        const gr = j===0 ? prevGr : (rnd()<0.6 ? prevGr : pick(grades));
+        let qty = '';
+        const base = open || today, d1 = addDays(base, Math.floor(rnd()*5)), d2 = addDays(d1, 1+Math.floor(rnd()*3));
+        const q = rnd();
+        if(q<0.45) qty = md(d1)+'('+(1+Math.floor(rnd()*3))+')' + (rnd()<0.5 ? ', '+md(d2)+'('+(1+Math.floor(rnd()*3))+')' : '');
+        else if(q<0.6) qty = (2+Math.floor(rnd()*3))+'C-'+md(d1);
+        else if(q<0.72) qty = (1+Math.floor(rnd()*4))+'C';
+        else if(q<0.8) qty = md(d1)+'-'+md(d2)+'(1)';
+        else if(q<0.88) qty = '(1)'+md(d1)+' 8:00 ドレージOK';
+        else if(q<0.94) qty = '';
+        else qty = '調整中';
+        const ctx = {open:b.cyopen, etd:b.etd, today:today};
+        const r = PARSE.parse(qty, ctx); const sm = PARSE.summary(r.slots);
+        const st = () => rnd()<0.5 ? '✔' : rnd()<0.5 ? '' : rnd()<0.5 ? '-' : pick(['送信済み','✔ (1/3)','FAX済み']);
+        const a = {bookkey:b.bookkey, seq:j+1, bkgno:b.bkgno, pol:b.port, grade:gr, packer: noPk ? '' : pk, qty_raw:qty,
+          slots:r.slots.map((s,k)=>k===0&&r.note?Object.assign({},s,{note:r.note}):s), datefrom:sm.datefrom, dateto:sm.dateto,
+          totalhon: sm.totalhon!=null ? sm.totalhon : (r.count!=null?r.count:null), parse:r.parse,
+          customs: j===0 ? pick(['✔','デモ通関A','デモ通関B','']) : '', dray: st(), poapply: j===0 || R.code==='NORTH' || R.code==='KYUSHU' ? st() : '',
+          podist: st(), drayfax: R.code==='KYUSHU' ? st() : '', banyu: st(), memo: rnd()<0.15 ? '検査 D-'+Math.floor(rnd()*9000+1000) : '',
+          source:'demo', batch:null, importkey:null, createdby:'demo', deleted:false};
+        a.name = asName(b, a); a.id = uuid(); a.etag='W/"0"'; a.modifiedon = b.modifiedon; a.modifiedby='demo';
+        M.T.A.set(a.id, a);
+        /* B-05 合成データ (TOKYO・YOKOHAMA): 一致・本数差異・未登録 が混ざるように */
+        if(R.code==='KANTO' && pk && !noPk){
+          const sh = packerShort(pk);
+          r.slots.forEach(s => {
+            if(!s.d || s.d2 || s.n==null) return;
+            const x = rnd(); if(x<0.25) return;   /* B-05未登録 */
+            M.b05rows.push({name:s.d+'_'+pick(B05_TRUCKS.slice(1,5))+'_06:00_demo'+M.b05rows.length, date:s.d, rawdate:s.d+'T00:00:00Z', truck:pick(B05_TRUCKS.slice(1,5)),
+              packer: sh || '??', time:'06:00', cttype:'40HQ', hon: x<0.85 ? s.n : s.n+1, status:'pending', pol:b.port, bkgno: x<0.93 ? b.bkgno : '', cycut:b.cycut ? b.cycut+'T00:00:00Z' : '', hasCycut:true});
+          });
+        }
+      }
+    }
+  });
+  /* B-05 のみ */
+  for(let i=0;i<4;i++){ const d = addDays(today, i*3); M.b05rows.push({name:d+'_池谷_07:00_x'+i, date:d, rawdate:d+'T00:00:00Z', truck:'池谷', packer:'外部', time:'07:00', cttype:'40HQ', hon:1, status:'confirmed', pol:'TOKYO', bkgno:'', cycut:'', hasCycut:true}); }
+  return M;
+}
+
+/* ══════════ UI ══════════ */
+function initUI(){
+  if(S.uiReady) return; S.uiReady = true;
+  const dl = document.createElement('div'); dl.innerHTML = '<datalist id="dl-packer"></datalist><datalist id="dl-cy"></datalist><datalist id="dl-forwarder"></datalist><datalist id="dl-port"></datalist>';
+  document.body.appendChild(dl);
+  const t = todayStr();
+  $('#f-from').value = addDays(t, -14); $('#f-to').value = addDays(t, 60);
+  $('#pk-month').value = t.slice(0,7); $('#b5-month').value = t.slice(0,7);
+  $('#pk-region').innerHTML = '<option value="">すべて</option>'+REGIONS.map(r=>'<option value="'+r.code+'"'+(r.code==='KANTO'?' selected':'')+'>'+r.tab+'</option>').join('');
+  /* タブ */
+  $('#b6-tabs').addEventListener('click', ev => {
+    const b = ev.target.closest('.b6-tab'); if(!b) return;
+    $$('.b6-tab').forEach(x=>x.classList.toggle('on', x===b));
+    $$('.b6-pane').forEach(p=>p.classList.toggle('on', p.id==='pane-'+b.dataset.tab));
+    IDB.set('tab', b.dataset.tab);
+    if(b.dataset.tab==='packer' && !$('#pk-grid').innerHTML) loadPackerTab();
+    if(b.dataset.tab==='b05' && !S.b05) loadB05Tab();
+  });
+  $('#b6-regions').addEventListener('click', ev => {
+    const c = ev.target.closest('[data-region]'); if(!c) return;
+    S.region = c.dataset.region; $('#f-port').value = ''; IDB.set('region', S.region);
+    fillFilterOptions(); renderBoard();
+  });
+  ['#f-port','#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
+  ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
+  $('#f-reload').addEventListener('click', loadBoard);
+  $('#b-add').addEventListener('click', addBooking);
+  /* 表のクリック */
+  $('#b6-board').addEventListener('click', ev => {
+    const ob = ev.target.closest('.ob');
+    if(ob){
+      ev.stopPropagation();
+      const tr = ob.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
+      if(ob.dataset.act==='bmenu') bookingMenu(ev, b);
+      else { const a = b.rows.find(x=>x.id===tr.dataset.a); if(a) rowMenu(ev, b, a); }
+      return;
+    }
+    const tg = ev.target.closest('.tg');
+    if(tg){ toggleStatus(tg.closest('td')); return; }
+    const td = ev.target.closest('td.ed');
+    if(td && !td.querySelector('input,textarea,select')) startEdit(td);
+  });
+  /* Packer日程・B-05 */
+  $('#pk-load').addEventListener('click', loadPackerTab);
+  $('#b5-load').addEventListener('click', loadB05Tab);
+  $('#b5-filter').addEventListener('change', renderB05);
+  $('#b5-map').addEventListener('click', b05MapReport);
+  $('#b5-body').addEventListener('click', ev => { const tr = ev.target.closest('tr[data-i]'); if(tr) b05Preview(+tr.dataset.i); });
+  /* 取込・出力 */
+  $('#io-file').addEventListener('change', onImportFiles);
+  $('#io-dry').addEventListener('click', onDryRun);
+  $('#io-run').addEventListener('click', onRunImport);
+  $('#io-batches').addEventListener('click', loadBatches);
+  $('#io-batch-list').addEventListener('click', ev => { const b = ev.target.closest('[data-bt]'); if(b) batchSet(b.dataset.b, b.dataset.bt==='cancel'); });
+  $('#io-export').addEventListener('click', exportExcel);
+  /* 自動更新 */
+  setInterval(refreshTick, CFG.REFRESH_MS);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshTick(); });
+}
+async function restorePrefs(){
+  const r = await IDB.get('region'); if(r && REGIONS.some(x=>x.code===r)) S.region = r;
+  const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
+}
+
+/* ログイン後 (LEENAI_COMMON onReady) */
+async function startTool(){
+  S.store = DvStore;
+  initUI();
+  await restorePrefs();
+  loadMasters().then(()=>{ if(S.ready) renderBoard(); });
+  await loadBoard();
+}
+
+/* デモモード (?demo=1): 共通ファイルのログインを通さず、メモリ上の合成データで動かす */
+function startDemo(){
+  let th = 'dark'; try{ th = localStorage.getItem('leenai_theme') || 'dark'; }catch(e){}
+  document.documentElement.setAttribute('data-theme', th);
+  document.title = 'LEENAI '+APP.sys+' '+APP.name+' v'+APP.version+' (DEMO)';
+  const app = $('#app');
+  const h = document.createElement('header'); h.className = 'ln-header';
+  h.innerHTML = '<div class="ln-logo">LEEN<span>AI</span></div><span class="ln-sys">'+APP.sys+'</span><div class="ln-hdr-sep"></div>'
+    + '<span class="ln-hdr-name">'+esc(APP.name)+'</span><span class="ln-hdr-ver">v'+esc(APP.version)+' · '+esc(APP.date)+'</span>'
+    + '<div class="ln-hdr-right"><button class="ln-btn-ghost" id="demo-other" title="他の人が先に保存した状況を再現 (412 の確認用)">🧪 他者の更新を再現</button>'
+    + '<button class="ln-btn-ghost" id="demo-theme" data-ln="themeBtn">テーマ</button><a class="ln-btn-ghost" href="'+esc(location.pathname)+'" style="text-decoration:none">ログイン画面へ</a></div>';
+  app.insertBefore(h, app.firstChild);
+  const f = document.createElement('div'); f.className = 'ln-footer'; f.textContent = '✦ Powered by LEENAI Automation System'; app.appendChild(f);
+  $('#b6-demo-bar').style.display = '';
+  $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
+  S.store = buildDemoStore();
+  $('#demo-other').addEventListener('click', () => {
+    const vis = visibleBookings().filter(b=>!b.deleted);
+    if(!vis.length) return;
+    const b = vis[0];
+    S.store.simulateOther(b.bookkey);
+    toast('「'+bkLabel(b)+'」(表の先頭) を他の人が更新しました。20 秒以内にこの行を編集すると 412 → 再読込になります', 'info');
+  });
+  initUI();
+  restorePrefs().then(loadBoard).then(fillDatalists);
+}
+
+if(CFG.DEMO){
+  startDemo();
+} else {
+  LEENAI.addHeaderButton({label:'⚙ 診断', title:'テーブル・権限・マスターの確認', onClick:openDiag});
+  LEENAI.init({ sys:APP.sys, name:APP.name, version:APP.version, date:APP.date, desc:APP.desc, onReady:startTool });
+  /* 第一画面にデモへの入口 */
+  const card = document.querySelector('.ln-splash-card');
+  if(card){
+    const d = document.createElement('div'); d.style.cssText = 'margin-top:14px;font-size:12px';
+    d.innerHTML = '<a href="?demo=1" style="color:var(--accent)">🧪 デモモードで試す（ログインなし・合成データ）</a>';
+    card.appendChild(d);
+  }
+}
+</script>
+</body>
+</html>
