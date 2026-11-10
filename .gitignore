@@ -1,0 +1,25 @@
+# ── 중요 자료: GitHub(Public) 업로드 금지 — Google Drive 에만 보관 ──
+# 설계서·지시서·인수인계서·보고서
+docs/
+DOC-*
+*설계서*
+*지시서*
+*인수인계서*
+*보고서*
+*THOR*
+
+# 실데이터 (엑셀 샘플·부킹 데이터)
+*.xlsx
+*.xls
+*.csv
+samples/
+
+# 비밀정보·환경
+.env
+*.env
+*token*
+*secret*
+
+# 기타
+node_modules/
+*.log
