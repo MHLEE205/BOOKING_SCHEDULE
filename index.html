@@ -42,6 +42,25 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-rhd{position:sticky;left:0;font-weight:700;font-size:13px;padding:8px 10px 4px;color:var(--accent)}
 .b6-rhd .n{color:var(--text3);font-weight:400;font-size:11.5px;margin-left:6px}
 .b6-rhd:not(:first-child){margin-top:10px;border-top:1px solid var(--border)}
+/* セル書式 (右クリック) — 色は明暗どちらのテーマでも読める濃さ */
+.fc-red{color:#e5484d!important}.fc-blue{color:#3b82f6!important}.fc-green{color:#22a35a!important}.fc-orange{color:#e8890c!important}.fc-purple{color:#9b6cf6!important}
+.b6-t td.fs-S{font-size:10.5px}.b6-t td.fs-L{font-size:14px}.b6-t td.fs-XL{font-size:17px}
+.b6-t td.fb{font-weight:800}
+.bg-yellow{background:color-mix(in srgb,#facc15 38%,transparent)!important}
+.bg-red{background:color-mix(in srgb,#ef4444 28%,transparent)!important}
+.bg-green{background:color-mix(in srgb,#22c55e 28%,transparent)!important}
+.bg-blue{background:color-mix(in srgb,#3b82f6 26%,transparent)!important}
+.bg-orange{background:color-mix(in srgb,#f97316 30%,transparent)!important}
+.bg-gray{background:color-mix(in srgb,#9ca3af 30%,transparent)!important}
+.b6-fmt{padding:8px 10px;min-width:300px}
+.b6-fmt .fh{font-weight:700;font-size:12.5px;margin-bottom:6px}
+.b6-fmt .fr{display:flex;align-items:center;gap:4px;margin:5px 0}
+.b6-fmt .fr>span{width:92px;font-size:11.5px;color:var(--text2)}
+.b6-fmt button.sw{width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px;background:var(--read);color:var(--text);font-weight:800;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.b6-fmt button.sz{width:auto;display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:var(--read);color:var(--text);font-size:11.5px;cursor:pointer}
+.b6-fmt button.sw.on,.b6-fmt button.sz.on{outline:2px solid var(--accent);outline-offset:1px}
+.b6-fmt .ft2{border-top:1px solid var(--border);padding-top:6px;margin-top:8px}
+.b6-fmt .ft2 button{width:auto;display:inline-block}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
 .b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
 .b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
@@ -155,6 +174,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <label>並び <select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></label>
         <label><input type="checkbox" id="f-del"> 削除済みを表示</label>
         <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
+        <span class="muted" style="font-size:11.5px">🎨 セルを右クリック → 文字色・サイズ・ハイライト</span>
         <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
       </div>
       <div class="b6-sum" id="b6-sum"></div>
@@ -1041,12 +1061,12 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+'</td>';
         } else {
-          h += '<td class="ed'+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
         }
       });
       h += '</tr>';
@@ -1287,6 +1307,108 @@ function toggleStatus(td){
   const a = b.rows.find(x=>x.id===td.dataset.aid); if(!a || a.deleted) return;
   const k = td.dataset.f;
   saveAsg(b, a, {[k]: statusCycle(a[k])}, k);
+}
+
+/* ══════════ 書式 (文字色・サイズ・太字・ハイライト) — leenai_fmt (JSON) に保存。全員に同じ書式が見える ══════════
+   {k: {c:'red', s:'L', b:1, bg:'yellow'}, _row:{bg:'yellow'}}  ← _row はブッキング全体 (全 Packer 行) のハイライト */
+const FMT = {
+  COLORS: [['red','赤'],['blue','青'],['green','緑'],['orange','橙'],['purple','紫']],
+  BGS:    [['yellow','黄'],['red','赤'],['green','緑'],['blue','青'],['orange','橙'],['gray','灰']],
+  SIZES:  [['S','小'],['','標準'],['L','大'],['XL','特大']],
+};
+function fmtOf(o){
+  if(!o) return {};
+  if(o._fmtSrc!==o.fmt){ o._fmtSrc = o.fmt; try{ o._fmt = o.fmt ? JSON.parse(o.fmt) : {}; }catch(e){ o._fmt = {}; } }
+  return o._fmt || {};
+}
+/* td に付けるクラス (セルの書式 → なければブッキング全体のハイライト) */
+function fmtCls(o, k, b){
+  const f = fmtOf(o)[k] || {}, row = fmtOf(b)._row || {};
+  let c = '';
+  if(f.c) c += ' fc-'+f.c;
+  if(f.s) c += ' fs-'+f.s;
+  if(f.b) c += ' fb';
+  const bg = f.bg || row.bg;
+  if(bg) c += ' bg-'+bg;
+  return c;
+}
+async function saveFmt(b, a, k, change){
+  if(!S.hasFmt){ toast('書式を保存する列 (leenai_fmt) がまだありません。⚙ 診断 →「書式の列を作成」を押してください', 'warn'); return; }
+  const o = a || b, all = JSON.parse(JSON.stringify(fmtOf(o)));
+  const cur = Object.assign({}, all[k]||{}, change);
+  Object.keys(cur).forEach(x => { if(!cur[x]) delete cur[x]; });
+  if(Object.keys(cur).length) all[k] = cur; else delete all[k];
+  const json = Object.keys(all).length ? JSON.stringify(all) : null;
+  if(json===(o.fmt||null)) return;
+  if(a) await saveAsg(b, a, {fmt:json}, k==='_row'?'packer':k);
+  else await saveBooking(b, {fmt:json}, k==='_row'?'bkgno':k);
+}
+/* 右クリック → 書式パレット */
+function openFmt(ev, td){
+  const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
+  if(b.deleted){ toast('削除済みのブッキングです', 'warn'); return; }
+  const k = td.dataset.f, a = td.dataset.lv==='A' ? b.rows.find(x=>x.id===td.dataset.aid) : null;
+  if(td.dataset.lv==='A' && !a) return;
+  closeMenu();
+  const m = document.createElement('div'); m.className = 'b6-menu b6-fmt'; m.id = 'b6-menu';
+  const draw = () => {
+    const f = fmtOf(a||b)[k] || {}, row = fmtOf(b)._row || {};
+    const sw = (key, list, cur, pre) => '<button class="sw'+(!cur?' on':'')+'" data-fk="'+key+'" data-v="" title="なし">'+(pre==='A'?'A':'✕')+'</button>'
+      + list.map(([v, l]) => '<button class="sw '+(pre==='A'?'fc-'+v:'bg-'+v)+(cur===v?' on':'')+'" data-fk="'+key+'" data-v="'+v+'" title="'+l+'">'+(pre==='A'?'A':'')+'</button>').join('');
+    m.innerHTML = '<div class="fh">'+esc(COL_LABEL[k]||k)+' <span class="muted">— '+esc(bkLabel(b))+'</span></div>'
+      + '<div class="fr"><span>文字色</span>'+sw('c', FMT.COLORS, f.c, 'A')+'</div>'
+      + '<div class="fr"><span>サイズ</span>'+FMT.SIZES.map(([v,l]) => '<button class="sz'+((f.s||'')===v?' on':'')+'" data-fk="s" data-v="'+v+'">'+l+'</button>').join('')
+      + '<button class="sz'+(f.b?' on':'')+'" data-fk="b" data-v="'+(f.b?'':'1')+'" style="font-weight:800">太字</button></div>'
+      + '<div class="fr"><span>セル</span>'+sw('bg', FMT.BGS, f.bg, 'bg')+'</div>'
+      + '<div class="fr"><span>ブッキング全体</span>'+sw('_row', FMT.BGS, row.bg, 'bg')+'</div>'
+      + '<div class="fr ft2"><button class="b6-btn sm" data-clear="1">このセルの書式をクリア</button><span class="muted" style="font-size:11px;margin-left:auto;white-space:nowrap">👥 全員に共有</span></div>';
+  };
+  draw();
+  m.addEventListener('click', async e => {
+    e.stopPropagation();
+    const bt = e.target.closest('button'); if(!bt) return;
+    if(bt.dataset.clear){ const o = a||b; if(fmtOf(o)[k]) await saveFmt(b, a, k, {c:'', s:'', b:'', bg:''}); draw(); return; }
+    const fk = bt.dataset.fk, v = bt.dataset.v;
+    if(fk==='_row') await saveFmt(b, null, '_row', {bg:v});
+    else await saveFmt(b, a, k, {[fk]: v});
+    draw();
+  });
+  document.body.appendChild(m);
+  m.style.left = Math.min(ev.clientX, innerWidth - m.offsetWidth - 8)+'px';
+  m.style.top = Math.min(ev.clientY, innerHeight - m.offsetHeight - 8)+'px';
+  setTimeout(()=>document.addEventListener('click', closeMenu, {once:true}), 0);
+}
+/* 書式の列があるか (なければ読み書きの $select に含めない) */
+async function detectFmt(){
+  const has = ln => dvGet("EntityDefinitions(LogicalName='"+ln+"')/Attributes(LogicalName='leenai_fmt')?$select=LogicalName").then(()=>true, ()=>false);
+  const [x, y] = await Promise.all([has(CFG.LN_BOOK), has(CFG.LN_ASG)]);
+  setHasFmt(x && y);
+}
+function setHasFmt(v){
+  S.hasFmt = v;
+  if(v){ if(!BK_FIELDS.includes('fmt')) BK_FIELDS.push('fmt'); if(!AS_FIELDS.includes('fmt')) AS_FIELDS.push('fmt'); }
+}
+/* 診断から: B-06 の 2 テーブルに leenai_fmt (複数行テキスト 4000) を作る。B-06 テーブル以外には作らない */
+async function createFmtColumns(){
+  if(!confirm('B-06 の 2 つのテーブルに「セル書式 (leenai_fmt)」列を作成します。よろしいですか？')) return;
+  let lang = 1041; try{ lang = (await dvGet('organizations?$select=languagecode')).value[0].languagecode || 1041; }catch(e){}
+  const res = [];
+  for(const ln of [CFG.LN_BOOK, CFG.LN_ASG]){
+    if(ln!==CFG.LN_BOOK && ln!==CFG.LN_ASG) throw new Error('blocked');
+    const base = "EntityDefinitions(LogicalName='"+ln+"')";
+    const exists = await dvGet(base+"/Attributes(LogicalName='leenai_fmt')?$select=LogicalName").then(()=>true, ()=>false);
+    if(exists){ res.push(ln+': 既にあります'); continue; }
+    try{
+      await dvFetch(base+'/Attributes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+        '@odata.type':'Microsoft.Dynamics.CRM.MemoAttributeMetadata', SchemaName:'leenai_fmt', MaxLength:4000, Format:'TextArea',
+        RequiredLevel:{Value:'None', CanBeChanged:true, ManagedPropertyLogicalName:'canmodifyrequirementlevelsettings'},
+        DisplayName:{'@odata.type':'Microsoft.Dynamics.CRM.Label', LocalizedLabels:[{'@odata.type':'Microsoft.Dynamics.CRM.LocalizedLabel', Label:'セル書式', LanguageCode:lang}]},
+        Description:{'@odata.type':'Microsoft.Dynamics.CRM.Label', LocalizedLabels:[{'@odata.type':'Microsoft.Dynamics.CRM.LocalizedLabel', Label:'B-06 セルの文字色・サイズ・ハイライト (JSON)', LanguageCode:lang}]},
+      })});
+      res.push(ln+': 作成しました');
+    }catch(e){ res.push(ln+': 失敗 — '+e.message.slice(0,200)); }
+  }
+  modal('書式の列', res.map(s=>'<div>'+esc(s)+'</div>').join('')+'<div class="muted" style="margin-top:8px">作成できたらページを再読み込みしてください。権限がなくて失敗した場合は、Power Apps でこの 2 テーブルに「複数行テキスト・最大 4000・スキーマ名 leenai_fmt」の列を追加してください。</div>', [{label:'再読み込み', pri:true, fn:()=>location.reload()},{label:'閉じる', fn:c=>c()}]);
 }
 
 /* ── 行・ブッキング操作 ── */
@@ -2262,12 +2384,12 @@ const EXPECT = {
     ['leenai_approval_raw','M',200],['leenai_bkgno','M',500],['leenai_invoiceno','M',500],['leenai_pod','M',500],['leenai_carrier','M',500],['leenai_vessel','M',1000],
     ['leenai_cyopen','D'],['leenai_cycut','D'],['leenai_etd','D'],['leenai_eta','D'],['leenai_cy_note','M',500],['leenai_etd_note','M',500],['leenai_eta_note','M',500],
     ['leenai_delivery','M',500],['leenai_source','S',20],['leenai_batch','S',40],['leenai_importkey','S',200],['leenai_createdby','S',200],
-    ['leenai_compass_id','S',40],['leenai_compass_status','S',20],['leenai_compass_at','DT'],['leenai_deleted','B']],
+    ['leenai_compass_id','S',40],['leenai_compass_status','S',20],['leenai_compass_at','DT'],['leenai_deleted','B'],['leenai_fmt','M',4000]],
   [CFG.LN_ASG]: [['leenai_name','S',200],['leenai_bookkey','S',40],['leenai_seq','I'],['leenai_bkgno','M',500],['leenai_pol','S',40],['leenai_grade','M',200],
     ['leenai_packer','M',500],['leenai_qty_raw','M',2000],['leenai_slots','M',4000],['leenai_datefrom','D'],['leenai_dateto','D'],['leenai_totalhon','I'],
     ['leenai_parse','S',20],['leenai_customs','M',500],['leenai_dray','M',500],['leenai_poapply','M',500],['leenai_podist','M',500],['leenai_drayfax','M',500],
     ['leenai_banyu','M',500],['leenai_memo','M',2000],['leenai_compass_detailid','S',40],['leenai_source','S',20],['leenai_batch','S',40],
-    ['leenai_importkey','S',200],['leenai_createdby','S',200],['leenai_deleted','B']],
+    ['leenai_importkey','S',200],['leenai_createdby','S',200],['leenai_deleted','B'],['leenai_fmt','M',4000]],
 };
 const TYPE_NAME = {S:'String', M:'Memo', I:'Integer', D:'DateTime', DT:'DateTime', B:'Boolean'};
 async function readAttrs(ln){
@@ -2305,6 +2427,8 @@ async function openDiag(){
       w('<div>'+(bad?'<span class="ng">❌ '+ln+': '+bad+' 列に問題</span>':'✅ '+ln+': 全 '+EXPECT[ln].length+' 列 OK')+'</div><details class="rp"'+(bad?' open':'')+'><summary>列の詳細</summary>'+h+'</table></details>');
     }catch(e){ w('<div class="ng">❌ '+ln+': '+esc(e.message.slice(0,160))+'</div>'); }
   }
+  w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">列なし — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成</button>')+'</div>');
+  const fb = $('#dg-fmt', md.el); if(fb) fb.addEventListener('click', createFmtColumns);
   try{
     const m = await readAttrs(CFG.LN_B05);
     const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
@@ -2454,6 +2578,11 @@ function initUI(){
     const td = ev.target.closest('td.ed');
     if(td && !td.querySelector('input,textarea,select')) startEdit(td);
   });
+  /* 右クリック → 書式 */
+  $('#b6-board').addEventListener('contextmenu', ev => {
+    const td = ev.target.closest('td.ed'); if(!td || td.querySelector('input,textarea,select')) return;
+    ev.preventDefault(); openFmt(ev, td);
+  });
   /* Packer日程・B-05 */
   $('#pk-load').addEventListener('click', loadPackerTab);
   $('#b5-load').addEventListener('click', loadB05Tab);
@@ -2482,6 +2611,7 @@ async function startTool(){
   initUI();
   await restorePrefs();
   loadMasters().then(()=>{ if(S.ready) renderBoard(); });
+  try{ await detectFmt(); }catch(e){ S.hasFmt = false; }
   await loadBoard();
 }
 
@@ -2502,6 +2632,7 @@ function startDemo(){
   $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
   S.store = buildDemoStore();
   S.store.compass = makeMemCompass();
+  setHasFmt(true);
   $('#demo-other').addEventListener('click', () => {
     const vis = visibleBookings().filter(b=>!b.deleted);
     if(!vis.length) return;
