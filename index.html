@@ -459,7 +459,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.2', date:'2026-11-11', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.3', date:'2026-11-11', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -469,6 +469,8 @@ const CFG = {
   REFRESH_MS: 20000,
   IDB: 'leenai_b06_v1',
   DEMO: new URLSearchParams(location.search).get('demo') === '1',
+  /* COMPASS への実際の書き込み。false の間は「反映する」を押しても確認だけで書き込まない (DOC §4-2 — 形兄の承認後に true) */
+  COMPASS_WRITE: false,
 };
 
 /* ══════════ CONST (DOC-B-06 §2-5 — 値を変えるのはここ 1 か所) ══════════ */
@@ -519,7 +521,8 @@ const DATE_KEYS = ['cyopen','cycut','etd','eta'];
 const CORE_KEYS = ['approval','bkgno','invoiceno','pod','carrier','vessel','cyopen','cycut','etd','eta'];
 /* Dataverse 列 (leenai_ + key) */
 const BK_FIELDS = ['bookkey','region','seq','port','approval','approval_raw','bkgno','invoiceno','pod','carrier','vessel',
-  'cyopen','cycut','etd','eta','cy_note','etd_note','eta_note','delivery','source','batch','importkey','createdby','deleted'];
+  'cyopen','cycut','etd','eta','cy_note','etd_note','eta_note','delivery','source','batch','importkey','createdby','deleted',
+  'compass_id','compass_status','compass_at'];
 const AS_FIELDS = ['bookkey','seq','bkgno','pol','grade','packer','qty_raw','slots','datefrom','dateto','totalhon','parse',
   'customs','dray','poapply','podist','drayfax','banyu','memo','source','batch','importkey','createdby','deleted'];
 const DATE_FIELDS = new Set(['cyopen','cycut','etd','eta','datefrom','dateto']);
@@ -629,7 +632,8 @@ async function dvGetAll(path){
   }
   return out;
 }
-/* 書き込みは B-06 テーブルだけ (B-05・COMPASS への書き込みはコード上も不可能にする) */
+/* 書き込みは B-06 テーブルだけ (B-05 への書き込みはコード上も不可能にする)。
+   COMPASS は「COMPASS に入力」の 1 経路だけ — cr49f_bookings への新規作成のみ (compassCreate で別に検査) */
 function assertB06(es){ if(es!==CFG.ES_BOOK && es!==CFG.ES_ASG) throw new Error('write blocked: '+es); }
 async function dvCreate(es, body){
   assertB06(es);
@@ -906,6 +910,8 @@ function cellHtml(col, b, a){
       if(k==='eta' && b.eta && b.etd && b.eta<b.etd) h += ' <span class="bdg d" title="ETA が ETD より前です">ETA&lt;ETD</span>';
       return h;
     }
+    if(k==='bkgno' && b.compass_status==='SENT') return esc(v)+' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
+    if(k==='bkgno' && b.compass_status==='ERROR') return esc(v)+' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
     return esc(v);
   }
   const v = a[k];
@@ -1186,6 +1192,8 @@ function metaHtml(o){ return '更新: '+esc(o.modifiedby||'—')+' · '+esc(fmtD
 function bookingMenu(ev, b){
   const items = [];
   if(!b.deleted){
+    if(b.compass_status==='SENT') items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
+    else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
     items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
@@ -1533,6 +1541,244 @@ function b05MapReport(){
     + '<h4 style="margin:10px 0 4px">② B-05 にあり B-06 に対応がない Packer（照合した月）</h4>'
     + (S.b05 ? (Object.keys(b05Only).length ? '<table class="b6-s"><tr><th>B-05 Packer</th><th class="num">件数</th></tr>'+Object.keys(b05Only).map(k=>'<tr><td>'+esc(k)+'</td><td class="num">'+b05Only[k]+'</td></tr>').join('')+'</table>' : '<div class="muted">なし</div>') : '<div class="muted">先に「照合」を実行してください</div>');
   modal('Packer 表記マッピング', h, [], true);
+}
+
+/* ══════════ COMPASS 入力 (DOC-B-06 §4-2 — 1次: ヘッダー cr49f_bookings の新規作成のみ) ══════════
+   流れ: ① チェック (COMPASS は読み取りのみ) → ② 送る内容の確認・選択 → ③「本当に COMPASS に反映しますか？」→ ④ 送信
+   - 送信前に重複 (同じ Booking no.) を COMPASS と B-06 の両方で再確認する
+   - CFG.COMPASS_WRITE=false の間は ④ をしない (試験モード)
+   - 品目明細 (cr49f_booking_details) は 2次。B-06 から COMPASS の修正・削除はしない */
+const COMPASS = {
+  ES: 'cr49f_bookings', LOGICAL: 'cr49f_booking',
+  FIELDS: [   /* B-06 → COMPASS 列 (DOC-Z-06) */
+    {k:'bkgno',     col:'cr49f_booking_no',        label:'Booking no.', val:b=>firstLine(b.bkgno)},
+    {k:'invoiceno', col:'cr49f_invoice_no',        label:'Invoice no.', val:b=>firstLine(b.invoiceno)},
+    {k:'vessel',    col:'cr49f_main_ship_name',    label:'本船名',       val:b=>firstLine(b.vessel)},
+    {k:'cyopen',    col:'cr49f_cy_open',           label:'CY Open',     date:true},
+    {k:'cycut',     col:'cr49f_cy_cut',            label:'CY Cut',      date:true},
+    {k:'etd',       col:'cr49f_etd',               label:'ETD',         date:true},
+    {k:'eta',       col:'cr49f_eta',               label:'ETA',         date:true},
+    {k:'delivery',  col:'crcf9_delivery_location', label:'搬入先',       val:b=>str(b.delivery).trim()},
+  ],
+  LOOKUPS: [  /* COMPASS では一覧から選ぶ項目 — 名前が 1 件だけ完全一致した時だけ自動で選ぶ */
+    {k:'port',    col:'cr49f_region_japan_id', label:'POL (港)',  key:b=>str(b.port).trim()},
+    {k:'pod',     col:'cr49f_region_id',       label:'POD',       key:b=>firstLine(b.pod)},
+    {k:'carrier', col:'cr49f_carrier_id',      label:'船社',       key:b=>firstLine(b.carrier).replace(/\s*[(（].*$/,'').trim()},
+  ],
+  NEED: ['bkgno','vessel','cyopen','cycut','etd'],   /* B-06 側で必須 */
+  AUTO_COLS: ['ownerid','owneridtype','statecode','statuscode','overriddencreatedon','importsequencenumber','timezoneruleversionnumber','utcconversiontimezonecode','transactioncurrencyid'],
+};
+function compassDate(v, dateOnly){ return dateOnly ? v : v+'T00:00:00+09:00'; }
+
+/* ── COMPASS 読み書き (Dataverse) ── */
+const DvCompass = {
+  _meta:null, _opts:{},
+  async meta(){
+    if(this._meta) return this._meta;
+    let ed;
+    try{ ed = await dvGet("EntityDefinitions(LogicalName='"+COMPASS.LOGICAL+"')?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute"); }
+    catch(e){
+      if(e.status!==404) throw e;
+      ed = (await dvGet('EntityDefinitions?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute')).value.find(x=>x.EntitySetName===COMPASS.ES);
+    }
+    if(!ed || ed.EntitySetName!==COMPASS.ES) throw new Error('COMPASS のテーブル '+COMPASS.ES+' が見つかりません');
+    const base = "EntityDefinitions(LogicalName='"+ed.LogicalName+"')";
+    const [at, dt, rel] = await Promise.all([
+      dvGet(base+'/Attributes?$select=LogicalName,AttributeType,RequiredLevel,IsValidForCreate,SourceType,AttributeOf,DisplayName'),
+      dvGet(base+'/Attributes/Microsoft.Dynamics.CRM.DateTimeAttributeMetadata?$select=LogicalName,DateTimeBehavior'),
+      dvGet(base+'/ManyToOneRelationships?$select=ReferencingAttribute,ReferencedEntity,ReferencingEntityNavigationPropertyName')]);
+    const dateOnly = new Set((dt.value||[]).filter(x=>x.DateTimeBehavior && x.DateTimeBehavior.Value==='DateOnly').map(x=>x.LogicalName));
+    const attrs = new Map((at.value||[]).map(x=>[x.LogicalName, {
+      type:x.AttributeType, required:(x.RequiredLevel&&x.RequiredLevel.Value)||'None', createOk:x.IsValidForCreate!==false,
+      source:x.SourceType||0, of:x.AttributeOf||null, dateOnly:dateOnly.has(x.LogicalName),
+      label:(x.DisplayName&&x.DisplayName.UserLocalizedLabel&&x.DisplayName.UserLocalizedLabel.Label)||x.LogicalName}]));
+    const rels = new Map((rel.value||[]).map(x=>[x.ReferencingAttribute, {target:x.ReferencedEntity, nav:x.ReferencingEntityNavigationPropertyName}]));
+    return this._meta = {entity:ed, attrs:attrs, rels:rels};
+  },
+  async options(entity){
+    if(this._opts[entity]) return this._opts[entity];
+    const ed = await dvGet("EntityDefinitions(LogicalName='"+entity+"')?$select=EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute");
+    const sel = ed.EntitySetName+'?$select='+ed.PrimaryIdAttribute+','+ed.PrimaryNameAttribute+'&$orderby='+ed.PrimaryNameAttribute;
+    let rows; try{ rows = await dvGetAll(sel+'&$filter=statecode eq 0'); }catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(sel); }
+    return this._opts[entity] = {set:ed.EntitySetName, list:rows.map(r=>({id:r[ed.PrimaryIdAttribute], name:str(r[ed.PrimaryNameAttribute])}))};
+  },
+  async findByBookingNo(no){
+    const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
+    const rows = await dvGetAll(COMPASS.ES+'?$select='+pid+',cr49f_booking_no,createdon&$filter='+encodeURIComponent('cr49f_booking_no eq '+qk(no))+'&$top=5');
+    return rows.map(r=>({id:r[pid], at:r.createdon}));
+  },
+  async create(body, allowed){
+    compassGuard(COMPASS.ES, body, allowed);
+    const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
+    const r = await dvFetch(COMPASS.ES+'?$select='+pid, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify(body)});
+    return (await r.json())[pid];
+  },
+};
+DvStore.compass = DvCompass;
+/* COMPASS への書き込みは cr49f_bookings の新規作成・決めた列だけ */
+function compassGuard(es, body, allowed){
+  if(es!==COMPASS.ES) throw new Error('write blocked: '+es);
+  const bad = Object.keys(body).filter(k=>!allowed.has(k));
+  if(bad.length) throw new Error('write blocked (列): '+bad.join(', '));
+}
+
+/* ── デモ用 COMPASS (メモリ。実際の COMPASS には触れない) ── */
+function makeMemCompass(){
+  const recs = [];
+  const A = (type, label, extra) => Object.assign({type:type, required:'None', createOk:true, source:0, of:null, dateOnly:false, label:label}, extra||{});
+  const attrs = new Map([
+    ['cr49f_bookingid', A('Uniqueidentifier','ID',{required:'SystemRequired'})], ['cr49f_name', A('String','名前')],
+    ['cr49f_booking_no', A('String','Booking No.')], ['cr49f_invoice_no', A('String','Invoice No.')], ['cr49f_main_ship_name', A('String','本船名')],
+    ['cr49f_cy_open', A('DateTime','CY Open',{dateOnly:true})], ['cr49f_cy_cut', A('DateTime','CY Cut',{dateOnly:true})],
+    ['cr49f_etd', A('DateTime','ETD',{dateOnly:true})], ['cr49f_eta', A('DateTime','ETA',{dateOnly:true})], ['crcf9_delivery_location', A('String','搬入先')],
+    ['cr49f_region_japan_id', A('Lookup','POL')], ['cr49f_region_id', A('Lookup','POD')], ['cr49f_carrier_id', A('Lookup','船社')],
+    ['cr49f_sale_contract_id', A('Lookup','販売契約（デモ: 必須の例）',{required:'ApplicationRequired'})], ['cr49f_remain', A('Decimal','残（デモ: 計算列の例）',{source:2})],
+  ]);
+  const rels = new Map([['cr49f_region_japan_id',{target:'demo_port',nav:'cr49f_region_japan_id'}],['cr49f_region_id',{target:'demo_pod',nav:'cr49f_region_id'}],['cr49f_carrier_id',{target:'demo_carrier',nav:'cr49f_carrier_id'}]]);
+  const L = names => ({set:'demo', list:names.map(n=>({id:uuid(), name:n}))});
+  const opts = {demo_port:L(Object.keys(PORT_REGION)), demo_pod:L(['BUSAN','KWANGYANG','PENANG','KAOHSIUNG','HOCHIMINH','LAEM CHABANG']), demo_carrier:L(['ONE','KM','HA','SK','SINOKOR','EVERGREEN'])};
+  return {
+    demo:true,
+    async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
+    async options(entity){ return opts[entity]; },
+    async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
+    async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
+  };
+}
+
+/* ① チェック (読み取りのみ) → 送る内容 */
+async function compassCheck(b){
+  const C = S.store.compass;
+  const R = {blocks:[], warns:[], infos:[], fields:[], lookups:[], allowed:new Set(), meta:null};
+  if(b.deleted) R.blocks.push('削除済みのブッキングです');
+  if(b.compass_status==='SENT') R.blocks.push('COMPASS 入力済みです（ID '+str(b.compass_id)+'）');
+  COMPASS.NEED.forEach(k => { if(blank(b[k])) R.blocks.push(COL_LABEL[k]+' が空です'); });
+  if(/\n/.test(str(b.bkgno))) R.warns.push('Booking no. に複数行あり → 1 行目「'+firstLine(b.bkgno)+'」だけ送ります');
+  const M = R.meta = await C.meta();
+  /* 重複: COMPASS に同じ Booking no. */
+  if(!blank(b.bkgno)){
+    const dup = await C.findByBookingNo(firstLine(b.bkgno));
+    if(dup.length) R.blocks.push('COMPASS に同じ Booking no. が既にあります（'+dup.length+' 件 — '+dup.map(d=>fmtDT(d.at)).join(', ')+'）');
+  }
+  COMPASS.FIELDS.forEach(f => {
+    const a = M.attrs.get(f.col), v = f.date ? (b[f.k]||'') : f.val(b);
+    const row = {label:f.label, col:f.col, b06:v, send:null, note:''};
+    if(!a) row.note = 'COMPASS に列がない → 送らない';
+    else if(!a.createOk) row.note = 'COMPASS で作成時に書けない列 → 送らない';
+    else if(a.type==='Lookup' || a.type==='Customer') row.note = 'COMPASS では一覧から選ぶ列 → 1次では送らない';
+    else if(blank(v)) row.note = '空 → 送らない';
+    else { row.send = f.date ? compassDate(v, a.dateOnly) : v; R.allowed.add(f.col); }
+    if(f.date && b[noteKey(f.k)]) row.note = (row.note?row.note+' / ':'')+'※ '+b[noteKey(f.k)];
+    R.fields.push(row);
+  });
+  for(const f of COMPASS.LOOKUPS){
+    const rel = M.rels.get(f.col), key = f.key(b);
+    const L = {label:f.label, col:f.col, key:key, nav:null, set:null, list:[], sel:'', note:''};
+    if(!rel){ L.note = 'COMPASS に一覧の列がない → 送らない'; R.lookups.push(L); continue; }
+    try{
+      const o = await C.options(rel.target);
+      L.nav = rel.nav; L.set = o.set; L.list = o.list;
+      const hit = o.list.filter(x => x.name.trim().toUpperCase()===key.toUpperCase());
+      if(hit.length===1){ L.sel = hit[0].id; L.note = '自動で選択（名前が 1 件一致）'; }
+      else L.note = blank(key) ? 'B-06 が空 — 必要なら選んでください' : (hit.length ? '同じ名前が '+hit.length+' 件 — 選んでください' : '「'+key+'」が一覧にない — 選んでください');
+      R.allowed.add(rel.nav+'@odata.bind');
+    }catch(e){ L.note = '一覧を読めません（'+String(e.status||'')+'）→ 送らない'; }
+    R.lookups.push(L);
+  }
+  /* COMPASS 側で必須なのに B-06 から送らない列 */
+  const sent = new Set(COMPASS.FIELDS.map(f=>f.col).concat(COMPASS.LOOKUPS.map(f=>f.col)));
+  const miss = [];
+  M.attrs.forEach((a, k) => {
+    if((a.required==='ApplicationRequired' || a.required==='SystemRequired') && a.createOk && !a.of && !sent.has(k)
+       && k!==M.entity.PrimaryIdAttribute && !COMPASS.AUTO_COLS.includes(k)) miss.push(a.label+'（'+k+'）');
+  });
+  if(miss.length) R.warns.push('COMPASS で必須なのに B-06 から送らない項目: '+miss.join('、'));
+  const calc = []; M.attrs.forEach((a,k) => { if(a.source===1 || a.source===2) calc.push(a.label); });
+  if(calc.length) R.infos.push('COMPASS 側で自動計算される列: '+calc.join('、'));
+  const live = b.rows.filter(a=>!a.deleted), hon = live.reduce((t,a)=>t+(+a.totalhon||0),0);
+  R.infos.push('Packer 行 '+live.length+' 行・本数合計 '+hon+' 本（品目明細は 1次では送りません — ヘッダーだけ作成）');
+  return R;
+}
+function compassBody(R, picks){
+  const body = {};
+  R.fields.forEach(f => { if(f.send!=null) body[f.col] = f.send; });
+  R.lookups.forEach((L, i) => { const id = picks[i]; if(id && L.nav && L.set) body[L.nav+'@odata.bind'] = '/'+L.set+'('+id+')'; });
+  return body;
+}
+
+/* ② 送る内容の確認 */
+async function openCompass(b){
+  toast('COMPASS を確認しています（読み取りのみ）…', 'info');
+  let R;
+  try{ R = await compassCheck(b); }
+  catch(e){ modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">確認に失敗</span> '+esc(e.message.slice(0,300))+'</div><div class="muted" style="margin-top:6px">COMPASS を読む権限がない場合もこの表示になります。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+  const li = (arr, cls) => arr.map(x=>'<div style="margin:2px 0"><span class="bdg '+cls+'">'+(cls==='d'?'✕':cls==='w'?'⚠':'i')+'</span> '+esc(x)+'</div>').join('');
+  let h = (CFG.COMPASS_WRITE || S.store.compass.demo) ? '' : '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">試験モード: 最後の「反映する」まで進めますが、COMPASS には書き込みません</div>';
+  if(S.store.compass.demo) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">🧪 デモ: COMPASS もメモリ上の仮のものです（実際の COMPASS には触れません）</div>';
+  h += li(R.blocks,'d') + li(R.warns,'w') + li(R.infos,'i');
+  h += '<table class="b6-s" style="margin-top:8px"><tr><th>項目</th><th>B-06 の値</th><th>COMPASS に送る値</th><th>メモ</th></tr>';
+  R.fields.forEach(f => { h += '<tr><td>'+esc(f.label)+'<div class="muted" style="font-size:11px">'+esc(f.col)+'</div></td><td>'+esc(f.b06)+'</td><td>'+(f.send!=null?'<b>'+esc(f.send)+'</b>':'<span class="muted">—</span>')+'</td><td>'+esc(f.note)+'</td></tr>'; });
+  R.lookups.forEach((L, i) => {
+    const sel = L.list.length ? '<select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'+L.list.map(o=>'<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select>' : '<span class="muted">—</span>';
+    h += '<tr><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.key)+'</td><td>'+sel+'</td><td>'+esc(L.note)+'</td></tr>';
+  });
+  h += '</table>';
+  const m = modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), h, [
+    {label:'キャンセル', fn:c=>c()},
+    {label:'送信内容を確認 →', pri:true, fn:c=>{
+      const picks = {}; $$('.cp-pick', m.el).forEach(s => { picks[+s.dataset.i] = s.value; });
+      c(); confirmCompass(b, R, picks);
+    }}], true);
+  if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
+}
+
+/* ③「本当に COMPASS に反映しますか？」→ ④ 送信 */
+function confirmCompass(b, R, picks){
+  const body = compassBody(R, picks);
+  const live = b.rows.filter(a=>!a.deleted), hon = live.reduce((t,a)=>t+(+a.totalhon||0),0);
+  const pickName = i => { const L = R.lookups[i]; const o = L.list.find(x=>x.id===picks[i]); return o ? o.name : '（送らない）'; };
+  const test = !CFG.COMPASS_WRITE && !S.store.compass.demo;
+  let h = '<div style="font-size:15px;font-weight:700;margin-bottom:8px">本当に COMPASS に反映しますか？</div>';
+  h += '<table class="b6-s"><tr><th>Booking no.</th><td><b>'+esc(firstLine(b.bkgno))+'</b></td></tr><tr><th>本船</th><td>'+esc(firstLine(b.vessel))+'</td></tr>'
+    + '<tr><th>CY OPEN / CUT</th><td>'+esc(b.cyopen||'—')+' / '+esc(b.cycut||'—')+'</td></tr><tr><th>ETD / ETA</th><td>'+esc(b.etd||'—')+' / '+esc(b.eta||'—')+'</td></tr>'
+    + R.lookups.map((L,i)=>'<tr><th>'+esc(L.label)+'</th><td>'+esc(pickName(i))+'</td></tr>').join('')
+    + '<tr><th>Packer 行・本数</th><td>'+live.length+' 行・'+hon+' 本（明細は送りません）</td></tr></table>';
+  if(R.warns.length) h += '<div style="margin-top:8px">'+R.warns.map(w=>'<div><span class="bdg w">⚠</span> '+esc(w)+'</div>').join('')+'</div>';
+  h += '<div class="muted" style="margin-top:8px;font-size:12px">反映後の修正・取消は COMPASS で行います（B-06 からは COMPASS を変更・削除できません）。</div>';
+  if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「反映する」を押しても COMPASS には書き込みません（送信内容の確認まで）</div>';
+  let busy = false;
+  modal('⚠ COMPASS への反映の確認', h, [
+    {label:'やめる', fn:c=>c()},
+    {label:'反映する', pri:true, fn:async c=>{
+      if(busy) return; busy = true;
+      try{ await sendCompass(b, R, body, test); c(); }
+      catch(e){ busy = false; toast(e.message.slice(0,160), 'danger'); }
+    }}]);
+}
+async function sendCompass(b, R, body, test){
+  const C = S.store.compass;
+  /* 直前の再確認: B-06 の状態と COMPASS の重複 */
+  const cur = await S.store.get('B', b.id);
+  if(cur.compass_status==='SENT') throw new Error('他の人が先に COMPASS へ入力しました（ID '+cur.compass_id+'）。画面を再読込してください');
+  const dup = await C.findByBookingNo(firstLine(b.bkgno));
+  if(dup.length) throw new Error('COMPASS に同じ Booking no. が既にあります。送信を中止しました');
+  if(test){
+    modal('試験モード — 送信内容', '<div>COMPASS には書き込んでいません。実際に送る場合の内容です。</div><pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">POST '+esc(COMPASS.ES)+'\n'+esc(JSON.stringify(body, null, 2))+'</pre>', [{label:'閉じる', fn:c=>c()}], true);
+    return;
+  }
+  let id;
+  try{ id = await C.create(body, R.allowed); }
+  catch(e){
+    await saveBooking(b, {compass_status:'ERROR', compass_at:new Date().toISOString()}, 'bkgno');
+    modal('COMPASS への入力に失敗', '<div><span class="bdg d">失敗</span> '+esc(e.message.slice(0,500))+'</div><div class="muted" style="margin-top:6px">COMPASS には作成されていません。内容を直してもう一度お試しください。</div>', [{label:'閉じる', fn:c=>c()}]);
+    return;
+  }
+  await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
+  toast('COMPASS に入力しました（'+bkLabel(b)+'）', 'ok');
+}
+function compassInfo(b){
+  modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>入力日時</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
+    + '<div class="muted" style="margin-top:6px;font-size:12px">修正・取消は COMPASS で行ってください。</div>', [{label:'閉じる', fn:c=>c()}]);
 }
 
 /* ══════════ IMPORT (④ 取込 — SheetJS, ブラウザ内のみ) ══════════ */
@@ -2118,6 +2364,7 @@ function startDemo(){
   $('#b6-demo-bar').style.display = '';
   $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
   S.store = buildDemoStore();
+  S.store.compass = makeMemCompass();
   $('#demo-other').addEventListener('click', () => {
     const vis = visibleBookings().filter(b=>!b.deleted);
     if(!vis.length) return;
