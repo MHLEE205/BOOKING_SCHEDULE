@@ -205,8 +205,11 @@ details.rp summary{cursor:pointer;font-size:12.5px}
 </div>
 <script>
 /*PARSE-BEGIN*/
-/* ══════════ PARSE — QTY 解析 (DOC-B-06 §2-5 d) ══════════
-   不確実なら解析しない (other)。qty_raw は常に原文のまま保存する。 */
+/* ══════════ PARSE — QTY 解析 (DOC-B-06 §2-5 d) v0.2 ══════════
+   行ごとに解析 → まとめる。不確実なら解析しない (other)。qty_raw は常に原文のまま保存する。
+   - 日付: M/D · M月D日 · YYYY/M/D · D日 (月は基準日から推定) · M/D,D,D (同じ月の続き)
+   - 本数: nC · nCT · n本 · nコン · (n) · (n→m)=m
+   - 曖昧 (前後・頃・以降・まで・週・M/D~ 単独・M/D→ 変更・キャンセル) → other */
 const PARSE = (function(){
   const DAY = 86400000;
   function nfkcSame(s){ /* 1文字ずつ NFKC (長さを変えない → 元文字列と位置が一致) */
@@ -216,7 +219,7 @@ const PARSE = (function(){
   function ymd(y,m,d){ return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
   function validMD(m,d){ return m>=1&&m<=12&&d>=1&&d<=31; }
   function utc(s){ const p=s.split('-'); return Date.UTC(+p[0],+p[1]-1,+p[2]); }
-  /* 年のない M/D → 基準日 ±60 日で最も近い年。合わなければ null */
+  /* 年のない M/D → 基準日 ±limit 日で最も近い年。合わなければ null */
   function resolveYear(m,d,ref,limit){
     if(!validMD(m,d)) return null;
     const r=utc(ref), y=+ref.slice(0,4); let best=null, bd=Infinity;
@@ -229,86 +232,206 @@ const PARSE = (function(){
     if(limit!=null && bd>limit*DAY) return null;
     return best;
   }
-  const DT = '(?<![\\d/])(\\d{1,2})\\/(\\d{1,2})(?![\\d/])';
-  const TM = '(?:\\s*(\\d{1,2}:\\d{2}))?';
-  const SEP_ONLY = /^[\s,、，。+・&と\-ー－~〜]*$/;
+  /* 月のない D日 → 基準日の前月・当月・翌月で最も近い日 (±limit 日) */
+  function resolveDay(d,ref,limit){
+    if(!(d>=1&&d<=31)) return null;
+    const r=utc(ref), y=+ref.slice(0,4), m=+ref.slice(5,7); let best=null, bd=Infinity;
+    for(const k of [-1,0,1]){
+      const t=Date.UTC(y,m-1+k,d), chk=new Date(t);
+      if(chk.getUTCDate()!==d) continue;
+      const diff=Math.abs(t-r); if(diff<bd){bd=diff;best=chk.toISOString().slice(0,10);}
+    }
+    return (best && bd<=limit*DAY) ? best : null;
+  }
+  /* 解析用の正規化 (note もこの文字列から作る) */
+  function norm(s){
+    return s.split(/([①-⓿]+)/).map((x,i)=> i%2 ? x : nfkcSame(x)).join('')   /* ①②… はそのまま (数字にしない) */
+      .replace(/[‐‑–—―−]/g,'-').replace(/〜/g,'~').replace(/×/g,'x').replace(/➡/g,'→').replace(/\r/g,'')
+      .replace(/(?<!\d)20\d\d\/(\d{1,2})\/(\d{1,2})(?!\d)/g,'$1/$2')
+      .replace(/(?<!\d)(\d{1,2})月(\d{1,2})日/g,'$1/$2 ');
+  }
+  /* 正規表現の部品 */
+  const MD   = '(?<![\\d/.]|\\d:)(?:(\\d{1,2})\\/(\\d{1,2})|(\\d{1,2})日(?![間分以]))(?![\\d/])';   /* M/D または D日 (3 グループ) */
+  const WD   = '(?:\\s*\\([月火水木金土日祝]\\))?';
+  const TM   = '(?:\\s*(\\d{1,2}:\\d{2})~?)?';
+  const UNIT = '(?:CT|C|本|コン)(?![a-z目])';
+  const CNT  = '(?:(\\d+)(?:\\s*→\\s*(\\d+))?\\s*'+UNIT+'|\\((\\d+)(?:\\s*→\\s*(\\d+))?\\))';   /* 4 グループ */
+  const GAP  = '((?:\\s|x|~|から|\\([月火水木金土日祝]\\)|\\d{1,2}:\\d{2}|[/,](?=\\s*\\d{1,2}:\\d{2})|[^\\d\\s,、/()~x+→])*?)';
+  const RE_DATE   = new RegExp(MD,'i');
+  const RE_COUNT  = new RegExp('(?<![\\d/:.]|\\d,)\\d+\\s*'+UNIT+'|\\(\\d+(?:\\s*→\\s*\\d+)?\\)','i');
+  const RE_PREFIX = /^[\s・*\-]*(?:\((\d+)(?:\s*→\s*(\d+))?\)|(\d+)\s*(?:CT|C|本|コン)(?![a-z目])(?:\s*→\s*(\d+)\s*(?:CT|C|本|コン)?)?)\s*[-:,、]?\s*/i;
+  const RE_FUZZY  = new RegExp(MD+WD+'\\s*(?:前後|前|頃|以降|以後|まで|迄|週|~(?!\\s*\\d{1,2}\\/\\d)(?!\\s*\\d{1,2}(?!\\d)(?!\\s*(?:CT|C|本|コン|\\()))|→\\s*\\d)','i');   /* ~ は期間の終わり (~19 · ~1/29) が続く時だけ可 · →数字 は日付変更 */
+  const RE_CANCEL = /キャンセル|cancel|取消|取り消し|後ろ倒し|延期/i;
+  const SEP_ONLY  = /^[\s,、，。+・&と\-~:]*$/;
+
+  function cnt(h,i){ /* CNT の 4 グループ → 本数 (→ の後ろを優先) */
+    if(h[i]!=null) return +(h[i+1]!=null ? h[i+1] : h[i]);
+    if(h[i+2]!=null) return +(h[i+3]!=null ? h[i+3] : h[i+2]);
+    return null;
+  }
+
+  /* 1 行の解析 → {fail, slots, total, countN, bare, note} */
+  function parseLine(L, ref){
+    const W = L.split(''), used = new Array(L.length).fill(false);
+    const slots = [], extra = [];
+    let fail = false;
+    const work = () => W.join('');
+    const consume = (st,en) => { for(let i=st;i<en;i++){ used[i]=true; W[i]='\u0001'; } };
+    function date(h,i){ /* MD の 3 グループ → YYYY-MM-DD */
+      const v = h[i]!=null ? resolveYear(+h[i],+h[i+1],ref,60) : resolveDay(+h[i+2],ref,45);
+      if(!v) fail = true; return v;
+    }
+    function run(re, fn){
+      re.lastIndex=0; const s=work(); let m; const hits=[];
+      while((m=re.exec(s))){ hits.push(m); if(m[0].length===0) re.lastIndex++; }
+      hits.forEach(h=>{ if(fn(h)!==false) consume(h.index, h.index+h[0].length); });
+    }
+    function gapNote(g){ const t=(g||'').replace(/\d{1,2}:\d{2}|\([月火水木金土日祝]\)|から|[x~\/,]/gi,' ').replace(/\s+/g,' ').trim(); if(t) extra.push(t); }
+    function gapTime(g){ const m=/(\d{1,2}:\d{2})/.exec(g||''); return m ? m[1] : null; }
+
+    /* ⓪ 行頭の本数 (nC- / (n)) — 後で 総本数 / 単独日付の本数 / 本数のみ のどれかになる */
+    const P = RE_PREFIX.exec(L);
+    const pLen = P ? P[0].length : 0;
+    const pN = P ? +(P[2]!=null ? P[2] : P[1]!=null ? P[1] : P[4]!=null ? P[4] : P[3]) : null;
+    const rest = L.slice(pLen);
+    const dateStart = new RegExp('^[\\s・*]*'+MD,'i').test(rest);
+    let total = null;
+
+    /* ① (n) + 日付の列挙 (本数なし) : (2)2/19,2/20 · 3C 9/25 9/26 · (3)6/9,10,11 */
+    if(P && dateStart){
+      const ITEM = MD+'(?:\\s*[,、・]\\s*\\d{1,2}(?![\\d/:日]))*'+WD;
+      const lm = new RegExp('^'+ITEM+'(?:\\s*[,、・と\\s]\\s*'+ITEM+')*','i').exec(rest);
+      if(lm && !new RegExp('^\\s*(?:'+CNT+'|\\(|\\d{1,2}\\/|\\d+\\s*[^\\d:\\s])','i').test(rest.slice(lm[0].length))){
+        const ds = []; const re = new RegExp(MD+'|(?<=[,、・]\\s*)(\\d{1,2})(?![\\d/:])','gi'); let m, lastM=null;
+        while((m=re.exec(lm[0]))){
+          if(m[4]!=null){ if(lastM==null){ fail=true; break; } const v=resolveYear(lastM,+m[4],ref,60); if(!v){fail=true;break;} ds.push(v); }
+          else { const v=date(m,1); if(!v) break; ds.push(v); lastM = +v.slice(5,7); }
+        }
+        const asc = ds.every((d,i)=> i===0 || utc(d)>utc(ds[i-1]));
+        if(!fail && ds.length>=2 && asc && ds.length<=pN){
+          ds.forEach(d=>slots.push({pos:pLen, s:{d:d, n:null}}));
+          total = pN; consume(0, pLen+lm[0].length);
+        } else if(!fail && ds.length>=2){ return {fail:true}; }
+      }
+    }
+    if(fail) return {fail:true};
+    /* ② 日のみの列挙: 17(1)、18(2) · (10) 17(1)、18(2)、21(3) */
+    {
+      const dl = /^(\d{1,2})\((\d+)\)(?:\s*[,、]\s*(\d{1,2})\((\d+)\))*/.exec(rest);
+      if(dl && (P || /[,、]/.test(dl[0]))){
+        const re=/(\d{1,2})\((\d+)\)/g; let m; const out=[];
+        while((m=re.exec(dl[0]))){ const v=resolveDay(+m[1],ref,45); if(!v) return {fail:true}; out.push({d:v,n:+m[2]}); }
+        out.forEach(s=>slots.push({pos:pLen, s:s})); consume(pLen, pLen+dl[0].length);
+      }
+    }
+    /* ③ 期間 M/D-M/D(n) · M/D~D (n は後ろの (n)、なければ行頭の nC) */
+    run(new RegExp('(?<![\\d/.:])(\\d{1,2})\\/(\\d{1,2})'+WD+'\\s*[-~]\\s*(?:(\\d{1,2})\\/)?(\\d{1,2})(?![\\d/本CcT月日時:])'+WD+'(?:\\s*\\((\\d+)\\))?'+TM,'gi'), h=>{
+      const m1=+h[1], d1=+h[2], m2=h[3]?+h[3]:m1, d2=+h[4];
+      const a=resolveYear(m1,d1,ref,60), b=resolveYear(m2,d2,ref,60); if(!a||!b){ fail=true; return false; }
+      if(utc(b)<=utc(a) || utc(b)-utc(a)>31*DAY){ fail=true; return false; }
+      const s={d:a,d2:b,n:h[5]!=null?+h[5]:null}; if(h[6]) s.t=h[6]; slots.push({pos:h.index,s:s});
+    });
+    if(fail) return {fail:true};
+    /* ④ 日付が行頭の行: 日付 [曜日・時刻・語] 本数 [時刻] (、語 本数 … は同じ日付) */
+    if(dateStart){
+      const re = new RegExp(MD+WD+GAP+CNT+TM,'gi');
+      const cont = new RegExp('\\s*[,、]\\s*'+GAP+CNT+TM,'iy');
+      const s=work(); let m; const hits=[];
+      while((m=re.exec(s))) hits.push(m);
+      hits.forEach(h=>{
+        const d=date(h,1); if(!d) return;
+        const sl={d:d,n:cnt(h,5)}; const t=h[9]||gapTime(h[4]); if(t) sl.t=t;
+        slots.push({pos:h.index,s:sl}); gapNote(h[4]);
+        let end=h.index+h[0].length; cont.lastIndex=end; let c;
+        while((c=cont.exec(s))){
+          const sc={d:d,n:cnt(c,2)}; const tc=c[6]||gapTime(c[1]); if(tc) sc.t=tc;
+          slots.push({pos:end,s:sc}); gapNote(c[1]); end=cont.lastIndex;
+        }
+        consume(h.index,end);
+      });
+      if(fail) return {fail:true};
+    }
+    /* ⑤ 自前の本数: M/D(n) · M/D n本 (行のどこでも) */
+    run(new RegExp(MD+WD+TM+'\\s*\\((\\d+)(?:\\s*→\\s*(\\d+))?\\)'+TM,'gi'), h=>{
+      const d=date(h,1); if(!d) return false;
+      const s={d:d,n:+(h[6]!=null?h[6]:h[5])}; const t=h[4]||h[7]; if(t) s.t=t; slots.push({pos:h.index,s:s});
+    });
+    run(new RegExp(MD+WD+'\\s*(\\d+)\\s*本'+TM,'gi'), h=>{
+      const d=date(h,1); if(!d) return false;
+      const s={d:d,n:+h[4]}; if(h[5]) s.t=h[5]; slots.push({pos:h.index,s:s});
+    });
+    /* ⑥ 本数が前: nC-M/D · (n)M/D
+       行頭の nC/(n) は、行に他の本数付き日付が既にあれば総本数 (例: (6)5/22と5/25に3本 → 5/22 に 6 を付けない) */
+    const atHead = h => P && h.index < pLen && slots.length>0;
+    run(new RegExp('(?<![\\d/:.]|\\d,)(\\d+)\\s*(?:CT|C|本)\\s*[-,、:]?\\s*'+MD+WD+TM,'gi'), h=>{
+      if(atHead(h)) return false;
+      const d=date(h,2); if(!d) return false;
+      const s={d:d,n:+h[1]}; if(h[5]) s.t=h[5]; slots.push({pos:h.index,s:s});
+    });
+    run(new RegExp('\\((\\d+)\\)\\s*:?\\s*'+MD+WD+TM,'gi'), h=>{
+      if(atHead(h)) return false;
+      const d=date(h,2); if(!d) return false;
+      const s={d:d,n:+h[1]}; if(h[5]) s.t=h[5]; slots.push({pos:h.index,s:s});
+    });
+    if(fail) return {fail:true};
+    /* ⑦ 残った行頭の本数 */
+    let countN = null;
+    if(P && pLen>0 && !used.slice(0,pLen).some(Boolean)){
+      if(slots.length===1 && slots[0].s.n==null){ slots[0].s.n=pN; consume(0,pLen); }
+      else if(slots.length){ total=(total||0)+pN; consume(0,pLen); }
+      else if(!RE_DATE.test(work().slice(pLen))){ countN=pN; consume(0,pLen); }
+    }
+    /* ⑧ 日付だけの行 (本数は先頭行の nC) : 9/9 13:00 */
+    let bare = null;
+    if(!P && !slots.length && dateStart){
+      const bm = new RegExp('^[\\s・*]*'+MD+WD+TM,'i').exec(L);
+      if(bm){ const d=date(bm,1); if(!d) return {fail:true}; bare={d:d,n:null}; if(bm[4]) bare.t=bm[4]; consume(0,bm[0].length); }
+    }
+    /* ⑨ 残り: 日付・本数が残る = 一部しか読めていない → 解析しない */
+    const left = work().replace(/\u0001+/g,' ').replace(/\(\s*\)/g,' ');
+    if(RE_DATE.test(left) || RE_COUNT.test(left)) return {fail:true};
+    const note = [left.trim()].concat(extra).filter(x=>x && !SEP_ONLY.test(x)).join(' ').replace(/^[\s,、:\-]+|[\s,、]+$/g,'');
+    slots.sort((a,b)=>a.pos-b.pos);
+    return {fail:false, slots:slots.map(x=>x.s), total:total, countN:countN, bare:bare, note:note};
+  }
 
   function parse(raw, ctx){
     ctx = ctx||{};
     const src = raw==null ? '' : String(raw);
     if(!src.trim()) return {parse:'empty', slots:[], total:null, note:'', w09:false};
+    const OTHER = {parse:'other', slots:[], total:null, note:'', w09:false};
     const ref = ctx.open || ctx.etd || ctx.today || new Date().toISOString().slice(0,10);
-    const N = nfkcSame(src);
-    let W = N.split('');               /* 作業用 (消費済み = \u0001) */
-    const used = new Array(N.length).fill(false);
-    const slots = [];
-    let fail = false;
-    function work(){ return W.join(''); }
-    function consume(st,len){ for(let i=st;i<st+len;i++){used[i]=true;W[i]='\u0001';} }
-    function date(m,d){ const v=resolveYear(+m,+d,ref,60); if(!v) fail=true; return v; }
-    function run(re, fn){
-      re.lastIndex=0; const s=work(); let m; const hits=[];
-      while((m=re.exec(s))){ hits.push(m); if(m[0].length===0) re.lastIndex++; }
-      hits.forEach(h=>{ if(fn(h)!==false) consume(h.index,h[0].length); });
+    const N = norm(src);
+    if(RE_CANCEL.test(N) || RE_FUZZY.test(N)) return OTHER;
+    const lines = N.split('\n').filter(l=>l.trim()).map(l=>parseLine(l, ref));
+    if(lines.some(x=>x.fail)) return OTHER;
+    let slots = [].concat(...lines.map(x=>x.slots));
+    const countIdx = lines.map((x,i)=>x.countN!=null?i:-1).filter(i=>i>=0);
+    const bares = lines.filter(x=>x.bare).map(x=>x.bare);
+    let total = lines.some(x=>x.total!=null) ? lines.reduce((a,x)=>a+(x.total||0),0) : null;
+    const note = lines.map(x=>x.note).filter(Boolean).join(' ');
+    if(bares.length){
+      /* 先頭行の nC + 日付だけの行 */
+      if(slots.length || total!=null || countIdx.length!==1 || countIdx[0]!==0) return OTHER;
+      const n = lines[0].countN;
+      if(bares.length===1){ bares[0].n = n; }
+      else {
+        if(!bares.every((b,i)=> i===0 || utc(b.d)>utc(bares[i-1].d)) || bares.length>n) return OTHER;
+        total = n;
+      }
+      slots = bares;
+    } else if(slots.length){
+      if(countIdx.length>1 || (countIdx.length===1 && countIdx[0]!==0)) return OTHER;
+      if(countIdx.length) total = (total||0) + lines[0].countN;
+    } else {
+      if(countIdx.length!==1) return OTHER;
+      const c = lines[countIdx[0]].countN;
+      return {parse:'count', slots:[], total:c, note:note, w09:false, count:c};
     }
-    /* ② 期間 (先に検出: 1/26-1/29(1) の 1/29(1) を A で取らないため)
-       前に nC があればその n、後ろに (n) があればその n */
-    run(new RegExp('(?:(\\d+)\\s*[Cc]\\s*[-ー－]?\\s*)?'+DT+'\\s*[-~〜～ー－]\\s*(?:(\\d{1,2})\\/)?(\\d{1,2})(?![\\d/本Cc])(?:\\s*\\((\\d+)\\))?'+TM,'g'), h=>{
-      const m1=+h[2], d1=+h[3], m2=h[4]?+h[4]:m1, d2=+h[5];
-      const a=date(m1,d1), b=date(m2,d2); if(!a||!b) return false;
-      if(utc(b)<utc(a) || utc(b)-utc(a)>31*DAY){ fail=true; return false; }
-      const n = h[6]!=null ? +h[6] : (h[1]!=null ? +h[1] : null);
-      const s={d:a,d2:b,n:n}; if(h[7]) s.t=h[7]; slots.push({pos:h.index,s:s});
-    });
-    /* ① 自前の本数を持つ形式: A M/D(n) · D M/D n本 */
-    run(new RegExp(DT+'\\s*\\((\\d+)\\)'+TM,'g'), h=>{
-      const d=date(h[1],h[2]); if(!d) return false;
-      const s={d:d,n:+h[3]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
-    });
-    run(new RegExp(DT+'\\s*(\\d+)\\s*本'+TM,'g'), h=>{
-      const d=date(h[1],h[2]); if(!d) return false;
-      const s={d:d,n:+h[3]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
-    });
-    /* ③ B nC 日付 / C (n)日付 */
-    run(new RegExp('(?<!\\d)(\\d+)\\s*[Cc]\\s*[-ー－]?\\s*'+DT+TM,'g'), h=>{
-      const d=date(h[2],h[3]); if(!d) return false;
-      const s={d:d,n:+h[1]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
-    });
-    run(new RegExp('\\((\\d+)\\)\\s*'+DT+TM,'g'), h=>{
-      const d=date(h[2],h[3]); if(!d) return false;
-      const s={d:d,n:+h[1]}; if(h[4]) s.t=h[4]; slots.push({pos:h.index,s:s});
-    });
-    if(fail) return {parse:'other', slots:[], total:null, note:'', w09:false};
-    /* ④ 先頭の nC- は総本数 */
-    let total=null;
-    if(slots.length){
-      const m=/^\s*(\d+)\s*[Cc]\s*[-ー－:]?/.exec(work());
-      if(m){ total=+m[1]; consume(m.index,m[0].length); }
-    }
-    /* 残り文字列 (元の文字で — nfkcSame は長さを変えないので位置が一致) */
-    const segs=[]; let cur='';
-    for(let i=0;i<N.length;i++){
-      if(used[i]){ if(cur){segs.push(cur);cur='';} } else cur+=src[i];
-    }
-    if(cur) segs.push(cur);
-    const rest = segs.map(x=>x.replace(/^[\s,、，]+|[\s,、，]+$/g,'')).filter(x=>x && !SEP_ONLY.test(x));
-    const restN = nfkcSame(rest.join(' '));
-    if(!slots.length){
-      const all = nfkcSame(src).trim();
-      let m;
-      if((m=/^(\d+)\s*(?:[Cc]|本)\s*[-ー－]?$/.exec(all)) || (m=/^\((\d+)\)$/.exec(all)))
-        return {parse:'count', slots:[], total:+m[1], note:'', w09:false, count:+m[1]};
-      return {parse:'other', slots:[], total:null, note:'', w09:false};
-    }
-    /* 残りに日付トークンが残る = 一部しか読めていない → 解析しない */
-    if(new RegExp(DT).test(restN)) return {parse:'other', slots:[], total:null, note:'', w09:false};
-    slots.sort((a,b)=>a.pos-b.pos);
-    const out = slots.map(x=>x.s);
-    const note = rest.join('');
-    const nNull = out.some(s=>s.n==null);
-    const sum = out.reduce((a,s)=>a+(s.n||0),0);
+    const nNull = slots.some(s=>s.n==null);
+    const sum = slots.reduce((a,s)=>a+(s.n||0),0);
     const w09 = total!=null && !nNull && total!==sum;
-    return {parse:(note||nNull)?'partial':'pairs', slots:out, total:total, note:note, w09:w09};
+    return {parse:(note||nNull)?'partial':'pairs', slots:slots, total:total, note:note, w09:w09};
   }
   /* 슬롯 → 엑셀 표기 (M/D(n), M/D(n)) */
   function md(s){ return (+s.slice(5,7))+'/'+(+s.slice(8,10)); }
@@ -336,7 +459,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.1', date:'2026-11-10', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.2', date:'2026-11-11', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1513,6 +1636,10 @@ function parseSheet(R, add, file, sheet, region, rows){
       DATE_KEYS.forEach(k => { cur.c[k] = convDate(get(row,k)); });
       cur.b.approval = approvalOf(cur.b.approval_raw);
       R.bookings.push(cur); SH.bookings++;
+    } else if(ROWKEYS.every(k => blank(get(row,k)))){
+      /* 港・搬入先だけの行 (エクセル上の見出し・空き枠)。Packer 行にしない — 空 Grade・Packer の引き継ぎで偽の行ができるため */
+      add('I04', {sheet:sheet, row:rn, msg:['port','delivery'].filter(k=>!blank(get(row,k))).map(k=>COL_LABEL[k]+' = '+str(get(row,k)).replace(/\n/g,' ')).join(' / ')});
+      continue;
     } else if(!cur){ add('W08', {sheet:sheet, row:rn, msg:'ブッキング開始行より前の Packer 行（取込対象外）'}); continue; }
     else {
       /* ブッキング属性の列なのに後続行に値 (W08) */
@@ -1570,6 +1697,7 @@ const ISSUE_DEF = {
   W01:'ETA < ETD', W02:'日付が 1990〜2100 外・異常（日付を空にし note に元の値）', W03:'港が港リストにない', W04:'日付セルが文字列',
   W05:'Booking no. にメモ混入（改行・日本語）', W06:'承認が既定 7 種以外', W07:'QTY 判定 partial / other（要確認）', W08:'ブッキング属性列なのに後続行に値',
   W09:'QTY 総本数(nC-)と合計の不一致', I01:'Booking no. なし', I02:'Packer 行なし（Packer 未割当）', I03:'引き継ぎで埋めた行（Grade・Packer）',
+  I04:'港・搬入先だけの行（ブッキング・Packer の内容なし → 取込しない）',
 };
 function renderReport(R){
   let h = '<h4>検証リポート <span class="muted" style="font-weight:400;font-size:12px">'+esc(R.files.join(' / '))+'</span></h4>';

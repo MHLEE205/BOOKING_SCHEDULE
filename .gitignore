@@ -13,6 +13,7 @@ DOC-*
 *.xls
 *.csv
 samples/
+sample/
 
 # 비밀정보·환경
 .env
