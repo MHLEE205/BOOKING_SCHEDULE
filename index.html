@@ -24,10 +24,24 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-chip{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:3px 12px;font:inherit;font-size:12.5px;cursor:pointer}
 .b6-chip.on{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff}
 .b6-chip .n{opacity:.8;font-size:11px;margin-left:4px}
-.b6-chip.dim:not(.on){opacity:.45}
-.b6-chip.pt{font-family:var(--mono);font-size:12px}
-.b6-sub .b6-lbl{font-size:12px;color:var(--text3);align-self:center;min-width:52px}
-.b6-sub #b6-pin{margin-left:6px}
+/* 担当・港フィルター (2 行) */
+.b6-filter{background:var(--read);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:8px}
+.b6-frow{display:flex;align-items:flex-start;gap:8px;padding:3px 0}
+.b6-frow+.b6-frow{border-top:1px dashed var(--border);margin-top:3px;padding-top:6px}
+.b6-filter .b6-lbl{font-size:12px;font-weight:700;color:var(--text2);min-width:56px;padding-top:4px;white-space:nowrap}
+.b6-row{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;flex:1}
+.b6-grp{display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 2px;border-left:2px solid var(--border);margin-left:4px}
+.b6-rg{background:none;border:none;color:var(--text2);font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:6px}
+.b6-rg:hover{color:var(--accent)}
+.b6-rg.on{background:var(--accent-btn);color:#fff}
+.b6-rg .n{opacity:.7;font-size:11px;margin-left:3px;font-weight:400}
+.b6-chip.pt{font-family:var(--mono);font-size:11.5px;padding:2px 9px}
+.b6-pin{margin-left:auto;background:none;border:1px dashed var(--border);color:var(--text3);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;cursor:pointer}
+.b6-pin:hover{color:var(--accent);border-color:var(--accent)}
+.b6-pin.on{border-style:solid;color:var(--accent);border-color:var(--accent)}
+.b6-rhd{position:sticky;left:0;font-weight:700;font-size:13px;padding:8px 10px 4px;color:var(--accent)}
+.b6-rhd .n{color:var(--text3);font-weight:400;font-size:11.5px;margin-left:6px}
+.b6-rhd:not(:first-child){margin-top:10px;border-top:1px solid var(--border)}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
 .b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
 .b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
@@ -125,9 +139,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
 
     <!-- ① スケジュール表 -->
     <section class="b6-pane on" id="pane-board">
-      <div class="b6-sub" id="b6-staff" style="display:none"></div>
-      <div class="b6-sub" id="b6-regions"></div>
-      <div class="b6-sub" id="b6-ports"></div>
+      <div class="b6-filter" id="b6-filter"></div>
       <div class="b6-bar">
         <label>ETD <input type="date" class="b6-in" id="f-from"> 〜 <input type="date" class="b6-in" id="f-to"></label>
         <label><input type="checkbox" id="f-noetd" checked> ETD未定を含む</label>
@@ -893,11 +905,8 @@ async function applyStaffPin(){
 }
 function selectStaff(code, quiet){
   S.staff = code || ''; S.port = '';
-  /* 今の地域にその担当の港がなければ、ある地域へ移る */
-  if(S.staff){
-    const has = r => Array.from(S.bk.values()).some(b => !b.deleted && b.region===r && staffMatch(b)) || REGIONS.find(x=>x.code===r).ports.some(staffMatchPort);
-    if(!has(S.region)){ const r = REGIONS.find(x=>has(x.code)); if(r){ S.region = r.code; IDB.set('region', S.region); } }
-  }
+  /* 担当を選んだら、その担当の全地域の案件を表示 (港チップで絞り直せる) */
+  if(S.staff) S.region = 'ALL';
   if(S.ready) renderBoard();
   if(!quiet && S.staff) toast('担当: '+staffName(S.staff), 'info');
 }
@@ -946,7 +955,7 @@ function filt(){
 function noPacker(b){ return b.rows.filter(a=>!a.deleted).every(a => blank(a.packer)); }
 function visibleBookings(){
   const F = filt();
-  let list = Array.from(S.bk.values()).filter(b => b.region===S.region && (F.del || !b.deleted) && staffMatch(b));
+  let list = Array.from(S.bk.values()).filter(b => (S.region==='ALL' || b.region===S.region) && (F.del || !b.deleted) && staffMatch(b));
   if(F.port) list = list.filter(b => F.port==='__blank' ? blank(b.port) : str(b.port).trim().toUpperCase()===F.port);
   if(F.appr) list = list.filter(b => (b.approval||'NONE')===F.appr);
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
@@ -995,15 +1004,29 @@ function cellHtml(col, b, a){
 }
 function renderBoard(){
   if(S.editing){ S.renderPending = true; return; }
-  const cols = boardCols(S.region), F = filt();
-  const list = visibleBookings();
+  const F = filt();
   renderChips();
+  const list = visibleBookings();
   /* 要約 */
   let unap=0, nopk=0, hon=0;
   list.forEach(b => { if(b.deleted) return; if((b.approval||'NONE')==='NONE') unap++; if(noPacker(b)) nopk++; b.rows.forEach(a => { if(!a.deleted && a.totalhon) hon += +a.totalhon; }); });
   $('#b6-sum').innerHTML = '<span>ブッキング <b>'+list.filter(b=>!b.deleted).length+'</b></span><span class="warn">未承認 <b>'+unap+'</b></span><span class="warn">Packer未割当 <b>'+nopk+'</b></span><span>本数合計 <b>'+hon+'</b></span>';
   if(!list.length){ $('#b6-board').innerHTML = '<div class="b6-empty">表示するブッキングがありません（ETD 期間・フィルターを確認してください）</div>'; return; }
-  const span = ROW_SPAN_COLUMNS[S.region] || [];
+  /* 全地域: 地域ごとに表を分ける (地域で列が違うため) */
+  const groups = S.region==='ALL'
+    ? REGIONS.map(r => ({r:r, list:list.filter(b => b.region===r.code)})).filter(g => g.list.length)
+    : [{r:REGIONS.find(x=>x.code===S.region), list:list}];
+  let h = '';
+  groups.forEach(g => {
+    if(S.region==='ALL') h += '<div class="b6-rhd">🗾 '+esc(g.r.tab)+'<span class="n">'+g.list.filter(b=>!b.deleted).length+' 件</span></div>';
+    h += boardTable(g.r.code, g.list, F);
+  });
+  const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
+  wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
+  S.renderPending = false;
+}
+function boardTable(region, list, F){
+  const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
   let h = '<table class="b6-t"><thead><tr><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th>'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
   list.forEach(b => {
     const rows = visRows(b, F.del); if(!rows.length) return;
@@ -1029,51 +1052,51 @@ function renderBoard(){
       h += '</tr>';
     });
   });
-  h += '</tbody></table>';
-  const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
-  wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
-  S.renderPending = false;
+  return h + '</tbody></table>';
 }
-/* 担当チップ・地域チップ・港チップ (件数は削除済みを除く) */
+/* 担当・地域/港チップ (件数は削除済みを除く) — 担当 1 行 + 地域ごとに港をまとめた 1 行 */
 function renderChips(){
   const M = S.masters, all = Array.from(S.bk.values()).filter(b => !b.deleted);
   /* 担当 */
   let sh = '';
   if(M.staffOrder && M.staffOrder.length){
     const n = code => all.filter(b => !blank(b.port) && portStaff(b.port).includes(code)).length;
-    sh = '<span class="b6-lbl">👤 担当</span><button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
-      + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'" title="'+esc(c)+'">'+(c===S.staffPin?'📌 ':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
-      + '<button class="b6-btn sm" id="b6-pin" title="次回この画面を開いた時に最初に選ぶ担当">'+(S.staffPin && S.staffPin===S.staff ? '📌 固定を解除' : '📌 この担当を既定に固定')+'</button>';
+    const pinned = S.staffPin && S.staffPin===S.staff;
+    sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row">'
+      + '<button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
+      + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'">'+(c===S.staffPin?'📌':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
+      + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'">📌 '+(pinned?'固定中':'既定に固定')+'</button>' : '')
+      + '</div>';
   } else if(M.loaded){
-    sh = '<span class="muted" style="font-size:12px">👤 担当: pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</span>';
+    sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row muted" style="font-size:12px">pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</div>';
   }
-  $('#b6-staff').innerHTML = sh; $('#b6-staff').style.display = sh ? '' : 'none';
-  /* 地域 */
+  /* 地域 → 港 */
   const mine = all.filter(staffMatch);
-  const cnt = {}; mine.forEach(b => { cnt[b.region] = (cnt[b.region]||0)+1; });
-  $('#b6-regions').innerHTML = '<span class="b6-lbl">🗾 地域</span>' + REGIONS.map(r => {
-    const off = S.staff && !cnt[r.code] && !r.ports.some(staffMatchPort);
-    return '<button class="b6-chip'+(r.code===S.region?' on':'')+(off?' dim':'')+'" data-region="'+r.code+'">'+r.tab+'<span class="n">'+(cnt[r.code]||0)+'</span></button>';
-  }).join('');
-  /* 港 (今の地域) */
-  const r = REGIONS.find(x=>x.code===S.region), pc = new Map(), ports = [];
-  r.ports.filter(staffMatchPort).forEach(p => { ports.push(p); pc.set(p, 0); });
-  let nBlank = 0;
-  mine.filter(b => b.region===S.region).forEach(b => {
-    if(blank(b.port)){ nBlank++; return; }
-    const p = str(b.port).trim().toUpperCase();
-    if(!pc.has(p)){ ports.push(p); pc.set(p, 0); }
-    pc.set(p, pc.get(p)+1);
+  const groups = REGIONS.map(r => {
+    const bs = mine.filter(b => b.region===r.code), pc = new Map();
+    let nBlank = 0;
+    bs.forEach(b => { if(blank(b.port)){ nBlank++; return; } const p = str(b.port).trim().toUpperCase(); pc.set(p, (pc.get(p)||0)+1); });
+    const order = r.ports.filter(p => pc.has(p)).concat(Array.from(pc.keys()).filter(p => !r.ports.includes(p)));
+    return {r:r, n:bs.length, pc:pc, order:order, nBlank:nBlank};
   });
-  if(S.port && S.port!=='__blank' && !pc.has(S.port)) S.port = '';
-  if(S.port==='__blank' && !nBlank) S.port = '';
-  const regionN = mine.filter(b => b.region===S.region).length;
-  $('#b6-ports').innerHTML = '<span class="b6-lbl">⚓ 港</span><button class="b6-chip'+(S.port?'':' on')+'" data-port="">すべて<span class="n">'+regionN+'</span></button>'
-    + ports.map(p => {
-        const st = portStaff(p), who = st.length ? '担当: '+st.map(staffName).join(' / 補助: ') : '';
-        return '<button class="b6-chip pt'+(p===S.port?' on':'')+(pc.get(p)?'':' dim')+'" data-port="'+esc(p)+'" title="'+esc(who)+'">⚓ '+esc(p)+'<span class="n">'+pc.get(p)+'</span></button>';
-      }).join('')
-    + (nBlank ? '<button class="b6-chip'+(S.port==='__blank'?' on':'')+'" data-port="__blank" title="港が空のブッキング">港未入力<span class="n">'+nBlank+'</span></button>' : '');
+  /* 選んでいた港が消えたら解除 */
+  if(S.port==='__blank' ? !groups.some(g => g.nBlank && (S.region==='ALL' || g.r.code===S.region)) : (S.port && !groups.some(g => g.pc.has(S.port)))) S.port = '';
+  const allOn = S.region==='ALL' && !S.port;
+  let ph = '<span class="b6-lbl">⚓ 港</span><div class="b6-row">'
+    + '<button class="b6-chip'+(allOn?' on':'')+'" data-region="ALL">全地域<span class="n">'+mine.length+'</span></button>';
+  groups.forEach(g => {
+    if(!g.n && g.r.code!==S.region) return;
+    const rOn = S.region===g.r.code && !S.port;
+    ph += '<span class="b6-grp"><button class="b6-rg'+(rOn?' on':'')+'" data-region="'+g.r.code+'" title="'+esc(g.r.tab)+' の全件">'+esc(g.r.tab)+'<span class="n">'+g.n+'</span></button>'
+      + g.order.map(p => {
+          const st = portStaff(p), who = st.length ? '担当 '+staffName(st[0])+(st[1]?' ／ 補助 '+staffName(st[1]):'') : '';
+          return '<button class="b6-chip pt'+(p===S.port?' on':'')+'" data-port="'+esc(p)+'" title="'+esc(who)+'">'+esc(p)+'<span class="n">'+g.pc.get(p)+'</span></button>';
+        }).join('')
+      + (g.nBlank ? '<button class="b6-chip pt'+(S.port==='__blank' && S.region===g.r.code?' on':'')+'" data-port="__blank" data-in="'+g.r.code+'" title="港が空のブッキング">港未入力<span class="n">'+g.nBlank+'</span></button>' : '')
+      + '</span>';
+  });
+  ph += '</div>';
+  $('#b6-filter').innerHTML = (sh ? '<div class="b6-frow">'+sh+'</div>' : '') + '<div class="b6-frow">'+ph+'</div>';
 }
 function fillFilterOptions(){
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
@@ -1350,11 +1373,14 @@ async function restoreBooking(b){
   for(const a of b.rows.filter(x=>x.deleted)) await saveAsg(b, a, {deleted:false}, 'packer');
 }
 async function addBooking(){
-  const r = REGIONS.find(x=>x.code===S.region);
-  let seq = 0; S.bk.forEach(b => { if(b.region===S.region) seq = Math.max(seq, b.seq||0); });
+  /* 地域: 選んでいる地域 → (全地域なら) 選んでいる港の地域 → 担当の港がある最初の地域 */
+  const r = REGIONS.find(x=>x.code===S.region)
+    || (S.port && S.port!=='__blank' && REGIONS.find(x=>x.code===regionOf(S.port)))
+    || REGIONS.find(x=>x.ports.some(staffMatchPort)) || REGIONS[0];
+  let seq = 0; S.bk.forEach(b => { if(b.region===r.code) seq = Math.max(seq, b.seq||0); });
   /* 港: 選んでいる港 → 選んでいる担当の港 → 地域の最初の港 */
   const port = (S.port && S.port!=='__blank') ? S.port : (r.ports.find(staffMatchPort) || r.ports[0]);
-  const b = {bookkey:uuid(), region:S.region, seq:seq+10, port:port, approval:'NONE', approval_raw:'',
+  const b = {bookkey:uuid(), region:r.code, seq:seq+10, port:port, approval:'NONE', approval_raw:'',
     bkgno:'', invoiceno:'', pod:'', carrier:'', vessel:'', cyopen:null, cycut:null, etd:null, eta:null,
     cy_note:'', etd_note:'', eta_note:'', delivery:'', source:'web', batch:null, importkey:null, createdby:userEmail(), deleted:false};
   b.name = bkName(b);
@@ -2395,19 +2421,19 @@ function initUI(){
     if(b.dataset.tab==='packer' && !$('#pk-grid').innerHTML) loadPackerTab();
     if(b.dataset.tab==='b05' && !S.b05) loadB05Tab();
   });
-  $('#b6-regions').addEventListener('click', ev => {
-    const c = ev.target.closest('[data-region]'); if(!c) return;
-    S.region = c.dataset.region; S.port = ''; IDB.set('region', S.region);
-    fillFilterOptions(); renderBoard();
-  });
-  $('#b6-ports').addEventListener('click', ev => {
-    const c = ev.target.closest('[data-port]'); if(!c) return;
-    S.port = c.dataset.port; renderBoard();
-  });
-  $('#b6-staff').addEventListener('click', ev => {
+  $('#b6-filter').addEventListener('click', ev => {
     if(ev.target.closest('#b6-pin')){ toggleStaffPin(); return; }
-    const c = ev.target.closest('[data-staff]'); if(!c) return;
-    selectStaff(c.dataset.staff);
+    const st = ev.target.closest('[data-staff]');
+    if(st){ selectStaff(st.dataset.staff); return; }
+    const rg = ev.target.closest('[data-region]');
+    if(rg){ S.region = rg.dataset.region; S.port = ''; IDB.set('region', S.region); renderBoard(); return; }
+    const pt = ev.target.closest('[data-port]');
+    if(pt){
+      const p = pt.dataset.port, rIn = pt.dataset.in;
+      if(p===S.port && (!rIn || rIn===S.region)){ S.port = ''; }          /* もう一度押すと解除 */
+      else { S.port = p; S.region = rIn || 'ALL'; }
+      renderBoard();
+    }
   });
   ['#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
@@ -2446,7 +2472,7 @@ function initUI(){
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshTick(); });
 }
 async function restorePrefs(){
-  const r = await IDB.get('region'); if(r && REGIONS.some(x=>x.code===r)) S.region = r;
+  const r = await IDB.get('region'); if(r && (r==='ALL' || REGIONS.some(x=>x.code===r))) S.region = r;
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
