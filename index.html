@@ -469,8 +469,9 @@ const CFG = {
   REFRESH_MS: 20000,
   IDB: 'leenai_b06_v1',
   DEMO: new URLSearchParams(location.search).get('demo') === '1',
-  /* COMPASS への実際の書き込み。false の間は「反映する」を押しても確認だけで書き込まない (DOC §4-2 — 形兄の承認後に true) */
-  COMPASS_WRITE: false,
+  /* COMPASS への実際の書き込み。false の間は「反映する」を押しても確認だけで書き込まない (DOC §4-2)
+     2026-11-12 承認 → true (実データで試しながら修正) */
+  COMPASS_WRITE: true,
 };
 
 /* ══════════ CONST (DOC-B-06 §2-5 — 値を変えるのはここ 1 か所) ══════════ */
@@ -1774,7 +1775,7 @@ async function sendCompass(b, R, body, test){
     return;
   }
   await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
-  toast('COMPASS に入力しました（'+bkLabel(b)+'）', 'ok');
+  toast('COMPASS に入力しました（'+bkLabel(b)+' / ID '+id+'）', 'ok');
 }
 function compassInfo(b){
   modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>入力日時</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
