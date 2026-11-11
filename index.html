@@ -24,6 +24,10 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-chip{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:3px 12px;font:inherit;font-size:12.5px;cursor:pointer}
 .b6-chip.on{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff}
 .b6-chip .n{opacity:.8;font-size:11px;margin-left:4px}
+.b6-chip.dim:not(.on){opacity:.45}
+.b6-chip.pt{font-family:var(--mono);font-size:12px}
+.b6-sub .b6-lbl{font-size:12px;color:var(--text3);align-self:center;min-width:52px}
+.b6-sub #b6-pin{margin-left:6px}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
 .b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
 .b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
@@ -121,13 +125,14 @@ details.rp summary{cursor:pointer;font-size:12.5px}
 
     <!-- ① スケジュール表 -->
     <section class="b6-pane on" id="pane-board">
+      <div class="b6-sub" id="b6-staff" style="display:none"></div>
       <div class="b6-sub" id="b6-regions"></div>
+      <div class="b6-sub" id="b6-ports"></div>
       <div class="b6-bar">
         <label>ETD <input type="date" class="b6-in" id="f-from"> 〜 <input type="date" class="b6-in" id="f-to"></label>
         <label><input type="checkbox" id="f-noetd" checked> ETD未定を含む</label>
         <button class="b6-btn" id="f-reload">⟳ 再読込</button>
         <span class="muted">|</span>
-        <label>港 <select class="b6-sel" id="f-port"></select></label>
         <label>承認 <select class="b6-sel" id="f-appr"></select></label>
         <label>Packer <input class="b6-in" id="f-packer" size="8"></label>
         <label><input type="checkbox" id="f-nopk"> Packer未割当</label>
@@ -459,7 +464,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.3', date:'2026-11-11', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.4', date:'2026-11-12', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -814,6 +819,7 @@ const S = {
   lastSync: null, refreshing:false, editing:null, pending:null,
   cellFx: {}, hl: null,
   masters: {packerShort:[], packerNames:[], cy:[], forwarder:[], loaded:false, err:''},
+  staff: '', staffPin: '', port: '',   /* 担当・港の絞り込み (港チップ) */
   report: null,             /* 取込の検証結果 */
   b05: null,
 };
@@ -845,9 +851,62 @@ async function loadMasters(){
     try{ const items = await LEENAI.master.get(n); M[n] = masterNames(items); M[n+'_n'] = items.length; }
     catch(e){ errs.push(n+': '+e.message); }
   }
+  /* POL 担当 (pol_staff) + 社員 (staff — 名前の表示用) */
+  try{
+    const staff = await LEENAI.master.get('staff').catch(()=>[]);
+    M.staffName = new Map((staff||[]).filter(r=>r.code).map(r=>[String(r.code), str(r.name_ja||r.name_en||r.code)]));
+    setPolStaff(await LEENAI.master.get('pol_staff'));
+  }catch(e){ errs.push('pol_staff: '+e.message); }
   M.loaded = true; M.err = errs.join(' / ');
   if(errs.length) toast('マスター読込に一部失敗: '+M.err, 'warn');
   fillDatalists();
+  await applyStaffPin();
+}
+
+/* ══════════ 担当 (pol_staff マスター — 港 → 担当・補助。表にない港は pol="*") ══════════ */
+function setPolStaff(items){
+  const M = S.masters; M.polStaff = new Map(); M.polDefault = null; M.staffOrder = [];
+  (items||[]).forEach(r => {
+    const pol = str(r.pol).trim().toUpperCase(); if(!pol) return;
+    const v = {staff:str(r.staff).trim(), assist:str(r.assist).trim()};
+    if(pol==='*') M.polDefault = v; else M.polStaff.set(pol, v);
+    [v.staff, v.assist].forEach(c => { if(c && !M.staffOrder.includes(c)) M.staffOrder.push(c); });
+  });
+  M.pol_staff_n = (items||[]).length;
+}
+function staffName(code){ return (S.masters.staffName && S.masters.staffName.get(code)) || code; }
+/* 港の担当コード [担当, 補助] */
+function portStaff(port){
+  const M = S.masters; if(!M.polStaff) return [];
+  const v = M.polStaff.get(str(port).trim().toUpperCase()) || M.polDefault;
+  return v ? [v.staff, v.assist].filter(Boolean) : [];
+}
+/* 担当の絞り込み: 港が空のブッキングは誰の表示にも出す (新規追加直後に見えなくならないように) */
+function staffMatch(b){ return !S.staff || blank(b.port) || portStaff(b.port).includes(S.staff); }
+function staffMatchPort(p){ return !S.staff || portStaff(p).includes(S.staff); }
+/* 起動時: 既定に固定した担当を選ぶ */
+async function applyStaffPin(){
+  let pin = ''; try{ pin = (await IDB.get('staffPin')) || ''; }catch(e){}
+  S.staffPin = pin;
+  if(pin && S.masters.staffOrder && S.masters.staffOrder.includes(pin)) selectStaff(pin, true);
+  else if(S.ready) renderBoard();
+}
+function selectStaff(code, quiet){
+  S.staff = code || ''; S.port = '';
+  /* 今の地域にその担当の港がなければ、ある地域へ移る */
+  if(S.staff){
+    const has = r => Array.from(S.bk.values()).some(b => !b.deleted && b.region===r && staffMatch(b)) || REGIONS.find(x=>x.code===r).ports.some(staffMatchPort);
+    if(!has(S.region)){ const r = REGIONS.find(x=>has(x.code)); if(r){ S.region = r.code; IDB.set('region', S.region); } }
+  }
+  if(S.ready) renderBoard();
+  if(!quiet && S.staff) toast('担当: '+staffName(S.staff), 'info');
+}
+async function toggleStaffPin(){
+  const next = (S.staffPin && S.staffPin===S.staff) ? '' : S.staff;
+  try{ await IDB.set('staffPin', next); }catch(e){}
+  S.staffPin = next;
+  toast(next ? '「'+staffName(next)+'」を既定の担当に固定しました（次回から最初にこの担当で開きます）' : '既定の担当の固定を解除しました', 'ok');
+  renderBoard();
 }
 /* Packer 表記 → 略称。B-05 getPackerShort と同じ部分一致。推測フォールバック (先頭2文字) は使わない */
 function packerShort(raw){
@@ -879,7 +938,7 @@ function sortRows(b){ b.rows.sort((x,y)=>(x.seq||0)-(y.seq||0)); }
 function visRows(b, showDel){ return b.rows.filter(a => showDel || !a.deleted); }
 function filt(){
   return {
-    port: $('#f-port').value, appr: $('#f-appr').value, packer: $('#f-packer').value.trim().toLowerCase(),
+    port: S.port, appr: $('#f-appr').value, packer: $('#f-packer').value.trim().toLowerCase(),
     nopk: $('#f-nopk').checked, nobkg: $('#f-nobkg').checked, q: $('#f-q').value.trim().toLowerCase(),
     del: $('#f-del').checked, sort: $('#f-sort').value,
   };
@@ -887,8 +946,8 @@ function filt(){
 function noPacker(b){ return b.rows.filter(a=>!a.deleted).every(a => blank(a.packer)); }
 function visibleBookings(){
   const F = filt();
-  let list = Array.from(S.bk.values()).filter(b => b.region===S.region && (F.del || !b.deleted));
-  if(F.port) list = list.filter(b => str(b.port).trim().toUpperCase()===F.port);
+  let list = Array.from(S.bk.values()).filter(b => b.region===S.region && (F.del || !b.deleted) && staffMatch(b));
+  if(F.port) list = list.filter(b => F.port==='__blank' ? blank(b.port) : str(b.port).trim().toUpperCase()===F.port);
   if(F.appr) list = list.filter(b => (b.approval||'NONE')===F.appr);
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
   if(F.nopk) list = list.filter(noPacker);
@@ -938,9 +997,7 @@ function renderBoard(){
   if(S.editing){ S.renderPending = true; return; }
   const cols = boardCols(S.region), F = filt();
   const list = visibleBookings();
-  /* 地域チップ件数 */
-  const cnt = {}; S.bk.forEach(b => { if(!b.deleted) cnt[b.region] = (cnt[b.region]||0)+1; });
-  $('#b6-regions').innerHTML = REGIONS.map(r => '<button class="b6-chip'+(r.code===S.region?' on':'')+'" data-region="'+r.code+'">'+r.tab+'<span class="n">'+(cnt[r.code]||0)+'</span></button>').join('');
+  renderChips();
   /* 要約 */
   let unap=0, nopk=0, hon=0;
   list.forEach(b => { if(b.deleted) return; if((b.approval||'NONE')==='NONE') unap++; if(noPacker(b)) nopk++; b.rows.forEach(a => { if(!a.deleted && a.totalhon) hon += +a.totalhon; }); });
@@ -977,12 +1034,48 @@ function renderBoard(){
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
   S.renderPending = false;
 }
+/* 担当チップ・地域チップ・港チップ (件数は削除済みを除く) */
+function renderChips(){
+  const M = S.masters, all = Array.from(S.bk.values()).filter(b => !b.deleted);
+  /* 担当 */
+  let sh = '';
+  if(M.staffOrder && M.staffOrder.length){
+    const n = code => all.filter(b => !blank(b.port) && portStaff(b.port).includes(code)).length;
+    sh = '<span class="b6-lbl">👤 担当</span><button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
+      + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'" title="'+esc(c)+'">'+(c===S.staffPin?'📌 ':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
+      + '<button class="b6-btn sm" id="b6-pin" title="次回この画面を開いた時に最初に選ぶ担当">'+(S.staffPin && S.staffPin===S.staff ? '📌 固定を解除' : '📌 この担当を既定に固定')+'</button>';
+  } else if(M.loaded){
+    sh = '<span class="muted" style="font-size:12px">👤 担当: pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</span>';
+  }
+  $('#b6-staff').innerHTML = sh; $('#b6-staff').style.display = sh ? '' : 'none';
+  /* 地域 */
+  const mine = all.filter(staffMatch);
+  const cnt = {}; mine.forEach(b => { cnt[b.region] = (cnt[b.region]||0)+1; });
+  $('#b6-regions').innerHTML = '<span class="b6-lbl">🗾 地域</span>' + REGIONS.map(r => {
+    const off = S.staff && !cnt[r.code] && !r.ports.some(staffMatchPort);
+    return '<button class="b6-chip'+(r.code===S.region?' on':'')+(off?' dim':'')+'" data-region="'+r.code+'">'+r.tab+'<span class="n">'+(cnt[r.code]||0)+'</span></button>';
+  }).join('');
+  /* 港 (今の地域) */
+  const r = REGIONS.find(x=>x.code===S.region), pc = new Map(), ports = [];
+  r.ports.filter(staffMatchPort).forEach(p => { ports.push(p); pc.set(p, 0); });
+  let nBlank = 0;
+  mine.filter(b => b.region===S.region).forEach(b => {
+    if(blank(b.port)){ nBlank++; return; }
+    const p = str(b.port).trim().toUpperCase();
+    if(!pc.has(p)){ ports.push(p); pc.set(p, 0); }
+    pc.set(p, pc.get(p)+1);
+  });
+  if(S.port && S.port!=='__blank' && !pc.has(S.port)) S.port = '';
+  if(S.port==='__blank' && !nBlank) S.port = '';
+  const regionN = mine.filter(b => b.region===S.region).length;
+  $('#b6-ports').innerHTML = '<span class="b6-lbl">⚓ 港</span><button class="b6-chip'+(S.port?'':' on')+'" data-port="">すべて<span class="n">'+regionN+'</span></button>'
+    + ports.map(p => {
+        const st = portStaff(p), who = st.length ? '担当: '+st.map(staffName).join(' / 補助: ') : '';
+        return '<button class="b6-chip pt'+(p===S.port?' on':'')+(pc.get(p)?'':' dim')+'" data-port="'+esc(p)+'" title="'+esc(who)+'">⚓ '+esc(p)+'<span class="n">'+pc.get(p)+'</span></button>';
+      }).join('')
+    + (nBlank ? '<button class="b6-chip'+(S.port==='__blank'?' on':'')+'" data-port="__blank" title="港が空のブッキング">港未入力<span class="n">'+nBlank+'</span></button>' : '');
+}
 function fillFilterOptions(){
-  const r = REGIONS.find(x=>x.code===S.region);
-  const ports = new Set(r.ports);
-  S.bk.forEach(b => { if(b.region===S.region && !blank(b.port)) ports.add(str(b.port).trim().toUpperCase()); });
-  const cur = $('#f-port').value;
-  $('#f-port').innerHTML = '<option value="">すべて</option>'+Array.from(ports).map(p=>'<option'+(p===cur?' selected':'')+'>'+esc(p)+'</option>').join('');
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
 }
 function findAsg(id){ for(const b of S.bk.values()){ const a = b.rows.find(x=>x.id===id); if(a) return {b:b, a:a}; } return null; }
@@ -1259,7 +1352,9 @@ async function restoreBooking(b){
 async function addBooking(){
   const r = REGIONS.find(x=>x.code===S.region);
   let seq = 0; S.bk.forEach(b => { if(b.region===S.region) seq = Math.max(seq, b.seq||0); });
-  const b = {bookkey:uuid(), region:S.region, seq:seq+10, port:r.ports[0], approval:'NONE', approval_raw:'',
+  /* 港: 選んでいる港 → 選んでいる担当の港 → 地域の最初の港 */
+  const port = (S.port && S.port!=='__blank') ? S.port : (r.ports.find(staffMatchPort) || r.ports[0]);
+  const b = {bookkey:uuid(), region:S.region, seq:seq+10, port:port, approval:'NONE', approval_raw:'',
     bkgno:'', invoiceno:'', pod:'', carrier:'', vessel:'', cyopen:null, cycut:null, etd:null, eta:null,
     cy_note:'', etd_note:'', eta_note:'', delivery:'', source:'web', batch:null, importkey:null, createdby:userEmail(), deleted:false};
   b.name = bkName(b);
@@ -1269,7 +1364,8 @@ async function addBooking(){
     const a = await S.store.create('A', newAsg(saved, 1, null));   /* ブッキングは常に Packer 行 1 つ以上 */
     saved.rows = [a]; S.bk.set(saved.bookkey, saved);
     S.hl = saved.bookkey;
-    ['#f-port','#f-appr','#f-packer','#f-q'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false; $('#f-nobkg').checked=false;
+    ['#f-appr','#f-packer','#f-q'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false; $('#f-nobkg').checked=false;
+    S.port = ''; if(!staffMatch(saved)) S.staff = '';
     fillFilterOptions(); renderBoard();
     const tr = document.querySelector('tr[data-k="'+saved.bookkey+'"]'); if(tr) tr.scrollIntoView({block:'center'});
     toast('ブッキングを追加しました（ETD 未定 — 表の末尾）', 'ok');
@@ -2192,6 +2288,7 @@ async function openDiag(){
   const M = S.masters;
   w('<h4 style="margin:12px 0 4px">マスター (LEENAI.master)</h4><div>dray_packer: '+(M.dray_packer!=null?M.dray_packer+' 件（略称対応 '+M.packerShort.length+'）':'<span class="ng">未読込</span>')
     + ' / cy: '+(M.cy_n!=null?M.cy_n+' 件':'<span class="ng">未読込</span>')+' / forwarder: '+(M.forwarder_n!=null?M.forwarder_n+' 件':'<span class="ng">未読込</span>')
+    + ' / pol_staff: '+(M.pol_staff_n!=null?M.pol_staff_n+' 件（担当 '+M.staffOrder.length+' 人）':'<span class="ng">未読込</span>')
     + (M.err?'<div class="ng" style="font-size:12px">'+esc(M.err)+'</div>':'')+'</div>'
     + '<div class="muted" style="font-size:11.5px;margin-top:8px">Graph 状態: '+esc(JSON.stringify(LEENAI.auth.status))+'</div>');
 }
@@ -2205,6 +2302,10 @@ function buildDemoStore(){
   S.masters.packerNames = ['サンプル紙業','テスト資源','デモ再生','みほん商事','レイ紙材'];
   S.masters.cy = ['デモCY 大井','デモCY 本牧']; S.masters.forwarder = ['デモ通関A','デモ通関B'];
   S.masters.loaded = true; S.masters.dray_packer = 5;
+  /* 担当 (架空の名前) */
+  S.masters.staffName = new Map([['DEMO_A','担当 A'],['DEMO_B','担当 B'],['DEMO_C','担当 C'],['DEMO_D','補助 D']]);
+  setPolStaff([{pol:'TOKYO',staff:'DEMO_A',assist:'DEMO_D'},{pol:'YOKOHAMA',staff:'DEMO_A',assist:'DEMO_D'},{pol:'OSAKA',staff:'DEMO_B'},{pol:'KOBE',staff:'DEMO_B'},
+    {pol:'SENDAI',staff:'DEMO_B'},{pol:'ISHIKARI',staff:'DEMO_C'},{pol:'TOMAKOMAI',staff:'DEMO_C'},{pol:'NAHA',staff:'DEMO_C'},{pol:'*',staff:'DEMO_B'}]);
   const packers = ['サンプル紙業(東)','テスト資源 本社','デモ再生(横)','みほん商事','レイ紙材','ナゾ紙業'];
   const grades = ['OCC','ONP','MIX','SOP','OCC(B)'];
   const pods = ['PEN','HCM','KHH','PKL','LCB'];
@@ -2296,10 +2397,19 @@ function initUI(){
   });
   $('#b6-regions').addEventListener('click', ev => {
     const c = ev.target.closest('[data-region]'); if(!c) return;
-    S.region = c.dataset.region; $('#f-port').value = ''; IDB.set('region', S.region);
+    S.region = c.dataset.region; S.port = ''; IDB.set('region', S.region);
     fillFilterOptions(); renderBoard();
   });
-  ['#f-port','#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
+  $('#b6-ports').addEventListener('click', ev => {
+    const c = ev.target.closest('[data-port]'); if(!c) return;
+    S.port = c.dataset.port; renderBoard();
+  });
+  $('#b6-staff').addEventListener('click', ev => {
+    if(ev.target.closest('#b6-pin')){ toggleStaffPin(); return; }
+    const c = ev.target.closest('[data-staff]'); if(!c) return;
+    selectStaff(c.dataset.staff);
+  });
+  ['#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
   $('#f-reload').addEventListener('click', loadBoard);
   $('#b-add').addEventListener('click', addBooking);
@@ -2374,7 +2484,7 @@ function startDemo(){
     toast('「'+bkLabel(b)+'」(表の先頭) を他の人が更新しました。20 秒以内にこの行を編集すると 412 → 再読込になります', 'info');
   });
   initUI();
-  restorePrefs().then(loadBoard).then(fillDatalists);
+  restorePrefs().then(loadBoard).then(fillDatalists).then(applyStaffPin);
 }
 
 if(CFG.DEMO){
