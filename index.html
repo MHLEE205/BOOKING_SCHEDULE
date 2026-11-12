@@ -302,7 +302,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="fg" title="CY Cut の日付で絞り込み（変えるとすぐ読み直します）"><span class="fl">Cut</span><input type="date" class="b6-in" id="f-from">〜<input type="date" class="b6-in" id="f-to"><label title="Cut が空のブッキングも表示"><input type="checkbox" id="f-noetd" checked>未定も</label></span>
         <span class="fg"><span class="fl">承認</span><select class="b6-sel" id="f-appr"></select></span>
         <span class="fg"><span class="fl">Packer</span><input class="b6-in" id="f-packer" size="8"><label><input type="checkbox" id="f-nopk">未割当</label></span>
-        <span class="fg"><label title="Booking no. がまだ無いブッキングだけ"><input type="checkbox" id="f-nobkg">BKG#未取得</label><label title="削除したブッキングも表示（復元用）"><input type="checkbox" id="f-del">削除済み</label></span>
+        <span class="fg"><label title="Booking no. がまだ無いブッキングだけ"><input type="checkbox" id="f-nobkg">BKG#未取得</label><label title="削除したブッキング・Packer 行だけを表示（≡ / ⋮ メニューから復元できます）"><input type="checkbox" id="f-del">削除済み</label></span>
         <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="cut" selected>Cut 昇順</option><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
         <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel">
       </div>
@@ -1152,7 +1152,8 @@ function filt(){
 function noPacker(b){ return b.rows.filter(a=>!a.deleted).every(a => blank(a.packer)); }
 function visibleBookings(){
   const F = filt();
-  let list = Array.from(S.bk.values()).filter(b => (S.region==='ALL' || b.region===S.region) && (F.del || !b.deleted) && staffMatch(b));
+  /* 削除済み: チェックした時は 削除したブッキング・削除した Packer 行のあるブッキング だけ (2026-11-12 ユーザー指定) */
+  let list = Array.from(S.bk.values()).filter(b => (S.region==='ALL' || b.region===S.region) && (F.del ? (b.deleted || b.rows.some(a => a.deleted)) : !b.deleted) && staffMatch(b));
   if(F.port) list = list.filter(b => F.port==='__blank' ? blank(b.port) : str(b.port).trim().toUpperCase()===F.port);
   if(F.appr) list = list.filter(b => (b.approval||'NONE')===F.appr);
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
