@@ -224,6 +224,13 @@ table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Goth
 .b6-t td.dt,.b6-t th.dt,.b6-t td[data-f="port"],.b6-t th[data-f="port"],.b6-t td[data-f="approval"],.b6-t th[data-f="approval"],.b6-t th.stc,.b6-t th[data-f="grade"],.b6-t td[data-f="grade"]{text-align:center}
 .b6-t td.ed .st{justify-content:center}
 .b6-t td.ops{padding:2px 3px!important}
+/* QTY 以外はすべて中央 (2026-11-12 ユーザー)・長い文字は 200px で折り返して列が広がりすぎないように */
+.b6-t td,.b6-t th{text-align:center!important}
+.b6-t td[data-f="qty_raw"],.b6-t th[data-f="qty_raw"]{text-align:left!important}
+.b6-t td.ed{max-width:200px}
+.b6-t td[data-f="qty_raw"]{max-width:280px}
+.b6-t td .bk-mtxt{max-width:180px;margin-left:auto;margin-right:auto;text-align:left}
+.b6-t td[data-f="qty_raw"] .bk-mtxt{margin-left:0}
 /* マウスを乗せた時だけ出る 📝+・AM・＋大数 は幅を取らない (余白が広がらないように) */
 .b6-t td.ed{position:relative}
 .b6-t td .bk-memo.add{position:absolute;right:2px;top:1px;float:none;margin:0;background:var(--read);border-radius:3px;padding:0 2px}
