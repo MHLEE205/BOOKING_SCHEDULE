@@ -81,7 +81,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map .gmap:hover{background:var(--info);color:#fff}
 @media(max-width:1100px){.b6-map{display:none}}
 /* 航路 (ブッキング選択時) */
-.b6-map.route{width:270px;padding:4px 6px}
+.b6-map.route{width:300px;padding:4px 6px 6px}
 .b6-map .rt-hd{display:flex;align-items:center;gap:4px;width:100%;font-size:11.5px;white-space:nowrap;overflow:hidden}
 .b6-map .rt-hd b{color:var(--accent)}
 .b6-map .rt-x{margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px}
@@ -1392,8 +1392,10 @@ function renderRoute(el, b){
   /* 表示範囲: 航路に合わせて (余白・最小幅)、箱の縦横比に合わせる */
   let x0 = Math.min(...route.map(p=>p[0])), x1 = Math.max(...route.map(p=>p[0])), y0 = Math.min(...route.map(p=>p[1])), y1 = Math.max(...route.map(p=>p[1]));
   const cx = (x0+x1)/2, cy = (y0+y1)/2, k = Math.cos(cy*Math.PI/180);
-  let w = Math.max(14, (x1-x0)+6)*k, h = Math.max(12, (y1-y0)+6);
-  const AR = 1.15;   /* 幅 / 高さ */
+  let w = Math.max(9, (x1-x0)+2.6)*k, h = Math.max(7, (y1-y0)+2.6);
+  /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
+  const bx = el.getBoundingClientRect();
+  const AR = bx.width > 50 && bx.height > 80 ? Math.max(1.0, Math.min(2.4, (bx.width-12)/(bx.height-30))) : 1.55;
   if(w/h > AR) h = w/AR; else w = h*AR;
   const vx = cx*k - w/2, vy = -cy - h/2;
   const X = lon => lon*k, Y = lat => -lat;
@@ -1403,18 +1405,19 @@ function renderRoute(el, b){
   (S.world||[]).forEach(r => { const [a,bb,c,d] = r.bb; if(c<lon0 || a>lon1 || d<lat0 || bb>lat1) return; land += '<path class="land" d="'+pathOf(r.pts)+'Z"/>'; });
   const s = w/100;   /* 線・文字の太さを範囲に合わせる */
   const [px, py] = [X(P[0]), Y(P[1])], [dx, dy] = [X(D[0]), Y(D[1])];
-  const lbl = (x, y, t, right) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+1*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.6*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
+  const lbl = (x, y, t, right) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+1*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.2*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
   el.innerHTML = head
     + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="aspect-ratio:'+AR+'">'
     + '<defs><clipPath id="rtclip"><rect x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
     + '<rect class="sea" x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/>' + land
     + '<path class="rt" d="'+pathOf(route)+'" style="stroke-width:'+(1.1*s).toFixed(2)+'px;stroke-dasharray:'+(2.4*s).toFixed(2)+' '+(1.6*s).toFixed(2)+'"/>'
-    + '<circle class="rt-pol" cx="'+px+'" cy="'+py+'" r="'+(1.8*s).toFixed(2)+'"/><circle class="rt-pod" cx="'+dx+'" cy="'+dy+'" r="'+(2.1*s).toFixed(2)+'"/>'
+    + '<circle class="rt-pol" cx="'+px+'" cy="'+py+'" r="'+(1.8*s).toFixed(2)+'" style="stroke-width:'+(0.5*s).toFixed(3)+'px"/><circle class="rt-pod" cx="'+dx+'" cy="'+dy+'" r="'+(2.1*s).toFixed(2)+'" style="stroke-width:'+(0.5*s).toFixed(3)+'px"/>'
     + lbl(px, py, pol, px < dx) + lbl(dx, dy, D[2], dx < px || dx < vx + w*0.5)
     + '</g></svg>'
-    + '<div class="rt-ft">'+esc(fmtMD(b.etd)||'ETD?')+' → '+esc(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km'
-    + (S.worldErr ? '<br><span class="ng">世界地図を読めません（航路だけ表示）</span>' : !S.world ? '<br><span class="muted">地図を読込中…</span>' : '')
-    + '<br><span class="muted">目安の航路（実際の航路とは異なります）</span></div>';
+    + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '');
+  /* 日付・距離は見出しのツールチップに */
+  const hd = el.querySelector('.rt-hd');
+  if(hd) hd.title = (fmtMD(b.etd)||'ETD?')+' → '+(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km（目安の航路・実際の航路とは異なります）';
 }
 /* ── ブッキングの選択 (表は作り直さずにクラスだけ付け替える — 編集中のセルを壊さない) ── */
 function selectBooking(k){
