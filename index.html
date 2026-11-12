@@ -76,9 +76,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map .pr{fill:none;stroke:#e5484d;stroke-width:1.2;opacity:.8;transform-box:fill-box;transform-origin:center;animation:b6ping 1.6s ease-out infinite}
 @keyframes b6ping{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 .b6-map .pl{font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);stroke-width:2px;font-family:var(--mono)}
-.b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap}
-.b6-map .gmap{margin:3px 0 3px;width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 4px;font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
-.b6-map .gmap:hover{border-color:var(--accent);color:var(--accent)}
+.b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:4px;padding-bottom:2px}
+.b6-map .gmap{background:none;border:1px solid transparent;border-radius:5px;padding:0 3px;font-size:12px;line-height:18px;cursor:pointer;opacity:.9}
+.b6-map .gmap:hover{opacity:1;border-color:var(--accent)}
 @media(max-width:1100px){.b6-map{display:none}}
 /* メモ */
 .b6-split{flex:1;display:flex;gap:8px;min-height:0}
@@ -1245,8 +1245,8 @@ function renderMap(){
     + '<rect class="oki" x="1" y="1" width="30" height="34" rx="3"/>'
     + JP_MAP.LAND.map(pts => '<path class="land" d="'+path(pts)+'"/>').join('') + '<path class="land" d="'+path(JP_MAP.OKI)+'"/>'
     + dots + label + '</svg>'
-    + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')+'</div>'
-    + '<button class="gmap" data-gmap="1" title="'+(S.port && S.port!=='__blank' ? esc(PORT_JA[S.port]||S.port)+' を Google マップで開く（新しいタブ）' : '港を選ぶとその港を開きます')+'">🗺 Google マップで見る</button>';
+    + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')
+    + '<button class="gmap" data-gmap="1" title="Google マップで開く（新しいタブ）'+(S.port && S.port!=='__blank' ? ' — '+esc(PORT_JA[S.port]||S.port) : '')+'">🗺</button></div>';
 }
 function fillFilterOptions(){
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
