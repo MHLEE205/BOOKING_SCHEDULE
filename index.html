@@ -1398,7 +1398,7 @@ function renderRoute(el, b){
   if(!S.world && !S.worldErr) loadWorld();
   const route = seaRoute(pol, D), km = kmOf(route);
   /* 表示範囲: いつもアジア全体 (インド西岸〜日本・インドネシア〜北海道)。箱の縦横比に合わせて上下か左右を広げる */
-  const x0 = 66, x1 = 147, y0 = -11, y1 = 46.5;
+  const x0 = 72.5, x1 = 142.9, y0 = -9.5, y1 = 44.5;   /* 2026-11-12 115% に拡大 (経度幅 81° → 70.4°) */
   const cx = (x0+x1)/2, cy = (y0+y1)/2, k = Math.cos(cy*Math.PI/180);
   let w = (x1-x0)*k, h = (y1-y0);
   /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
