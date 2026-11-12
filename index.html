@@ -172,6 +172,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .cp-lk{display:flex;gap:4px;align-items:center}
 .cp-lk select{min-width:150px;max-width:220px}
 .cp-lk .cp-q{width:90px;font-size:11.5px}
+tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-note{font-size:12px}
 .bk-mtxt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin-top:2px;padding:1px 5px;font-size:10.5px;line-height:1.3;color:var(--text2);background:color-mix(in srgb,var(--warn) 13%,transparent);border-left:2px solid var(--warn);border-radius:0 3px 3px 0;cursor:pointer;max-width:220px;font-weight:400;font-family:inherit}
@@ -646,6 +647,7 @@ const CFG = {
   /* COMPASS への実際の書き込み。false の間は「反映する」を押しても確認だけで書き込まない (DOC §4-2)
      2026-11-12 承認 → true (実データで試しながら修正) */
   COMPASS_WRITE: true,
+  COMPASS_EXTRA_WRITE: false,   /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 形님承認後に true (それまでは画面で選ぶだけ) */
 };
 
 /* ══════════ CONST (DOC-B-06 §2-5 — 値を変えるのはここ 1 か所) ══════════ */
@@ -3019,12 +3021,19 @@ const DvCompass = {
     const rels = new Map((rel.value||[]).map(x=>[x.ReferencingAttribute, {target:x.ReferencedEntity, nav:x.ReferencingEntityNavigationPropertyName}]));
     return this._meta = {entity:ed, attrs:attrs, rels:rels};
   },
-  async options(entity){
-    if(this._opts[entity]) return this._opts[entity];
+  async options(entity, parentEntity){
+    const ck = entity+'|'+(parentEntity||'');
+    if(this._opts[ck]) return this._opts[ck];
     const ed = await dvGet("EntityDefinitions(LogicalName='"+entity+"')?$select=EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute");
-    const sel = ed.EntitySetName+'?$select='+ed.PrimaryIdAttribute+','+ed.PrimaryNameAttribute+'&$orderby='+ed.PrimaryNameAttribute;
+    /* 親の一覧 (例: 販売CO の 販売先) を指す列 — あれば一緒に読んで絞り込みに使う */
+    let pa = null;
+    if(parentEntity){
+      try{ const rl = await dvGet("EntityDefinitions(LogicalName='"+entity+"')/ManyToOneRelationships?$select=ReferencingAttribute,ReferencedEntity");
+           const x = (rl.value||[]).find(y => y.ReferencedEntity===parentEntity); if(x) pa = x.ReferencingAttribute; }catch(e){}
+    }
+    const sel = ed.EntitySetName+'?$select='+ed.PrimaryIdAttribute+','+ed.PrimaryNameAttribute+(pa ? ',_'+pa+'_value' : '')+'&$orderby='+ed.PrimaryNameAttribute;
     let rows; try{ rows = await dvGetAll(sel+'&$filter=statecode eq 0'); }catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(sel); }
-    return this._opts[entity] = {set:ed.EntitySetName, list:rows.map(r=>({id:r[ed.PrimaryIdAttribute], name:str(r[ed.PrimaryNameAttribute])}))};
+    return this._opts[ck] = {set:ed.EntitySetName, parentAttr:pa, list:rows.map(r=>({id:r[ed.PrimaryIdAttribute], name:str(r[ed.PrimaryNameAttribute]), parent: pa ? r['_'+pa+'_value'] : null}))};
   },
   async findByBookingNo(no){
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
@@ -3056,11 +3065,18 @@ function makeMemCompass(){
     ['cr49f_cy_open', A('DateTime','CY Open',{dateOnly:true})], ['cr49f_cy_cut', A('DateTime','CY Cut',{dateOnly:true})],
     ['cr49f_etd', A('DateTime','ETD',{dateOnly:true})], ['cr49f_eta', A('DateTime','ETA',{dateOnly:true})], ['crcf9_delivery_location', A('String','搬入先')],
     ['cr49f_region_japan_id', A('Lookup','POL')], ['cr49f_region_id', A('Lookup','POD')], ['cr49f_carrier_id', A('Lookup','船社')],
-    ['cr49f_sale_contract_id', A('Lookup','販売契約（デモ: 必須の例）',{required:'ApplicationRequired'})], ['cr49f_remain', A('Decimal','残（デモ: 計算列の例）',{source:2})],
+    ['cr49f_sale_contract_id', A('Lookup','販売CO',{required:'ApplicationRequired'})], ['cr49f_remain', A('Decimal','残（デモ: 計算列の例）',{source:2})],
+    ['cr49f_customer_id', A('Lookup','販売先')], ['cr49f_forwarder_id', A('Lookup','乙仲')], ['cr49f_freight_id', A('Lookup','海上運賃区分')], ['cr49f_am', A('Boolean','AM')],
   ]);
-  const rels = new Map([['cr49f_region_japan_id',{target:'demo_port',nav:'cr49f_region_japan_id'}],['cr49f_region_id',{target:'demo_pod',nav:'cr49f_region_id'}],['cr49f_carrier_id',{target:'demo_carrier',nav:'cr49f_carrier_id'}]]);
+  const rels = new Map([['cr49f_region_japan_id',{target:'demo_port',nav:'cr49f_region_japan_id'}],['cr49f_region_id',{target:'demo_pod',nav:'cr49f_region_id'}],['cr49f_carrier_id',{target:'demo_carrier',nav:'cr49f_carrier_id'}],
+    ['cr49f_customer_id',{target:'demo_buyer',nav:'cr49f_customer_id'}],['cr49f_sale_contract_id',{target:'demo_saleco',nav:'cr49f_sale_contract_id'}],['cr49f_forwarder_id',{target:'demo_fwd',nav:'cr49f_forwarder_id'}],['cr49f_freight_id',{target:'demo_freight',nav:'cr49f_freight_id'}]]);
   const L = names => ({set:'demo', list:names.map(n=>({id:uuid(), name:n}))});
   const opts = {demo_port:L(Object.keys(PORT_REGION)), demo_pod:L(['BUSAN','INCHEON','KWANGYANG','PORT KLANG','PENANG','KAOHSIUNG','HO CHI MINH','HAIPHONG','LAEM CHABANG','LAT KRABANG','JAKARTA','SURABAYA']), demo_carrier:L(['ONE','KMTC','HEUNG-A','SINOKOR','DONG YOUNG','EVERGREEN','YANG MING','INTERASIA','PAN CONTINENTAL','PAN OCEAN','CNC'])};
+  opts.demo_buyer = L(['DEMO PAPER (INV)','KASOU PULP','SAMPLE FIBER']);
+  const by = n => opts.demo_buyer.list.find(x => x.name===n).id;
+  opts.demo_saleco = {set:'demo', parentAttr:'demo_buyer', list:[['LRS-2611DP1','DEMO PAPER (INV)'],['LRS-2611DP2','DEMO PAPER (INV)'],['LRS-2610DP1','DEMO PAPER (INV)'],['LRS-2611KP1','KASOU PULP'],['LRS-2611SF1','SAMPLE FIBER']].map(([n,p]) => ({id:uuid(), name:n, parent:by(p)}))};
+  opts.demo_fwd = L(['デモ乙仲A||¥8,000','デモ乙仲B||¥7,500','デモ乙仲C||¥9,000']);
+  opts.demo_freight = L(['$410|¥4000|¥1500','$350|¥4000|¥1500','$520|¥4500|¥1500']);
   return {
     demo:true,
     async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
@@ -3156,7 +3172,7 @@ async function compassCheck(b){
     else if(a.type==='Lookup' || a.type==='Customer') row.note = 'COMPASS では一覧から選ぶ列 → 1次では送らない';
     else if(blank(v)) row.note = '空 → 送らない';
     else { row.send = f.date ? compassDate(v, a.dateOnly) : v; R.allowed.add(f.col); }
-    if(f.date && b[noteKey(f.k)]) row.note = (row.note?row.note+' / ':'')+'※ '+b[noteKey(f.k)];
+    if(f.date && dateNote(b, f.k)) row.note = (row.note?row.note+' / ':'')+'※ '+dateNote(b, f.k);
     R.fields.push(row);
   });
   const learned = await cpMapLoad();
@@ -3178,6 +3194,48 @@ async function compassCheck(b){
     }catch(e){ L.note = '一覧を読めません（'+String(e.status||'')+'）→ 送らない'; }
     R.lookups.push(L);
   }
+  /* ── 販売先・販売CO・乙仲・海上運賃区分・AM (2026-11-12 ユーザーと決めた形) ──
+     COMPASS の列は表示名で探す (列名を推測しない)。今は画面で選ぶだけ — 送るのは CFG.COMPASS_EXTRA_WRITE (形님承認) 後 */
+  const findCol = re => { for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)) return k; } return null; };
+  const inv = PARSE.nfkcSame(firstLine(b.invoiceno)).toUpperCase().trim();
+  const invPre = (inv.match(/^[A-Z]+/)||[''])[0], invMon = (inv.match(/^[A-Z]+[-\s]?(\d{4})/)||[])[1] || '';
+  const pol = str(b.port).trim().toUpperCase(), pod = COMPASS.LOOKUPS[1].key(b), car = carrierKey(b.carrier);
+  const EX = [
+    {k:'buyer',   label:'販売先',       re:/販売先/,             key:invPre, show:invPre ? 'Invoice '+invPre+'…' : ''},
+    {k:'saleco',  label:'販売CO',       re:/販売\s*CO|販売契約/i, key:'',     show:invMon ? invMon+' の契約' : '', parent:'buyer'},
+    {k:'otsu',    label:'乙仲',         re:/乙仲/,               key:pol,    show:pol},
+    {k:'freight', label:'海上運賃区分', re:/海上運賃/,           key:[pol, pod, car].filter(Boolean).join(' / '), show:[pol, pod, car].filter(Boolean).join(' / ')},
+  ];
+  const exIdx = {};
+  for(const f of EX){
+    const col = findCol(f.re);
+    const L = {extra:true, kind:f.k, label:f.label, col:col || '（見つかりません）', key:f.key, show:f.show, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
+    exIdx[f.k] = R.lookups.length;
+    if(!col){ L.note = 'COMPASS に「'+f.label+'」の列が見つかりません'; R.lookups.push(L); continue; }
+    const rel = M.rels.get(col);
+    try{
+      const par = f.parent ? R.lookups[exIdx[f.parent]] : null;
+      const o = await C.options(rel.target, par && par.target);
+      L.nav = rel.nav; L.set = o.set; L.list = o.list; L.target = rel.target; L.hasParent = !!o.parentAttr;
+      if(f.k==='saleco'){
+        L.month = invMon; L.parentIdx = exIdx.buyer;
+        const c = salecoCands(L, par ? par.sel : '');
+        L.cands = c.slice(0, 15);
+        if(c.length===1){ L.sel = c[0].id; L.how = 'auto'; L.note = '自動で選択（候補が 1 件）'; }
+        else L.note = c.length ? '候補から選んでください（'+c.length+' 件）' : '候補なし — 一覧から選んでください';
+      } else {
+        const lr = !blank(f.key) && (learned[f.k]||{})[cpNorm(f.key)];
+        if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
+        else L.note = blank(f.key) ? '選んでください' : '選んでください — 次から「'+f.show+'」で自動';
+      }
+      L.auto = L.sel;
+      if(CFG.COMPASS_EXTRA_WRITE) R.allowed.add(rel.nav+'@odata.bind');
+    }catch(e){ L.note = '一覧を読めません（'+String(e.status || e.message || '')+'）'; }
+    R.lookups.push(L);
+  }
+  let amCol = null; M.attrs.forEach((a, k) => { if(!amCol && a.type==='Boolean' && /^\s*AM\s*$/i.test(a.label)) amCol = k; });
+  R.am = {col:amCol, val:cutAM(b)};
+  if(amCol && CFG.COMPASS_EXTRA_WRITE) R.allowed.add(amCol);
   /* COMPASS 側で必須なのに B-06 から送らない列 */
   const sent = new Set(COMPASS.FIELDS.map(f=>f.col).concat(COMPASS.LOOKUPS.map(f=>f.col)));
   const miss = [];
@@ -3192,10 +3250,17 @@ async function compassCheck(b){
   R.infos.push('Packer 行 '+live.length+' 行・本数合計 '+hon+' 本（品目明細は 1次では送りません — ヘッダーだけ作成）');
   return R;
 }
+/* 販売CO の候補: 選んだ販売先の契約 (親の列があれば)・Invoice の年月 (2611) を含むもの */
+function salecoCands(L, buyerId){
+  const byP = L.list.filter(o => !L.hasParent || !buyerId || o.parent===buyerId);
+  const byM = L.month ? byP.filter(o => cpNorm(o.name).includes(L.month)) : byP;
+  return (byM.length ? byM : byP).map(o => ({id:o.id, name:o.name}));
+}
 function compassBody(R, picks){
   const body = {};
   R.fields.forEach(f => { if(f.send!=null) body[f.col] = f.send; });
-  R.lookups.forEach((L, i) => { const id = picks[i]; if(id && L.nav && L.set) body[L.nav+'@odata.bind'] = '/'+L.set+'('+id+')'; });
+  R.lookups.forEach((L, i) => { if(L.extra && !CFG.COMPASS_EXTRA_WRITE) return; const id = picks[i]; if(id && L.nav && L.set) body[L.nav+'@odata.bind'] = '/'+L.set+'('+id+')'; });
+  if(R.am && R.am.col && CFG.COMPASS_EXTRA_WRITE) body[R.am.col] = !!picks.am;
   return body;
 }
 
@@ -3211,7 +3276,9 @@ async function openCompass(b){
   h += li(R.blocks,'d') + li(R.warns,'w') + li(R.infos,'i');
   h += '<table class="b6-s" style="margin-top:8px"><tr><th>項目</th><th>B-06 の値</th><th>COMPASS に送る値</th><th>メモ</th></tr>';
   R.fields.forEach(f => { h += '<tr><td>'+esc(f.label)+'<div class="muted" style="font-size:11px">'+esc(f.col)+'</div></td><td>'+esc(f.b06)+'</td><td>'+(f.send!=null?'<b>'+esc(f.send)+'</b>':'<span class="muted">—</span>')+'</td><td>'+esc(f.note)+'</td></tr>'; });
+  const exNote = CFG.COMPASS_EXTRA_WRITE ? '' : '（承認後に送信 — 今は選ぶだけ）';
   R.lookups.forEach((L, i) => {
+    if(L.extra && !R.lookups[i-1].extra) h += '<tr class="cp-sec"><td colspan="4">販売・乙仲・運賃 '+exNote+'</td></tr>';
     const op = o => '<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>';
     const candIds = new Set(L.cands.map(c => c.id));
     const sel = L.list.length
@@ -3221,13 +3288,16 @@ async function openCompass(b){
         + '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍 絞り込み" autocomplete="off"></div>'
       : '<span class="muted">—</span>';
     const badge = L.how==='learn' ? '<span class="bdg o">記憶</span> ' : L.how==='auto' ? '<span class="bdg o">自動</span> ' : L.list.length && !blank(L.key) ? '<span class="bdg w">選択</span> ' : '';
-    h += '<tr'+(L.list.length && !L.sel && !blank(L.key) ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+badge+esc(L.note)+'</td></tr>';
+    const need = L.list.length && !L.sel && (L.extra || !blank(L.key));
+    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.extra ? L.show : L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+(L.extra && !L.how && L.list.length ? '<span class="bdg w">選択</span> ' : badge)+esc(L.note)+'</td></tr>';
   });
-  h += '</table><div class="muted" style="font-size:11.5px;margin-top:6px">POL・POD・船社を手で選び直すと、その対応を覚えて次から自動で選びます（チームで共有）。</div>';
+  if(R.am) h += '<tr><td>AM<div class="muted" style="font-size:11px">'+esc(R.am.col || '（見つかりません）')+'</div></td><td>Cut '+(R.am.val ? '<b>AM</b>' : '—')+'</td><td>'+(R.am.col ? '<label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> AM（午前カット）</label>' : '<span class="muted">—</span>')+'</td><td class="cp-note">'+(R.am.col ? 'B-06 の Cut の AM から' : 'COMPASS に「AM」の列が見つかりません')+'</td></tr>';
+  h += '</table><div class="muted" style="font-size:11.5px;margin-top:6px">POL・POD・船社・販売先・乙仲・海上運賃区分を手で選ぶと、その対応を覚えて次から自動で選びます（チームで共有）。販売CO は選んだ販売先と Invoice の年月で絞り込みます。</div>';
   const m = modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), h, [
     {label:'キャンセル', fn:c=>c()},
     {label:'送信内容を確認 →', pri:true, fn:c=>{
       const picks = {}; $$('.cp-pick', m.el).forEach(s => { picks[+s.dataset.i] = s.value; });
+      const amc = m.el.querySelector('#cp-am'); picks.am = amc ? amc.checked : false;
       /* 手で選んだ (自動と違う) 対応を覚える */
       cpMapLearn(R.lookups.map((L, i) => ({L:L, id:picks[i]})).filter(x => x.id && x.id!==x.L.auto && !blank(x.L.key))
         .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})));
@@ -3243,7 +3313,20 @@ async function openCompass(b){
   });
   m.el.addEventListener('change', ev => {
     const s = ev.target.closest('.cp-pick'); if(!s) return;
-    s.closest('tr').classList.toggle('cp-need', !s.value && !blank(R.lookups[+s.dataset.i].key));
+    const Li = R.lookups[+s.dataset.i];
+    s.closest('tr').classList.toggle('cp-need', !s.value && (Li.extra || !blank(Li.key)));
+    /* 販売先を変えたら 販売CO の候補を作り直す */
+    if(Li.kind==='buyer'){
+      const si = R.lookups.findIndex(x => x.kind==='saleco'), SL = R.lookups[si]; if(!SL || !SL.list.length) return;
+      const ss = m.el.querySelector('.cp-pick[data-i="'+si+'"]'), c = salecoCands(SL, s.value), ids = new Set(c.map(x => x.id));
+      const op = o => '<option value="'+esc(o.id)+'">'+esc(o.name)+'</option>';
+      ss.innerHTML = '<option value="">— 送らない —</option>' + (c.length ? '<optgroup label="候補">'+c.map(op).join('')+'</optgroup><optgroup label="すべて">' : '')
+        + SL.list.filter(o => !ids.has(o.id)).map(op).join('') + (c.length ? '</optgroup>' : '');
+      ss.value = c.length===1 ? c[0].id : '';
+      const nt = ss.closest('tr').querySelector('.cp-note');
+      nt.innerHTML = c.length===1 ? '<span class="bdg o">自動</span> 自動で選択（候補が 1 件）' : '<span class="bdg w">選択</span> '+(c.length ? '候補から選んでください（'+c.length+' 件）' : '候補なし — 一覧から選んでください');
+      ss.closest('tr').classList.toggle('cp-need', !ss.value);
+    }
   });
   if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
 }
@@ -3257,7 +3340,8 @@ function confirmCompass(b, R, picks){
   let h = '<div style="font-size:15px;font-weight:700;margin-bottom:8px">本当に COMPASS に反映しますか？</div>';
   h += '<table class="b6-s"><tr><th>Booking no.</th><td><b>'+esc(firstLine(b.bkgno))+'</b></td></tr><tr><th>本船</th><td>'+esc(firstLine(b.vessel))+'</td></tr>'
     + '<tr><th>CY OPEN / CUT</th><td>'+esc(b.cyopen||'—')+' / '+esc(b.cycut||'—')+(cutAM(b)?' <b>AM</b>':'')+'</td></tr><tr><th>ETD / ETA</th><td>'+esc(b.etd||'—')+' / '+esc(b.eta||'—')+'</td></tr>'
-    + R.lookups.map((L,i)=>'<tr><th>'+esc(L.label)+'</th><td>'+esc(pickName(i))+'</td></tr>').join('')
+    + R.lookups.map((L,i)=>'<tr><th>'+esc(L.label)+'</th><td>'+esc(pickName(i))+(L.extra && !CFG.COMPASS_EXTRA_WRITE ? ' <span class="muted" style="font-size:11px">（承認後 — 今回は送りません）</span>' : '')+'</td></tr>').join('')
+    + (R.am && R.am.col ? '<tr><th>AM</th><td>'+(picks.am ? '✔ AM' : '—')+(!CFG.COMPASS_EXTRA_WRITE ? ' <span class="muted" style="font-size:11px">（承認後 — 今回は送りません）</span>' : '')+'</td></tr>' : '')
     + '<tr><th>Packer 行・本数</th><td>'+live.length+' 行・'+hon+' 本（明細は送りません）</td></tr></table>';
   if(R.warns.length) h += '<div style="margin-top:8px">'+R.warns.map(w=>'<div><span class="bdg w">⚠</span> '+esc(w)+'</div>').join('')+'</div>';
   h += '<div class="muted" style="margin-top:8px;font-size:12px">反映後の修正・取消は COMPASS で行います（B-06 からは COMPASS を変更・削除できません）。</div>';
