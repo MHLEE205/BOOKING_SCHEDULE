@@ -1369,7 +1369,7 @@ function fmtCls(o, k, b){
   return c;
 }
 async function saveFmt(b, a, k, change){
-  if(!S.hasFmt){ toast('書式を保存する列 (leenai_fmt) がまだありません。⚙ 診断 →「書式の列を作成」を押してください', 'warn'); return; }
+  if(!S.hasFmt){ toast('書式の列 (leenai_fmt) がまだ使えません。⚙ 診断 →「書式の列を作成・公開」を押してから再読み込みしてください', 'warn'); return; }
   const o = a || b, all = JSON.parse(JSON.stringify(fmtOf(o)));
   const cur = Object.assign({}, all[k]||{}, change);
   Object.keys(cur).forEach(x => { if(!cur[x]) delete cur[x]; });
