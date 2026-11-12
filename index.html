@@ -1332,6 +1332,8 @@ function seaRoute(pol, pod){
   if(zone==='KR'){
     const last = r[r.length-1];
     if(last[1] < 32) r.push([129.3,32.0]);
+    /* 釜山より西 (光陽・仁川など) へ日本海側・関門から行く時は対馬と壱岐の間を通る (韓国の陸を横切らない) */
+    else if(D[0] < 128.8) r.push([129.75,34.05],[128.6,34.5]);
     if(D[0] < 127) r.push([125.6,34.2]);
   }
   if(zone==='TW' && D[0] < 121.2) r.push([121.9,25.6],[120.3,24.9]);
@@ -1399,9 +1401,11 @@ function renderRoute(el, b){
   if(!S.world && !S.worldErr) loadWorld();
   const route = seaRoute(pol, D), km = kmOf(route);
   /* 表示範囲: いつもアジア全体 (インド西岸〜日本・インドネシア〜北海道)。箱の縦横比に合わせて上下か左右を広げる */
-  const x0 = 86.3, x1 = 145, y0 = -8, y1 = 46;   /* 2026-11-12 さらに 120% 拡大 (経度幅 70.4° → 58.7°)。日本〜インドネシアが入る範囲 */
+  /* 表示範囲: 航路に合わせて拡大 (POL〜POD が枠いっぱい)。近すぎる時は最小範囲 (日本〜韓国くらい) — 2026-11-12 ユーザー選択 */
+  const x0 = Math.min(...route.map(p=>p[0])), x1 = Math.max(...route.map(p=>p[0]));
+  const y0 = Math.min(...route.map(p=>p[1])), y1 = Math.max(...route.map(p=>p[1]));
   const cx = (x0+x1)/2, cy = (y0+y1)/2, k = Math.cos(cy*Math.PI/180);
-  let w = (x1-x0)*k, h = (y1-y0);
+  let w = Math.max(18, (x1-x0)+6)*k, h = Math.max(14, (y1-y0)+6);
   /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
   const bx = el.getBoundingClientRect();
   const AR = bx.width > 50 && bx.height > 80 ? Math.max(0.55, Math.min(2.4, (bx.width-12)/(bx.height-26))) : 1.55;
