@@ -1156,8 +1156,8 @@ function visibleBookings(){
   if(F.port) list = list.filter(b => F.port==='__blank' ? blank(b.port) : str(b.port).trim().toUpperCase()===F.port);
   if(F.appr) list = list.filter(b => (b.approval||'NONE')===F.appr);
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
-  if(F.nopk) list = list.filter(noPacker);
-  if(F.nobkg) list = list.filter(b => blank(b.bkgno));
+  /* 未割当・BKG#未取得 は どちらか (OR) — 2026-11-12 ユーザー指定 */
+  if(F.nopk || F.nobkg) list = list.filter(b => (F.nopk && noPacker(b)) || (F.nobkg && blank(b.bkgno)));
   if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].concat(bkHistOf(b).map(e => e.from)).some(v => str(v).toLowerCase().includes(F.q)));
   if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
   else if(F.sort==='cut') list.sort((a,b)=> (a.cycut||'9999-99-99').localeCompare(b.cycut||'9999-99-99') || (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
