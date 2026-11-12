@@ -3309,10 +3309,9 @@ function initUI(){
   $('#b-memo').addEventListener('click', () => toggleMemo());
   /* 表のクリック */
   $('#b6-board').addEventListener('click', ev => {
-    /* No. → ブッキングを選択 (もう一度で解除)。ほかのセルを押した時もそのブッキングを選ぶ */
+    /* No. だけでブッキングを選択 (もう一度で解除)。ほかのセルを押しても選択は変えない */
     const trk = ev.target.closest('tr[data-k]');
     if(ev.target.closest('td.no') && trk){ selectBooking(S.selBk===trk.dataset.k ? null : trk.dataset.k); return; }
-    if(trk && S.selBk!==trk.dataset.k) selectBooking(trk.dataset.k);
     const ob = ev.target.closest('.ob');
     if(ob){
       ev.stopPropagation();
@@ -3331,6 +3330,9 @@ function initUI(){
   /* 選んだブッキング: Esc で解除・Ctrl+C でコピー (入力欄・メモ・モーダルの中では普通の動作) */
   document.addEventListener('keydown', ev => {
     if(!S.selBk || S.editing) return;
+    /* セル編集の Esc (入力欄で押したキー) は編集の取消だけ — 選択は解除しない */
+    const tg = ev.target;
+    if(tg && tg.nodeType===1 && (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable)) return;
     const ae = document.activeElement;
     if(ae && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable)) return;
     if(document.querySelector('.b6-modal-bg')) return;
