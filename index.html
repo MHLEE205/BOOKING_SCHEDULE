@@ -1415,8 +1415,11 @@ function openFmt(ev, td){
 }
 /* 書式の列があるか (なければ読み書きの $select に含めない) */
 async function detectFmt(){
-  const has = ln => dvGet("EntityDefinitions(LogicalName='"+ln+"')/Attributes(LogicalName='leenai_fmt')?$select=LogicalName").then(()=>true, ()=>false);
-  const [x, y] = await Promise.all([has(CFG.LN_BOOK), has(CFG.LN_ASG)]);
+  /* 実際の読み書きと同じデータ API で 1 件読めるかで判定 (メタデータの個別取得は環境により 404 になるため) */
+  const errs = [];
+  const has = es => dvGet(es+'?$select=leenai_fmt&$top=1').then(()=>true, e => { errs.push(es+': '+e.message.slice(0,160)); return false; });
+  const [x, y] = await Promise.all([has(CFG.ES_BOOK), has(CFG.ES_ASG)]);
+  S.fmtErr = errs.join(' / ');
   setHasFmt(x && y);
 }
 function setHasFmt(v){
@@ -1431,7 +1434,7 @@ async function createFmtColumns(){
   for(const ln of [CFG.LN_BOOK, CFG.LN_ASG]){
     if(ln!==CFG.LN_BOOK && ln!==CFG.LN_ASG) throw new Error('blocked');
     const base = "EntityDefinitions(LogicalName='"+ln+"')";
-    const exists = await dvGet(base+"/Attributes(LogicalName='leenai_fmt')?$select=LogicalName").then(()=>true, ()=>false);
+    const exists = await dvGet(base+"/Attributes?$select=LogicalName&$filter=LogicalName eq 'leenai_fmt'").then(r => (r.value||[]).length>0, ()=>false);
     if(exists){ res.push(ln+': 既にあります'); continue; }
     try{
       await dvFetch(base+'/Attributes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
@@ -2764,7 +2767,8 @@ async function openDiag(){
       w('<div>'+(bad?'<span class="ng">❌ '+ln+': '+bad+' 列に問題</span>':'✅ '+ln+': 全 '+EXPECT[ln].length+' 列 OK')+'</div><details class="rp"'+(bad?' open':'')+'><summary>列の詳細</summary>'+h+'</table></details>');
     }catch(e){ w('<div class="ng">❌ '+ln+': '+esc(e.message.slice(0,160))+'</div>'); }
   }
-  w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">列なし — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成</button>')+'</div>');
+  w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">使えません — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成</button>'
+    + (S.fmtErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.fmtErr)+'</div>' : ''))+'</div>');
   try{
     const m = await readAttrs(CFG.LN_B05);
     const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
