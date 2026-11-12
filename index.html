@@ -922,6 +922,7 @@ async function loadMasters(){
   try{
     const staff = await LEENAI.master.get('staff').catch(()=>[]);
     M.staffName = new Map((staff||[]).filter(r=>r.code).map(r=>[String(r.code), str(r.name_ja||r.name_en||r.code)]));
+    M.staffEmail = new Map((staff||[]).filter(r=>r.code && r.email).map(r=>[String(r.email).trim().toLowerCase(), String(r.code)]));
     setPolStaff(await LEENAI.master.get('pol_staff'));
   }catch(e){ errs.push('pol_staff: '+e.message); }
   M.loaded = true; M.err = errs.join(' / ');
@@ -940,6 +941,14 @@ function setPolStaff(items){
     [v.staff, v.assist].forEach(c => { if(c && !M.staffOrder.includes(c)) M.staffOrder.push(c); });
   });
   M.pol_staff_n = (items||[]).length;
+}
+/* ログイン中の人の社員コード (staff マスターのメール → 共通ファイルの staffCode の順) */
+function myStaffCode(){
+  const M = S.masters, u = LEENAI.user || {};
+  const byMail = M.staffEmail && M.staffEmail.get(str(u.email).trim().toLowerCase());
+  if(byMail) return byMail;
+  if(u.staffCode && M.staffName && M.staffName.has(u.staffCode)) return u.staffCode;
+  return CFG.DEMO ? 'DEMO_C' : '';
 }
 function staffName(code){ return (S.masters.staffName && S.masters.staffName.get(code)) || code; }
 /* 港の担当コード [担当, 補助] */
@@ -1733,7 +1742,7 @@ function makeMemoEditor(host, opt){
 function memoTarget(){
   if(S.port && S.port!=='__blank') return 'port:'+S.port;
   if(S.staff) return 'staff:'+S.staff;
-  return S.memoKey || ('staff:'+((LEENAI.user && LEENAI.user.staffCode) || (S.masters.staffOrder||[])[0] || 'ALL'));
+  return S.memoKey || ('staff:'+(myStaffCode() || (S.masters.staffOrder||[])[0] || 'ALL'));
 }
 function memoPathOf(key){
   const [t, v] = key.split(':'), id = str(v).toUpperCase().replace(/[^A-Z0-9_-]/g,'_') || 'ALL';
@@ -1769,12 +1778,22 @@ function memoFollow(){ if(S.memoOpen && S.memoEd){ S.memoPin = false; memoShow()
 function memoShow(){
   const key = S.memoPin && S.memoKey ? S.memoKey : memoTarget();
   S.memoKey = key;
-  const staff = (S.masters.staffOrder||[]).map(c => 'staff:'+c);
-  const ports = []; REGIONS.forEach(r => r.ports.forEach(p => ports.push('port:'+p)));
-  S.bk.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(p && !ports.includes('port:'+p)) ports.push('port:'+p); });
-  if(!staff.includes(key) && !ports.includes(key)) (key.startsWith('port:') ? ports : staff).unshift(key);
+  /* 自分 (ログイン中の人) を先頭に。港も自分の担当港 (担当 → 補助) を先に */
+  const me = myStaffCode();
+  const order = S.masters.staffOrder || [];
+  const staff = (me && order.includes(me) ? [me].concat(order.filter(c => c!==me)) : order).map(c => 'staff:'+c);
+  const all = []; REGIONS.forEach(r => r.ports.forEach(p => all.push(p)));
+  S.bk.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(p && !all.includes(p)) all.push(p); });
+  const rank = p => { const st = portStaff(p); return st[0]===me ? 0 : st.includes(me) ? 1 : 2; };
+  const mine = me ? all.filter(p => rank(p)<2).sort((a,b) => rank(a)-rank(b)) : [];
+  const others = all.filter(p => !mine.includes(p));
+  const keys = staff.concat(all.map(p => 'port:'+p));
+  const extra = keys.includes(key) ? '' : key;
   const opt = k => '<option value="'+esc(k)+'"'+(k===key?' selected':'')+'>'+esc(memoLabel(k))+'</option>';
-  $('#mp-sel').innerHTML = (staff.length ? '<optgroup label="担当">'+staff.map(opt).join('')+'</optgroup>' : '') + '<optgroup label="港">'+ports.map(opt).join('')+'</optgroup>';
+  $('#mp-sel').innerHTML = (extra ? opt(extra) : '')
+    + (staff.length ? '<optgroup label="担当">'+staff.map(opt).join('')+'</optgroup>' : '')
+    + (mine.length ? '<optgroup label="港 — '+esc(staffName(me))+' の担当">'+mine.map(p => opt('port:'+p)).join('')+'</optgroup>' : '')
+    + '<optgroup label="'+(mine.length ? '港 — その他' : '港')+'">'+others.map(p => opt('port:'+p)).join('')+'</optgroup>';
   S.memoEd.load(memoPathOf(key));
 }
 
