@@ -149,6 +149,13 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-ploc .ps-c{margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11.5px}
 .b6-ploc .ps-c a{color:var(--info)}
 .bk-memo.has{font-size:12px}
+.bq{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;line-height:17px;cursor:pointer;background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap}
+.bq .ct{font-weight:400}
+.bq.short{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.bq.over{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.bq.full{color:var(--ok, #22a35a)}
+.bq.add{opacity:0;font-weight:400}
+.b6-t td:hover .bq.add{opacity:.75}
 .cp-lk{display:flex;gap:4px;align-items:center}
 .cp-lk select{min-width:150px;max-width:220px}
 .cp-lk .cp-q{width:90px;font-size:11.5px}
@@ -820,7 +827,8 @@ function toDv(o, fields){
     let v = o[f];
     if(f==='slots') v = JSON.stringify(v||[]);
     if(v===undefined) v = null;
-    if(v==='' && (DATE_FIELDS.has(f) || f==='seq' || f==='totalhon')) v = null;
+    if(v==='' && (DATE_FIELDS.has(f) || f==='seq' || f==='totalhon' || f==='bkqty')) v = null;
+    if(f==='bkqty' && v!=null) v = parseInt(v, 10);
     b['leenai_'+f] = v;
   });
   return b;
@@ -1168,6 +1176,7 @@ function cellHtml(col, b, a){
                         : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
       return h;
     }
+    if(k==='carrier' && S.hasQty) return esc(carrierText(b)) + ' ' + qtyBadge(b);
     return esc(v);
   }
   const v = a[k];
@@ -1687,6 +1696,7 @@ async function loadBoard(retried){
     loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
   }catch(e){
     if(isFmtErr(e) && S.hasFmt && retried!==true){ LEENAI.loading.hide(); fmtFallback(e); return loadBoard(true); }
+    if(isQtyErr(e) && S.hasQty && retried!==true){ LEENAI.loading.hide(); qtyFallback(e); return loadBoard(true); }
     toast('読込エラー: '+e.message.slice(0,120), 'danger');
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
   }finally{ LEENAI.loading.hide(); }
@@ -1705,7 +1715,7 @@ async function refreshTick(){
     if(S.editing){ S.pending = mergeChanges(S.pending, ch); }
     else await applyChanges(ch);
     updSync();
-  }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
+  }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); if(isQtyErr(e) && S.hasQty) qtyFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
   finally{ S.refreshing = false; }
 }
 function mergeChanges(p, ch){ if(!p) return ch; return {B:p.B.concat(ch.B), A:p.A.concat(ch.A)}; }
@@ -1928,6 +1938,157 @@ function openFmt(ev, td){
   m.style.top = Math.min(ev.clientY, innerHeight - m.offsetHeight - 8)+'px';
   setTimeout(()=>document.addEventListener('click', closeMenu, {once:true}), 0);
 }
+/* ── ブッキング大数・コンテナ (leenai_bkqty 整数 / leenai_cntr テキスト) — B-06 ブッキング テーブルだけ。2026-11-12 ユーザー選択 ──
+   確定大数は Packer 行の本数合計 (計) から計算する (保存しない)。船社セルに「ONE 7/8 · HQ」と表示 */
+async function detectQty(){
+  try{ await dvGet(CFG.ES_BOOK+'?$select=leenai_bkqty,leenai_cntr&$top=1'); setHasQty(true); }
+  catch(e){ S.qtyErr = String(e.message||'').slice(0,200); setHasQty(false); }
+}
+function setHasQty(v){
+  S.hasQty = v;
+  ['bkqty','cntr'].forEach(k => { const i = BK_FIELDS.indexOf(k); if(v && i<0) BK_FIELDS.push(k); if(!v && i>=0) BK_FIELDS.splice(i, 1); });
+}
+function isQtyErr(e){ return !!(e && /leenai_(bkqty|cntr)/.test(String(e.message||''))); }
+function qtyFallback(e){
+  setHasQty(false); S.qtyErr = String(e.message||'').slice(0,200);
+  toast('ブッキング大数・コンテナの列がまだ使えないため、なしで表示します（数分後に再読み込みしてください）', 'warn');
+}
+/* 診断から: B-06 ブッキング テーブルに 2 列を作って、このテーブルだけ公開 */
+async function createQtyColumns(){
+  if(!confirm('B-06 ブッキング テーブル ('+CFG.LN_BOOK+') に「ブッキング大数 (leenai_bkqty・整数)」「コンテナ (leenai_cntr・テキスト 100)」の 2 列を作成し（既にあれば作成しません）、このテーブルを公開 (Publish) します。よろしいですか？')) return;
+  let lang = 1041; try{ lang = (await dvGet('organizations?$select=languagecode')).value[0].languagecode || 1041; }catch(e){}
+  const L = t => ({'@odata.type':'Microsoft.Dynamics.CRM.Label', LocalizedLabels:[{'@odata.type':'Microsoft.Dynamics.CRM.LocalizedLabel', Label:t, LanguageCode:lang}]});
+  const req = {Value:'None', CanBeChanged:true, ManagedPropertyLogicalName:'canmodifyrequirementlevelsettings'};
+  const defs = [
+    ['leenai_bkqty', {'@odata.type':'Microsoft.Dynamics.CRM.IntegerAttributeMetadata', SchemaName:'leenai_bkqty', MinValue:0, MaxValue:9999, Format:'None', RequiredLevel:req, DisplayName:L('ブッキング大数'), Description:L('B-06: 船社に取ったブッキングの本数 (確定は Packer 行の合計)')}],
+    ['leenai_cntr',  {'@odata.type':'Microsoft.Dynamics.CRM.StringAttributeMetadata', SchemaName:'leenai_cntr', MaxLength:100, FormatName:{Value:'Text'}, RequiredLevel:req, DisplayName:L('コンテナ'), Description:L('B-06: コンテナの種類 (40HQ・40DRY・40RAD)')}],
+  ];
+  const base = "EntityDefinitions(LogicalName='"+CFG.LN_BOOK+"')", res = [];
+  for(const [ln, body] of defs){
+    const exists = await dvGet(base+"/Attributes?$select=LogicalName&$filter=LogicalName eq '"+ln+"'").then(r => (r.value||[]).length>0, () => false);
+    if(exists){ res.push(ln+': 既にあります'); continue; }
+    try{ await dvFetch(base+'/Attributes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); res.push(ln+': 作成しました'); }
+    catch(e){ res.push(ln+': 失敗 — '+e.message.slice(0,200)); }
+  }
+  try{
+    await dvFetch('PublishXml', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ParameterXml:'<importexportxml><entities><entity>'+CFG.LN_BOOK+'</entity></entities></importexportxml>'})});
+    res.push('公開 (Publish): 完了');
+  }catch(e){ res.push('公開 (Publish): 失敗 — '+e.message.slice(0,200)); }
+  modal('ブッキング大数・コンテナの列', res.map(s=>'<div>'+esc(s)+'</div>').join('')+'<div class="muted" style="margin-top:8px">作成できたらページを再読み込みし、診断の「船社の文字から読み込む」で既存のブッキングに数字を入れてください。</div>', [{label:'再読み込み', pri:true, fn:()=>location.reload()},{label:'閉じる', fn:c=>c()}]);
+}
+/* 船社の原文 → {n: ブッキング大数, c: コンテナ}。コンテナは 40HQ・40DRY・40RAD の 3 種類にそろえる (2026-11-12 ユーザー指定)
+   「ONE(7/8)\n8HQ」→ 8 / 40HQ・「ONE(10)8'6」→ 10 / 40DRY・「ONE(5)RAD」→ 5 / 40RAD・「ONE(14/18)\n6HQ, 8RAD」→ 18 / 40HQ×6, 40RAD×8 */
+const CNTR_TYPES = ['40HQ','40DRY','40RAD'];
+const CNTR_WORD = /(40|20|45)?\s*(DRY\s*HQ|HQ|HC|HCD|DRY|DV|GP|RAD|RF|HR)|8['’′]\s*6"?|\bONLY\b/ig;
+function cntrType(w){
+  const s = str(w).toUpperCase().replace(/\s/g,'');
+  if(/RAD|RF|HR/.test(s)) return '40RAD';
+  if(/HQ|HC/.test(s)) return '40HQ';
+  if(/DRY|DV|GP|8['’′]6/.test(s)) return '40DRY';
+  return '';
+}
+function isCntrLine(l){
+  const s = PARSE.nfkcSame(str(l)).toUpperCase().trim(); if(!s || !/HQ|HC|DRY|DV|GP|RAD|RF|HR|8['’′]\s*6/.test(s)) return false;
+  return !s.replace(CNTR_WORD, '').replace(/[\d\sX×*,、\/+&]/g, '');
+}
+/* コンテナの文字 → {40HQ: 本数|null, ...} */
+function cntrParse(parts){
+  const out = {};
+  parts.join(',').split(/[,、\/+&]/).forEach(seg => {
+    const s = PARSE.nfkcSame(seg).toUpperCase().trim(); if(!s) return;
+    const t = cntrType(s.replace(/8['’′]\s*6"?/, 'DRY')); if(!t) return;
+    const num = (s.replace(/8['’′]\s*6"?/, '').replace(/(40|20|45)(?=\s*(HQ|HC|DRY|DV|GP|RAD|RF|HR))/g, '').match(/\d+/)||[])[0];
+    if(num) out[t] = (out[t]||0) + +num; else if(!(t in out)) out[t] = null;
+  });
+  return out;
+}
+function cntrStr(m, n){
+  const ks = CNTR_TYPES.filter(t => t in m);
+  if(!ks.length) return '';
+  if(ks.length===1) return ks[0];   /* 1 種類なら種類だけ (本数はブッキング大数) */
+  return ks.map(t => t + (m[t] ? '×'+m[t] : '')).join(', ');
+}
+function carrierQty(raw){
+  const lines = str(raw).split('\n').map(l => PARSE.nfkcSame(l));
+  let n = null; const parts = [];
+  const take = inner => { const last = inner.replace(/\s/g,'').split('/').pop().split(/→|->/).pop(); if(n==null && /^\d+$/.test(last)) n = +last; };
+  const m = lines[0].match(/\(([^)]*)\)(.*)$/);
+  if(m){ take(m[1]); const tail = m[2].trim(); if(tail && isCntrLine(tail)) parts.push(tail); }
+  lines.slice(1).forEach(l => {
+    const t = l.trim();
+    if(/^\([\d\s\/→\->]+\)$/.test(t)) take(t.slice(1, -1));   /* 2 行目に「(10/15)」 */
+    else if(isCntrLine(t)) parts.push(t);
+  });
+  const cm = cntrParse(parts);
+  /* 大数が書いてなくて 1 種類・本数ありなら、その本数を大数に */
+  const ks = Object.keys(cm);
+  if(n==null && ks.length===1 && cm[ks[0]]) n = cm[ks[0]];
+  return {n:n, c:cntrStr(cm, n)};
+}
+/* 表示用: 船社の文字から数字・コンテナの部分を除いたもの */
+function carrierText(b){
+  if(!S.hasQty || (b.bkqty==null && !b.cntr)) return str(b.carrier);
+  const lines = str(b.carrier).split('\n');
+  lines[0] = (lines[0]||'').replace(/[(（][^)）]*[)）]?\s*([^\s].*)?$/, (all, tail) => tail && !isCntrLine(tail) ? ' '+tail : '').trim();
+  return lines.filter((l, i) => i===0 || !(isCntrLine(l) || /^\s*[(（][\d\s\/→\->]+[)）]\s*$/.test(PARSE.nfkcSame(l)))).join('\n');
+}
+function bkConfirmed(b){ return b.rows.filter(a => !a.deleted).reduce((t, a) => t + (+a.totalhon || 0), 0); }
+function qtyBadge(b){
+  if(!S.hasQty) return '';
+  const n = b.bkqty, done = bkConfirmed(b);
+  if(n==null && !b.cntr) return '<span class="bq add" data-bq="1" title="ブッキング大数・コンテナを入力">＋大数</span>';
+  const cls = n==null ? '' : done>n ? ' over' : done<n ? ' short' : ' full';
+  const tip = (n==null ? 'ブッキング大数 未入力' : 'ブッキング '+n+' 本中 Packer 確定 '+done+' 本'+(done<n ? '（残り '+(n-done)+' 本）' : done>n ? '（'+(done-n)+' 本 超過）' : '（満）'))+(b.cntr ? ' · '+b.cntr : '')+' — クリックで変更';
+  return '<span class="bq'+cls+'" data-bq="1" title="'+esc(tip)+'">'+(n==null ? done+'/?' : done+'/'+n)+(cls===' over' ? ' ⚠' : '')+(b.cntr ? '<span class="ct"> · '+esc(b.cntr)+'</span>' : '')+'</span>';
+}
+function openQtyEdit(b){
+  if(b.deleted){ toast('削除済みのブッキングです', 'warn'); return; }
+  const g = carrierQty(b.carrier), done = bkConfirmed(b);
+  const h = '<div class="muted" style="font-size:12px;margin-bottom:8px">船社: '+esc(str(b.carrier).replace(/\n/g,' / '))+' ・ Packer 確定 <b>'+done+'</b> 本（QTY の計の合計）</div>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px">ブッキング大数 <input type="number" min="0" max="9999" class="b6-in" id="bq-n" style="width:90px" value="'+(b.bkqty!=null ? b.bkqty : g.n!=null ? g.n : '')+'"> 本</label>'
+    + (() => {
+        const cur = str(b.cntr || g.c || ''), mix = cur && !CNTR_TYPES.includes(cur);
+        return '<label style="display:flex;gap:8px;align-items:center">コンテナ <select class="b6-sel" id="bq-t"><option value="">（未入力）</option>'
+          + CNTR_TYPES.map(t => '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>').join('')
+          + '<option value="__mix"'+(mix?' selected':'')+'>混在（内訳を入力）</option></select>'
+          + '<input class="b6-in" id="bq-c" style="width:170px'+(mix?'':';display:none')+'" value="'+esc(mix ? cur : '')+'" placeholder="40HQ×6, 40RAD×8"></label>';
+      })()
+    + (b.bkqty==null && (g.n!=null || g.c) ? '<div class="muted" style="font-size:11.5px;margin-top:6px">※ 船社の文字から読んだ値を入れています</div>' : '');
+  modal('🚢 ブッキング大数・コンテナ — '+esc(bkLabel(b)), h, [
+    {label:'キャンセル', fn:c=>c()},
+    {label:'保存', pri:true, fn:c=>{
+      const tv = $('#bq-t').value, nv = $('#bq-n').value.trim(), cv = tv==='__mix' ? $('#bq-c').value.trim() : tv;
+      const n = nv==='' ? null : Math.max(0, Math.min(9999, parseInt(nv, 10)));
+      if(nv!=='' && isNaN(n)){ toast('大数は数字で入力してください', 'warn'); return; }
+      c(); if(n===(b.bkqty==null?null:+b.bkqty) && cv===str(b.cntr)) return;
+      saveBooking(b, {bkqty:n, cntr:cv}, 'carrier');
+    }}]);
+  setTimeout(() => {
+    const i = $('#bq-n'); if(i){ i.focus(); i.select(); }
+    const t = $('#bq-t'); if(t) t.addEventListener('change', () => { const c = $('#bq-c'); c.style.display = t.value==='__mix' ? '' : 'none'; if(t.value==='__mix') c.focus(); });
+  }, 50);
+}
+/* 診断から: 既存のブッキングの船社の文字から大数・コンテナを入れる (まだ空のものだけ・船社の文字は変えない) */
+async function fillQtyFromCarrier(){
+  const all = await S.store.loadBookings({deleted:false});
+  const todo = all.filter(b => b.bkqty==null && blank(b.cntr)).map(b => ({b:b, g:carrierQty(b.carrier)})).filter(x => x.g.n!=null || x.g.c);
+  if(!todo.length){ toast('入れるものはありません（すべて入力済み、または船社の文字に数字がありません）', 'info'); return; }
+  const ex = todo.slice(0, 8).map(x => esc(str(x.b.carrier).replace(/\n/g,' / '))+' → <b>'+(x.g.n!=null?x.g.n:'—')+'</b>'+(x.g.c?' · '+esc(x.g.c):'')).join('<br>');
+  modal('船社の文字から大数・コンテナを読み込む', '<div>'+todo.length+' 件のブッキング（全 '+all.length+' 件中・まだ空のもの）に入れます。船社の文字はそのまま残します。</div><div class="muted" style="font-size:12px;margin-top:8px">例:<br>'+ex+'</div>', [
+    {label:'キャンセル', fn:c=>c()},
+    {label:todo.length+' 件に入れる', pri:true, fn:async c=>{
+      c(); let ok = 0, ng = 0;
+      LEENAI.loading.show('大数・コンテナを入力中… 0 / '+todo.length);
+      await pool(todo, 4, async (x, i) => {
+        try{ x.b.bkqty = x.g.n; x.b.cntr = x.g.c; await S.store.update('B', x.b, ['bkqty','cntr']); ok++; }catch(e){ ng++; }
+        LEENAI.loading.update('大数・コンテナを入力中… '+(ok+ng)+' / '+todo.length);
+      });
+      LEENAI.loading.hide();
+      toast('入力しました: '+ok+' 件'+(ng ? '・失敗 '+ng+' 件' : ''), ng ? 'warn' : 'ok');
+      loadBoard();
+    }}]);
+}
+
 /* 書式の列があるか (なければ読み書きの $select に含めない) */
 async function detectFmt(){
   /* 実際の読み書きと同じデータ API で 1 件読めるかで判定 (メタデータの個別取得は環境により 404 になるため) */
@@ -3218,6 +3379,7 @@ function parseSheet(R, add, file, sheet, region, rows){
     const nl = (k, lbl) => { const n = x.c[k].note; return n ? (lbl? lbl+': ' : '')+n : ''; };
     b.cy_note = [nl('cyopen','OPEN'), nl('cycut','Cut')].filter(Boolean).join('\n');
     b.etd_note = nl('etd'); b.eta_note = nl('eta');
+    if(S.hasQty){ const g = carrierQty(b.carrier); b.bkqty = g.n; b.cntr = g.c; }
     if(b.eta && b.etd && b.eta<b.etd){
       const cand = addYears(b.eta, 1); const ok = dayDiff(b.etd, cand)>=0 && dayDiff(b.etd, cand)<=90;
       add('W01', Object.assign({msg:'ETD '+b.etd+' / ETA '+b.eta+(ok ? ' → +1年補正候補 '+cand+'（自動適用しない）' : '')}, loc));
@@ -3463,7 +3625,7 @@ async function openDiag(){
   if(CFG.DEMO){ modal('⚙ 診断', '<div class="muted">デモモードでは Dataverse に接続しないため診断できません。ログインして使ってください。</div>'); return; }
   const md = modal('⚙ 診断', '<div id="dg">確認中…</div>', [], true);
   /* 診断の表示は書くたびに作り直すので、ボタンは委譲で受ける */
-  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); });
+  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); if(ev.target.closest('#dg-qty')) createQtyColumns(); if(ev.target.closest('#dg-qfill')) fillQtyFromCarrier(); });
   const out = []; const w = s => { out.push(s); $('#dg', md.el).innerHTML = out.join(''); };
   out.length = 0; $('#dg', md.el).innerHTML = '';
   try{ const who = await dvGet('WhoAmI()'); w('<div>✅ Dataverse 接続 OK — '+esc((LEENAI.user||{}).name||'')+' ('+esc((LEENAI.user||{}).email||'')+') / UserId '+esc(who.UserId)+'</div>'); }
@@ -3488,6 +3650,8 @@ async function openDiag(){
   }
   w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">使えません — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成・公開</button>'
     + (S.fmtErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.fmtErr)+'</div>' : ''))+'</div>');
+  w('<div style="margin-top:6px">ブッキング大数・コンテナ (leenai_bkqty / leenai_cntr): '+(S.hasQty ? '<span class="ok">✅ 使用中</span> <button class="b6-btn sm" id="dg-qfill">船社の文字から読み込む</button>' : '<span class="ng">まだありません</span> <button class="b6-btn sm pri" id="dg-qty">2 列を作成・公開</button>'
+    + (S.qtyErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.qtyErr)+'</div>' : ''))+'</div>');
   try{
     const m = await readAttrs(CFG.LN_B05);
     const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
@@ -3590,6 +3754,13 @@ function buildDemoStore(){
     }
   });
   /* B-05 のみ */
+  /* デモ: ブッキング大数 = 確定 + 0〜2・コンテナ */
+  M.T.B.forEach(b => {
+    const done = Array.from(M.T.A.values()).filter(a => a.bookkey===b.bookkey).reduce((t,a)=>t+(+a.totalhon||0),0);
+    const x = rnd();
+    b.bkqty = x<0.1 ? null : Math.max(1, done + (x<0.5 ? 0 : x<0.85 ? 1+Math.floor(rnd()*2) : -1));
+    b.cntr = b.bkqty==null ? '' : pick(['40HQ','40HQ','40HQ','40DRY','40RAD']);
+  });
   for(let i=0;i<4;i++){ const d = addDays(today, i*3); M.b05rows.push({name:d+'_池谷_07:00_x'+i, date:d, rawdate:d+'T00:00:00Z', truck:'池谷', packer:'外部', time:'07:00', cttype:'40HQ', hon:1, status:'confirmed', pol:'TOKYO', bkgno:'', cycut:'', hasCycut:true}); }
   return M;
 }
@@ -3678,6 +3849,8 @@ function initUI(){
       if(td.dataset.lv==='A' && !a) return;
       openCellMemo(b, a, td.dataset.f); return;
     }
+    const bq = ev.target.closest('[data-bq]');
+    if(bq){ const b = S.bk.get(bq.closest('tr').dataset.k); if(b) openQtyEdit(b); return; }
     const mm = ev.target.closest('[data-memo]');
     if(mm){ const b = S.bk.get(mm.closest('tr').dataset.k); if(b) openBookingMemo(b); return; }
     const tg = ev.target.closest('.tg');
@@ -3735,6 +3908,7 @@ async function startTool(){
   await restorePrefs();
   loadMasters().then(()=>{ if(S.ready) renderBoard(); });
   try{ await detectFmt(); }catch(e){ S.hasFmt = false; }
+  try{ await detectQty(); }catch(e){ setHasQty(false); }
   await loadBoard();
   await restoreMemo();
 }
@@ -3756,7 +3930,7 @@ function startDemo(){
   $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
   S.store = buildDemoStore();
   S.store.compass = makeMemCompass();
-  setHasFmt(true);
+  setHasFmt(true); setHasQty(true);
   $('#demo-other').addEventListener('click', () => {
     const vis = visibleBookings().filter(b=>!b.deleted);
     if(!vis.length) return;
