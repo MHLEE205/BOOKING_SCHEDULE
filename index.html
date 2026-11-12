@@ -61,6 +61,23 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-fmt button.sw.on,.b6-fmt button.sz.on{outline:2px solid var(--accent);outline-offset:1px}
 .b6-fmt .ft2{border-top:1px solid var(--border);padding-top:6px;margin-top:8px}
 .b6-fmt .ft2 button{width:auto;display:inline-block}
+/* 日本地図 */
+.b6-top{display:flex;gap:10px;align-items:stretch}
+.b6-topl{flex:1;min-width:0}
+.b6-map{flex:none;width:170px;margin-bottom:8px;background:var(--read);border:1px solid var(--border);border-radius:8px;padding:4px 6px 2px;display:flex;flex-direction:column;align-items:center}
+.b6-map svg{width:100%;flex:1;max-height:185px}
+.b6-map .land{fill:color-mix(in srgb,var(--text3) 30%,var(--read));stroke:color-mix(in srgb,var(--text3) 55%,var(--read));stroke-width:.6;stroke-linejoin:round}
+.b6-map .oki{fill:none;stroke:var(--border);stroke-width:.5;stroke-dasharray:2 1.5}
+.b6-map .pd{fill:var(--text3);cursor:pointer;stroke:var(--read);stroke-width:.6}
+.b6-map .pd.off{fill:var(--text3);opacity:.35;cursor:default}
+.b6-map .pd.mine{fill:var(--accent)}
+.b6-map .pd:hover{fill:var(--accent);stroke:var(--text)}
+.b6-map .pd.sel{fill:#e5484d;stroke:#fff;stroke-width:1}
+.b6-map .pr{fill:none;stroke:#e5484d;stroke-width:1.2;opacity:.8;transform-box:fill-box;transform-origin:center;animation:b6ping 1.6s ease-out infinite}
+@keyframes b6ping{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+.b6-map .pl{font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);stroke-width:2px;font-family:var(--mono)}
+.b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap}
+@media(max-width:1100px){.b6-map{display:none}}
 /* メモ */
 .b6-split{flex:1;display:flex;gap:8px;min-height:0}
 .b6-split>.b6-wrap{flex:1;min-width:0}
@@ -189,6 +206,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
 
     <!-- ① スケジュール表 -->
     <section class="b6-pane on" id="pane-board">
+      <div class="b6-top"><div class="b6-topl">
       <div class="b6-filter" id="b6-filter"></div>
       <div class="b6-bar">
         <label>ETD <input type="date" class="b6-in" id="f-from"> 〜 <input type="date" class="b6-in" id="f-to"></label>
@@ -210,6 +228,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
       </div>
       <div class="b6-sum" id="b6-sum"></div>
+      </div><div class="b6-map" id="b6-map" title="港をクリックで絞り込み"></div></div>
       <div class="b6-split">
         <div class="b6-wrap" id="b6-board"></div>
         <aside class="b6-memo" id="b6-memo" hidden></aside>
@@ -1173,6 +1192,48 @@ function renderChips(){
   });
   ph += '</div>';
   $('#b6-filter').innerHTML = (sh ? '<div class="b6-frow">'+sh+'</div>' : '') + '<div class="b6-frow">'+ph+'</div>';
+  renderMap();
+}
+/* ══════════ 日本地図 (右上) — 簡略化した海岸線 (経度・緯度)。港の点をクリックで絞り込み ══════════ */
+const JP_MAP = {
+  /* 本土: x = (経度-129.2)*8, y = (45.7-緯度)*10 */
+  LAND: [
+    /* 北海道 */ [[141.9,45.5],[142.9,44.7],[143.9,44.2],[144.8,43.95],[145.3,44.3],[145.6,43.4],[145.2,43.15],[144.3,42.95],[143.3,42],[142.5,42.2],[141.6,42.6],[140.95,42.3],[140.4,41.6],[140.1,41.45],[139.95,41.7],[140.05,42.5],[139.8,42.6],[140.4,43.3],[141.4,43.3],[141.6,43.9],[141.65,44.5]],
+    /* 本州 */ [[140.9,41.5],[141.45,41.4],[141.5,40.6],[142,39.6],[141.9,39],[141.5,38.3],[141,38.1],[140.95,37.3],[141,36.8],[140.6,36.3],[140.85,35.7],[140.4,35.15],[139.85,34.9],[139.95,35.3],[139.65,35.3],[139.15,35.25],[138.85,34.6],[138.5,35],[138.2,34.6],[137.3,34.7],[136.9,34.6],[136.85,34.25],[136.2,33.8],[135.75,33.45],[135.1,33.9],[135.2,34.35],[135.4,34.65],[134.6,34.75],[133.9,34.5],[133.2,34.35],[132.4,34.25],[131.9,33.95],[130.9,33.95],[131,34.4],[131.9,34.75],[132.7,35.45],[133.5,35.55],[134.4,35.6],[135.4,35.55],[135.9,35.7],[136.05,36.2],[136.7,36.9],[136.85,37.3],[137.3,37.5],[137.35,36.8],[138,37],[138.6,37.6],[139.25,38.1],[139.6,38.8],[139.95,39.7],[139.85,40.6],[140.3,41.2]],
+    /* 四国 */ [[132.5,33.3],[132.9,33.95],[133.5,34.3],[134.1,34.4],[134.65,34.2],[134.75,33.85],[134.2,33.25],[133.6,33.45],[133,32.75],[132.55,32.9]],
+    /* 九州 */ [[129.75,33.4],[130.4,33.75],[130.9,33.95],[131.65,33.6],[131.85,32.9],[131.4,31.4],[130.7,31],[130.2,31.3],[130.15,32],[130.5,32.7],[130.2,32.8],[129.75,32.7],[129.6,33.1]],
+  ],
+  /* 沖縄 (左上の枠): x = 4+(経度-127.5)*26, y = 4+(27.0-緯度)*30 */
+  OKI: [[127.65,26.08],[127.9,26.4],[128.1,26.6],[128.3,26.85],[128.2,26.75],[127.95,26.55],[127.75,26.45],[127.65,26.25]],
+  PORTS: {TOKYO:[139.78,35.62], YOKOHAMA:[139.65,35.45], OSAKA:[135.43,34.64], KOBE:[135.2,34.68], SENDAI:[141.02,38.27],
+    ISHIKARI:[141.32,43.23], NIIGATA:[139.06,37.95], TOMAKOMAI:[141.6,42.63], NAGOYA:[136.85,35.05], KANAZAWA:[136.6,36.61],
+    FUKUYAMA:[133.4,34.45], SHIMIZU:[138.5,35.01], TAKAMATSU:[134.05,34.35], NAHA:[127.68,26.21], HAKATA:[130.4,33.6],
+    KUMAMOTO:[130.56,32.75], MIZUSHIMA:[133.73,34.5], HIROSHIMA:[132.45,34.36], TOYAMA:[137.22,36.76], MOJI:[130.96,33.95], AKITA:[140.06,39.75]},
+};
+function jpXY(lon, lat){ return lon < 129 ? [4+(lon-127.5)*26, 4+(27.0-lat)*30] : [(lon-129.2)*8, (45.7-lat)*10]; }
+function renderMap(){
+  const el = $('#b6-map'); if(!el) return;
+  const path = pts => 'M'+pts.map(([lo,la]) => jpXY(lo,la).map(v=>v.toFixed(1)).join(',')).join('L')+'Z';
+  /* 件数 (担当で絞った削除済み以外) */
+  const cnt = {}; S.bk.forEach(b => { if(!b.deleted && staffMatch(b) && !blank(b.port)){ const p = str(b.port).trim().toUpperCase(); cnt[p] = (cnt[p]||0)+1; } });
+  let dots = '', label = '';
+  Object.keys(JP_MAP.PORTS).forEach(p => {
+    const [x, y] = jpXY(...JP_MAP.PORTS[p]);
+    const n = cnt[p]||0, sel = p===S.port, mine = S.staff ? portStaff(p).includes(S.staff) : false;
+    if(!n && !sel && !mine) { dots += '<circle class="pd off" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="1.6"><title>'+p+'</title></circle>'; return; }
+    const r = sel ? 4 : n ? Math.min(4, 2.2 + Math.sqrt(n)*0.25) : 2;
+    dots += (sel ? '<circle class="pr" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="7"/>' : '')
+      + '<circle class="pd'+(sel?' sel':mine?' mine':'')+'" data-port="'+p+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+r.toFixed(1)+'"><title>'+p+' '+n+' 件</title></circle>';
+    if(sel){
+      const right = x < 95;
+      label = '<text class="pl" x="'+(x + (right?7:-7)).toFixed(1)+'" y="'+(y+3).toFixed(1)+'" text-anchor="'+(right?'start':'end')+'">'+p+' '+n+'</text>';
+    }
+  });
+  el.innerHTML = '<svg viewBox="0 0 136 150" role="img" aria-label="日本地図">'
+    + '<rect class="oki" x="1" y="1" width="30" height="34" rx="3"/>'
+    + JP_MAP.LAND.map(pts => '<path class="land" d="'+path(pts)+'"/>').join('') + '<path class="land" d="'+path(JP_MAP.OKI)+'"/>'
+    + dots + label + '</svg>'
+    + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')+'</div>';
 }
 function fillFilterOptions(){
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
@@ -2957,6 +3018,13 @@ function initUI(){
     IDB.set('tab', b.dataset.tab);
     if(b.dataset.tab==='packer' && !$('#pk-grid').innerHTML) loadPackerTab();
     if(b.dataset.tab==='b05' && !S.b05) loadB05Tab();
+  });
+  /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
+  $('#b6-map').addEventListener('click', ev => {
+    const d = ev.target.closest('[data-port]'); if(!d) return;
+    const p = d.getAttribute('data-port');
+    if(p===S.port) S.port = ''; else { S.port = p; S.region = 'ALL'; }
+    renderBoard(); memoFollow();
   });
   $('#b6-filter').addEventListener('click', ev => {
     if(ev.target.closest('#b6-pin')){ toggleStaffPin(); return; }
