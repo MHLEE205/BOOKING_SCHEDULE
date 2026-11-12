@@ -108,7 +108,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-t td.no{cursor:pointer}
 .b6-t td.no:hover{color:var(--accent)}
 /* メモ */
-.b6-split{flex:1;display:flex;gap:8px;min-height:0}
+.b6-split{flex:none;display:flex;gap:8px;min-height:0;height:calc(100vh - 160px)}
+.b6-split>.b6-wrap,.b6-split>.b6-memo{min-height:0}
 .b6-split>.b6-wrap{flex:1;min-width:0}
 .b6-memo{position:relative;width:440px;flex:none;display:flex;flex-direction:column;background:var(--read);border:1px solid var(--border);border-radius:8px;min-height:300px;overflow:hidden}
 .b6-memo[hidden]{display:none}
@@ -3884,6 +3885,7 @@ function initUI(){
     if(td && !td.querySelector('input,textarea,select')) startEdit(td);
   });
   initBoardZoom();
+  initFitBoard();
   /* 選んだブッキング: Esc で解除・Ctrl+C でコピー (入力欄・メモ・モーダルの中では普通の動作) */
   document.addEventListener('keydown', ev => {
     if(!S.selBk || S.editing) return;
@@ -3928,6 +3930,20 @@ async function restorePrefs(){
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
+/* 表の高さ = 画面の残り — 表の中でスクロールするので見出し (No.・港・承認…) がいつも見える (2026-11-12) */
+function fitBoard(){
+  const sp = $('.b6-split'); if(!sp || !sp.offsetParent) return;
+  const top = sp.getBoundingClientRect().top + scrollY;
+  const ft = document.querySelector('.ln-footer'), fh = ft ? ft.offsetHeight : 0;
+  const H = Math.max(320, Math.floor(innerHeight - top - fh - 14));
+  if(Math.abs((parseFloat(sp.style.height)||0) - H) > 1) sp.style.height = H+'px';
+}
+function initFitBoard(){
+  addEventListener('resize', fitBoard);
+  if(window.ResizeObserver){ const ro = new ResizeObserver(() => fitBoard()); ro.observe($('.b6-top')); }
+  $('#b6-tabs').addEventListener('click', () => setTimeout(fitBoard, 0));
+  setTimeout(fitBoard, 0);
+}
 /* 表だけの拡大・縮小 (Ctrl + マウスホイール・Ctrl + 0 で 100%) — メモを開いた時など表を画面に収めるため (2026-11-12) */
 const BZ_MIN = 0.5, BZ_MAX = 1.5;
 function setBoardZoom(z, quiet){
