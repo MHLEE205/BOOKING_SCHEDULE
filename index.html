@@ -77,6 +77,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 @keyframes b6ping{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 .b6-map .pl{font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);stroke-width:2px;font-family:var(--mono)}
 .b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap}
+.b6-map .gmap{margin:3px 0 3px;width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 4px;font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+.b6-map .gmap:hover{border-color:var(--accent);color:var(--accent)}
 @media(max-width:1100px){.b6-map{display:none}}
 /* メモ */
 .b6-split{flex:1;display:flex;gap:8px;min-height:0}
@@ -1205,11 +1207,21 @@ const JP_MAP = {
   ],
   /* 沖縄 (左上の枠): x = 4+(経度-127.5)*26, y = 4+(27.0-緯度)*30 */
   OKI: [[127.65,26.08],[127.9,26.4],[128.1,26.6],[128.3,26.85],[128.2,26.75],[127.95,26.55],[127.75,26.45],[127.65,26.25]],
-  PORTS: {TOKYO:[139.78,35.62], YOKOHAMA:[139.65,35.45], OSAKA:[135.43,34.64], KOBE:[135.2,34.68], SENDAI:[141.02,38.27],
+  /* 表示位置 (経度・緯度)。東京/横浜・大阪/神戸は近すぎてクリックできないので少し離して描く */
+  PORTS: {TOKYO:[140.0,35.78], YOKOHAMA:[139.5,35.28], OSAKA:[135.62,34.78], KOBE:[135.0,34.55], SENDAI:[141.02,38.27],
     ISHIKARI:[141.32,43.23], NIIGATA:[139.06,37.95], TOMAKOMAI:[141.6,42.63], NAGOYA:[136.85,35.05], KANAZAWA:[136.6,36.61],
     FUKUYAMA:[133.4,34.45], SHIMIZU:[138.5,35.01], TAKAMATSU:[134.05,34.35], NAHA:[127.68,26.21], HAKATA:[130.4,33.6],
     KUMAMOTO:[130.56,32.75], MIZUSHIMA:[133.73,34.5], HIROSHIMA:[132.45,34.36], TOYAMA:[137.22,36.76], MOJI:[130.96,33.95], AKITA:[140.06,39.75]},
 };
+/* Google マップで探す時の名前 (日本語の港名の方が正確に出る) */
+const PORT_JA = {TOKYO:'東京港', YOKOHAMA:'横浜港', OSAKA:'大阪港', KOBE:'神戸港', SENDAI:'仙台塩釜港 仙台港区', ISHIKARI:'石狩湾新港',
+  NIIGATA:'新潟港', TOMAKOMAI:'苫小牧港', NAGOYA:'名古屋港', KANAZAWA:'金沢港', FUKUYAMA:'福山港', SHIMIZU:'清水港', TAKAMATSU:'高松港',
+  NAHA:'那覇港', HAKATA:'博多港', KUMAMOTO:'熊本港', MIZUSHIMA:'水島港', HIROSHIMA:'広島港', TOYAMA:'伏木富山港', MOJI:'門司港', AKITA:'秋田港'};
+function openGoogleMap(){
+  const p = S.port && S.port!=='__blank' ? S.port : '';
+  const q = p ? (PORT_JA[p] || p+' port Japan') : '日本の港';
+  window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q), '_blank', 'noopener');
+}
 function jpXY(lon, lat){ return lon < 129 ? [4+(lon-127.5)*26, 4+(27.0-lat)*30] : [(lon-129.2)*8, (45.7-lat)*10]; }
 function renderMap(){
   const el = $('#b6-map'); if(!el) return;
@@ -1221,7 +1233,7 @@ function renderMap(){
     const [x, y] = jpXY(...JP_MAP.PORTS[p]);
     const n = cnt[p]||0, sel = p===S.port, mine = S.staff ? portStaff(p).includes(S.staff) : false;
     if(!n && !sel && !mine) { dots += '<circle class="pd off" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="1.6"><title>'+p+'</title></circle>'; return; }
-    const r = sel ? 4 : n ? Math.min(4, 2.2 + Math.sqrt(n)*0.25) : 2;
+    const r = sel ? 3.6 : n ? Math.min(3, 2 + Math.sqrt(n)*0.2) : 2;
     dots += (sel ? '<circle class="pr" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="7"/>' : '')
       + '<circle class="pd'+(sel?' sel':mine?' mine':'')+'" data-port="'+p+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+r.toFixed(1)+'"><title>'+p+' '+n+' 件</title></circle>';
     if(sel){
@@ -1233,7 +1245,8 @@ function renderMap(){
     + '<rect class="oki" x="1" y="1" width="30" height="34" rx="3"/>'
     + JP_MAP.LAND.map(pts => '<path class="land" d="'+path(pts)+'"/>').join('') + '<path class="land" d="'+path(JP_MAP.OKI)+'"/>'
     + dots + label + '</svg>'
-    + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')+'</div>';
+    + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')+'</div>'
+    + '<button class="gmap" data-gmap="1" title="'+(S.port && S.port!=='__blank' ? esc(PORT_JA[S.port]||S.port)+' を Google マップで開く（新しいタブ）' : '港を選ぶとその港を開きます')+'">🗺 Google マップで見る</button>';
 }
 function fillFilterOptions(){
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
@@ -3021,6 +3034,7 @@ function initUI(){
   });
   /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
   $('#b6-map').addEventListener('click', ev => {
+    if(ev.target.closest('[data-gmap]')){ openGoogleMap(); return; }
     const d = ev.target.closest('[data-port]'); if(!d) return;
     const p = d.getAttribute('data-port');
     if(p===S.port) S.port = ''; else { S.port = p; S.region = 'ALL'; }
