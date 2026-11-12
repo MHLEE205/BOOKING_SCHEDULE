@@ -77,9 +77,31 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 @keyframes b6ping{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 .b6-map .pl{font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);stroke-width:2px;font-family:var(--mono)}
 .b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:4px;padding-bottom:2px}
-.b6-map .gmap{background:none;border:1px solid transparent;border-radius:5px;padding:0 3px;font-size:12px;line-height:18px;cursor:pointer;opacity:.9}
-.b6-map .gmap:hover{opacity:1;border-color:var(--accent)}
+.b6-map .gmap{background:none;border:1px solid color-mix(in srgb,var(--info) 50%,transparent);color:var(--info);border-radius:999px;padding:0 6px;font:inherit;font-size:10px;font-weight:700;line-height:15px;cursor:pointer}
+.b6-map .gmap:hover{background:var(--info);color:#fff}
 @media(max-width:1100px){.b6-map{display:none}}
+/* 航路 (ブッキング選択時) */
+.b6-map.route{width:270px;padding:4px 6px}
+.b6-map .rt-hd{display:flex;align-items:center;gap:4px;width:100%;font-size:11.5px;white-space:nowrap;overflow:hidden}
+.b6-map .rt-hd b{color:var(--accent)}
+.b6-map .rt-x{margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px}
+.b6-map .rt-x:hover{color:var(--danger)}
+.b6-map.route svg{border-radius:5px;flex:none;width:100%;height:auto;max-height:none}
+.b6-map .sea{fill:color-mix(in srgb,var(--info) 9%,var(--read))}
+.b6-map.route .land{fill:color-mix(in srgb,var(--text3) 45%,var(--read));stroke:none}
+.b6-map .rt{fill:none;stroke:#e5484d;stroke-linecap:round;stroke-linejoin:round}
+.b6-map .rt-pol{fill:var(--accent);stroke:#fff;stroke-width:.3}
+.b6-map .rt-pod{fill:#e5484d;stroke:#fff;stroke-width:.3}
+.b6-map .rt-l{font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);font-family:var(--mono)}
+.b6-map .rt-ft{font-size:10.5px;color:var(--text2);text-align:center;line-height:1.35;padding-top:2px}
+.b6-map .rt-na{font-size:12px;color:var(--text2);text-align:center;padding:30px 6px}
+/* 選んだブッキング */
+.b6-t tr.bsel td{box-shadow:inset 0 0 0 999px color-mix(in srgb,var(--accent) 9%,transparent)}
+.b6-t tr.bsel.bk-first td{border-top:2px solid var(--accent)}
+.b6-t tr.bsel.bk-last td{border-bottom:2px solid var(--accent)}
+.b6-t tr.bsel td.no{background:var(--accent-btn);color:#fff;box-shadow:none}
+.b6-t td.no{cursor:pointer}
+.b6-t td.no:hover{color:var(--accent)}
 /* メモ */
 .b6-split{flex:1;display:flex;gap:8px;min-height:0}
 .b6-split>.b6-wrap{flex:1;min-width:0}
@@ -1128,9 +1150,9 @@ function boardTable(region, list, F){
     const merged = {};
     span.forEach(k => { merged[k] = n>1 && rows.slice(1).every(a => blank(a[k])); });
     rows.forEach((a, i) => {
-      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':''].join(' ');
+      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':'', S.selBk===b.bookkey?'bsel':'', i===n-1?'bk-last':''].join(' ');
       h += '<tr class="'+cls+'" data-k="'+esc(b.bookkey)+'" data-a="'+esc(a.id)+'">';
-      if(i===0) h += '<td class="no" rowspan="'+n+'">'+noTxt+'</td>';
+      if(i===0) h += '<td class="no" rowspan="'+n+'" title="クリックでこのブッキングを選択（航路を表示・Ctrl+C でコピー・Esc で解除）">'+noTxt+'</td>';
       if(i===0) h += '<td class="ops" rowspan="'+n+'"><button class="ob" data-act="bmenu" title="ブッキング操作">≡</button></td>';
       h += '<td class="ops"><button class="ob" data-act="rmenu" title="Packer 行の操作">⋮</button></td>';
       cols.forEach(c => {
@@ -1222,9 +1244,205 @@ function openGoogleMap(){
   const q = p ? (PORT_JA[p] || p+' port Japan') : '日本の港';
   window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q), '_blank', 'noopener');
 }
+/* ══════════ 航路 (選んだブッキングの POL → POD) — 世界地図 (world-atlas land-110m を初回だけ読込) ══════════ */
+/* 日本の港の実際の位置 (地図の点は東京/横浜などを少し離して描いているので別) */
+const POL_LL = {TOKYO:[139.78,35.62], YOKOHAMA:[139.65,35.45], OSAKA:[135.43,34.64], KOBE:[135.2,34.68], SENDAI:[141.02,38.27],
+  ISHIKARI:[141.32,43.23], NIIGATA:[139.06,37.95], TOMAKOMAI:[141.6,42.63], NAGOYA:[136.85,35.05], KANAZAWA:[136.6,36.61],
+  FUKUYAMA:[133.4,34.45], SHIMIZU:[138.5,35.01], TAKAMATSU:[134.05,34.35], NAHA:[127.68,26.21], HAKATA:[130.4,33.6],
+  KUMAMOTO:[130.56,32.75], MIZUSHIMA:[133.73,34.5], HIROSHIMA:[132.45,34.36], TOYAMA:[137.22,36.76], MOJI:[130.96,33.95], AKITA:[140.06,39.75]};
+/* POD の表記 (エクセルの実データにある書き方) → [経度, 緯度, 表示名] */
+const POD_LL = (() => {
+  const P = {
+    'Gwangyang':[127.73,34.9,'KWA KWANG KWANGYANG GWANGYANG'], 'Busan':[129.05,35.08,'PUS PUSAN BUSAN BUS'],
+    'Incheon':[126.6,37.45,'ICN INCHEON INC'], 'Pyeongtaek':[126.83,36.97,'PTK PYEONGTAEK'], 'Ulsan':[129.38,35.5,'USN ULSAN'],
+    'Surabaya':[112.73,-7.2,'SUB SURA SURAB SURABAYA'], 'Jakarta':[106.88,-6.1,'JKT JAKA JAK JAKARTA JAKRATA JARKARTA TANJUNGPRIOK'],
+    'Semarang':[110.42,-6.95,'SRG SEMARANG'], 'Belawan':[98.7,3.78,'BLW BELAWAN'],
+    'Cat Lai (HCM)':[106.8,10.76,'CATLAI CAT CLP SGN HCM HOCHIMINH HOCHIMINHCITY SAIGON'], 'SP-ITC (HCM)':[106.8,10.8,'SPITC'],
+    'Cai Mep':[107.03,10.53,'CAIMEP CMP CMT VUNG VUNGTAU CMIT TCIT'], 'Haiphong':[106.7,20.85,'HPH HAIPHONG HAIHPHONG'],
+    'Da Nang':[108.22,16.08,'DAD DANANG'],
+    'Lat Krabang':[100.75,13.72,'LATKRA LAT LATKLABANG LATKRABANG LKG LKR'], 'Laem Chabang':[100.88,13.08,'LAEMCHABANG LAEM LCH LCB'],
+    'Bangkok':[100.57,13.7,'BKK BANGKOK PAT'],
+    'Taichung':[120.5,24.27,'TAICHUNG TXG'], 'Taoyuan':[121.05,25.1,'TAOYUAN'], 'Kaohsiung':[120.28,22.6,'KHH KAOHSIUNG'], 'Keelung':[121.74,25.14,'KEL KEELUNG'],
+    'Port Klang':[101.39,3.0,'PKG PORTKLANG KLANG PLK PKL KPG WESTPORT NORTHPORT'], 'Penang':[100.35,5.42,'PENANG PEN PENAG PNG'],
+    'Pasir Gudang':[103.9,1.46,'PGU PASIRGUDANG'], 'Singapore':[103.82,1.26,'SIN SINGAPORE'],
+    'Nhava Sheva':[72.95,18.95,'NHAVA NHAVASHEVA NSA JNPT'], 'Mundra':[69.7,22.75,'MUNDRA MUN'], 'Chennai':[80.3,13.1,'MAA CHENNAI'],
+    'Chittagong':[91.8,22.3,'CGP CHITTAGONG'], 'Colombo':[79.85,6.95,'CMB COLOMBO'], 'Karachi':[66.98,24.85,'KHI KARACHI'],
+    'Shanghai':[121.8,31.35,'SHA SHANGHAI'], 'Ningbo':[121.85,29.9,'NGB NINGBO'], 'Qingdao':[120.3,36.07,'TAO QINGDAO'],
+    'Tianjin':[117.75,38.98,'TSN TIANJIN XINGANG'], 'Xiamen':[118.07,24.48,'XMN XIAMEN'], 'Hong Kong':[114.15,22.3,'HKG HONGKONG'],
+    'Shenzhen':[114.27,22.57,'SZX SHENZHEN YANTIAN YTN SHEKOU'], 'Manila':[120.95,14.6,'MNL MANILA'], 'Sihanoukville':[103.5,10.65,'KOS SIHANOUKVILLE'],
+    'Yangon':[96.2,16.75,'RGN YANGON'],
+  };
+  const m = {};
+  Object.keys(P).forEach(name => P[name][2].split(' ').forEach(k => { m[k] = [P[name][0], P[name][1], name]; }));
+  return m;
+})();
+/* POD の原文 → 位置。「PUS→KWA」のような変更は最後を使う。括弧の中・空白・記号は無視 */
+function podLL(raw){
+  let s = PARSE.nfkcSame(firstLine(raw)).toUpperCase().replace(/^POD\s*[:：]/,'');
+  if(/→|->/.test(s)) s = s.split(/→|->/).pop();
+  const cands = [s.replace(/\(.*?\)/g,''), s, (s.match(/\((.*?)\)/)||[])[1]||''].map(x => x.replace(/[^A-Z0-9]/g,'')).filter(Boolean);
+  for(const c of cands) if(POD_LL[c]) return POD_LL[c];
+  for(const c of cands){ const k = Object.keys(POD_LL).filter(k => k.length>=4 && c.startsWith(k)).sort((a,b)=>b.length-a.length)[0]; if(k) return POD_LL[k]; }
+  return null;
+}
+/* 目安の航路: 日本の港の出口 → 海峡などの通過点 → POD (陸を横切らないように主要な通過点だけ置く) */
+function seaRoute(pol, pod){
+  const P = POL_LL[pol], D = pod;
+  const zone = D[1]>=33 && D[0]>=124 ? 'KR' : D[1]>=28 && D[0]<125 ? 'CN' : D[1]>=21.6 ? 'TW'
+    : D[0]>=99.5 && D[1]>=6 ? 'SEA' : D[1]<0 ? 'ID' : D[0]>=95 ? 'MY' : 'IN';
+  const north = zone==='KR' || zone==='CN';
+  const west = (pts, lon) => pts.filter(p => p[0] < lon - 0.05);
+  let r = [P];
+  const PAC = ['TOKYO','YOKOHAMA','SHIMIZU','NAGOYA','SENDAI','TOMAKOMAI'], SETO = ['OSAKA','KOBE','TAKAMATSU','MIZUSHIMA','FUKUYAMA','HIROSHIMA'];
+  const JSEA = ['ISHIKARI','NIIGATA','KANAZAWA','TOYAMA','AKITA'];
+  const LANE = [[138.3,34.3],[136.2,33.3],[134.5,33.0],[132.6,32.2]];
+  if(PAC.includes(pol)){
+    if(pol==='TOMAKOMAI') r.push([141.9,41.9],[142.2,39.5]);
+    if(pol==='TOMAKOMAI' || pol==='SENDAI') r.push([141.6,37.0],[141.0,35.5],[139.9,34.5]);
+    if(pol==='TOKYO' || pol==='YOKOHAMA') r.push([139.75,35.0],[139.6,34.5]);
+    if(pol==='NAGOYA') r.push([136.9,34.4]);
+    if(pol==='SHIMIZU') r.push([138.5,34.6]);
+    r = r.concat(west(LANE, r[r.length-1][0]));
+    r.push(north ? [131.0,30.9] : [132.6,32.2]);
+  } else if(SETO.includes(pol)){
+    if(north){ r = r.concat(west([[134.6,34.55],[133.9,34.35],[133.2,34.25],[132.4,33.95],[131.0,33.95],[130.6,34.1]], P[0])); }
+    else if(P[0]>=134){ r.push([134.75,34.3],[135.0,33.5]); r = r.concat(west(LANE, 135.0)); }
+    else { r = r.concat(west([[133.3,34.25],[132.6,33.95]], P[0])); r.push([132.1,33.3],[132.3,32.6]); }
+  } else if(JSEA.includes(pol)){
+    if(pol==='ISHIKARI') r.push([140.6,43.5],[139.3,42.6]);   /* 渡島半島の西を回る */
+    if(pol==='TOYAMA') r.push([137.5,37.0],[137.6,37.75],[136.5,37.6]);
+    if(pol==='NIIGATA') r.push([137.6,37.75],[136.5,37.6]);
+    if(zone!=='KR') r.push([129.6,34.15],[128.2,32.3]);
+  } else if(pol==='HAKATA' || pol==='MOJI'){
+    if(pol==='MOJI') r.push([130.6,34.1]);
+    if(!north || zone==='CN') r.push([128.2,32.3]);
+  } else if(pol==='KUMAMOTO'){
+    r.push([130.2,32.6],[129.9,32.3]);
+  }
+  /* 韓国: 九州の南を回った時は西側から */
+  if(zone==='KR'){
+    const last = r[r.length-1];
+    if(last[1] < 32) r.push([129.3,32.0]);
+    if(D[0] < 127) r.push([125.6,34.2]);
+  }
+  if(zone==='TW' && D[0] < 121.2) r.push([121.9,25.6],[120.3,24.9]);
+  if(['SEA','MY','ID','IN'].includes(zone)) r.push([121.0,20.6]);   /* バシー海峡 */
+  if(zone==='SEA'){
+    if(D[1]>=19 && D[0]<109) r.push([109.0,17.2],[107.8,19.3]);
+    else if(D[0] < 104){ r.push([109.0,9.0],[104.6,8.2]); if(pod[2]==='Lat Krabang') r.push([100.88,13.08]); }
+    else if(pod[2].includes('HCM')) r.push([107.0,10.4]);
+  }
+  if(zone==='MY' || zone==='IN') r.push([110.5,8.5],[104.4,1.25]);
+  if(zone==='MY' && D[0] < 103.6){ r.push([103.4,1.2],[101.1,2.7]); if(D[1] > 4) r.push([100.0,4.0]); }
+  if(zone==='ID'){ r.push([110.5,8.5],[108.6,-3.0]); if(D[0] > 110) r.push([111.0,-5.6],[112.8,-6.8]); }
+  if(zone==='IN'){
+    r.push([103.4,1.2],[101.1,2.7],[98.0,5.9]);
+    if(D[0] < 78){ r.push([80.5,5.4],[74.5,9.0]); if(D[1] > 20) r.push([71.0,20.0]); }
+  }
+  r.push([D[0], D[1]]);
+  return r;
+}
+function kmOf(pts){
+  let t = 0;
+  for(let i=1;i<pts.length;i++){
+    const [a,b] = [pts[i-1], pts[i]], R = 6371, rad = Math.PI/180;
+    const dLat = (b[1]-a[1])*rad, dLon = (b[0]-a[0])*rad;
+    const h = Math.sin(dLat/2)**2 + Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(dLon/2)**2;
+    t += 2*R*Math.asin(Math.sqrt(h));
+  }
+  return t;
+}
+/* 世界の陸地 (TopoJSON を自前で展開 — ライブラリなし) */
+const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json';
+async function loadWorld(){
+  if(S.world || S.worldErr) return;
+  if(S.worldLoading) return S.worldLoading;
+  S.worldLoading = (async () => {
+    try{
+      const t = await (await fetch(WORLD_URL)).json();
+      const [sx, sy] = t.transform.scale, [tx, ty] = t.transform.translate;
+      const arcs = t.arcs.map(a => { let x = 0, y = 0; return a.map(([dx, dy]) => { x += dx; y += dy; return [x*sx+tx, y*sy+ty]; }); });
+      const ring = idx => { let out = []; idx.forEach((i, n) => { const a = i>=0 ? arcs[i] : arcs[~i].slice().reverse(); out = out.concat(n ? a.slice(1) : a); }); return out; };
+      const rings = [];
+      const geom = g => {
+        if(g.type==='GeometryCollection') g.geometries.forEach(geom);
+        else if(g.type==='Polygon') g.arcs.forEach(r => rings.push(ring(r)));
+        else if(g.type==='MultiPolygon') g.arcs.forEach(p => p.forEach(r => rings.push(ring(r))));
+      };
+      Object.values(t.objects).forEach(geom);
+      S.world = rings.map(pts => { let a=180,b=90,c=-180,d=-90; pts.forEach(([x,y]) => { a=Math.min(a,x); b=Math.min(b,y); c=Math.max(c,x); d=Math.max(d,y); }); return {pts:pts, bb:[a,b,c,d]}; });
+    }catch(e){ S.worldErr = String(e.message||e); }
+    S.worldLoading = null;
+    renderMap();
+  })();
+  return S.worldLoading;
+}
+function renderRoute(el, b){
+  const pol = str(b.port).trim().toUpperCase(), P = POL_LL[pol], D = podLL(b.pod);
+  const podTxt = firstLine(b.pod) || '—';
+  let days = '';
+  if(b.etd && b.eta){ const n = dayDiff(b.etd, b.eta); if(n >= 0) days = n+' 日'; }
+  const head = '<div class="rt-hd"><b>'+esc(pol||'POL?')+'</b> → <b>'+esc(D ? D[2] : podTxt)+'</b><button class="rt-x" data-rtx="1" title="選択を解除 (Esc)">✕</button></div>';
+  if(!P || !D){
+    el.innerHTML = head + '<div class="rt-na">'+(!P ? 'POL「'+esc(pol||'空')+'」の位置が分かりません' : 'POD「'+esc(podTxt)+'」の位置が分かりません')+'<br><span class="muted">'+esc(bkLabel(b))+'</span></div>';
+    return;
+  }
+  if(!S.world && !S.worldErr) loadWorld();
+  const route = seaRoute(pol, D), km = kmOf(route);
+  /* 表示範囲: 航路に合わせて (余白・最小幅)、箱の縦横比に合わせる */
+  let x0 = Math.min(...route.map(p=>p[0])), x1 = Math.max(...route.map(p=>p[0])), y0 = Math.min(...route.map(p=>p[1])), y1 = Math.max(...route.map(p=>p[1]));
+  const cx = (x0+x1)/2, cy = (y0+y1)/2, k = Math.cos(cy*Math.PI/180);
+  let w = Math.max(14, (x1-x0)+6)*k, h = Math.max(12, (y1-y0)+6);
+  const AR = 1.15;   /* 幅 / 高さ */
+  if(w/h > AR) h = w/AR; else w = h*AR;
+  const vx = cx*k - w/2, vy = -cy - h/2;
+  const X = lon => lon*k, Y = lat => -lat;
+  const pathOf = pts => 'M'+pts.map(p => X(p[0]).toFixed(2)+','+Y(p[1]).toFixed(2)).join('L');
+  const lon0 = vx/k, lon1 = (vx+w)/k, lat1 = -vy, lat0 = -(vy+h);
+  let land = '';
+  (S.world||[]).forEach(r => { const [a,bb,c,d] = r.bb; if(c<lon0 || a>lon1 || d<lat0 || bb>lat1) return; land += '<path class="land" d="'+pathOf(r.pts)+'Z"/>'; });
+  const s = w/100;   /* 線・文字の太さを範囲に合わせる */
+  const [px, py] = [X(P[0]), Y(P[1])], [dx, dy] = [X(D[0]), Y(D[1])];
+  const lbl = (x, y, t, right) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+1*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.6*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
+  el.innerHTML = head
+    + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="aspect-ratio:'+AR+'">'
+    + '<defs><clipPath id="rtclip"><rect x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
+    + '<rect class="sea" x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/>' + land
+    + '<path class="rt" d="'+pathOf(route)+'" style="stroke-width:'+(1.1*s).toFixed(2)+'px;stroke-dasharray:'+(2.4*s).toFixed(2)+' '+(1.6*s).toFixed(2)+'"/>'
+    + '<circle class="rt-pol" cx="'+px+'" cy="'+py+'" r="'+(1.8*s).toFixed(2)+'"/><circle class="rt-pod" cx="'+dx+'" cy="'+dy+'" r="'+(2.1*s).toFixed(2)+'"/>'
+    + lbl(px, py, pol, px < dx) + lbl(dx, dy, D[2], dx < px || dx < vx + w*0.5)
+    + '</g></svg>'
+    + '<div class="rt-ft">'+esc(fmtMD(b.etd)||'ETD?')+' → '+esc(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km'
+    + (S.worldErr ? '<br><span class="ng">世界地図を読めません（航路だけ表示）</span>' : !S.world ? '<br><span class="muted">地図を読込中…</span>' : '')
+    + '<br><span class="muted">目安の航路（実際の航路とは異なります）</span></div>';
+}
+/* ── ブッキングの選択 (表は作り直さずにクラスだけ付け替える — 編集中のセルを壊さない) ── */
+function selectBooking(k){
+  S.selBk = k || null;
+  $$('#b6-board tr.bsel').forEach(tr => tr.classList.remove('bsel'));
+  if(S.selBk) $$('#b6-board tr[data-k="'+CSS.escape(S.selBk)+'"]').forEach(tr => tr.classList.add('bsel'));
+  renderMap();
+}
+/* 選んだブッキングを Excel に貼れる形 (タブ区切り) でコピー */
+function copyBooking(b){
+  const cols = boardCols(b.region), rows = b.rows.filter(a => !a.deleted);
+  const v = x => str(x).replace(/\t/g,' ').replace(/\r?\n/g,' / ');
+  const lines = [cols.map(c => c.l).join('\t')];
+  rows.forEach((a, i) => lines.push(cols.map(c => {
+    if(c.lv==='B') return i===0 ? v(c.k==='approval' ? approvalLabel(b) : b[c.k]) : '';
+    return v(a[c.k]);
+  }).join('\t')));
+  navigator.clipboard.writeText(lines.join('\n')).then(
+    () => toast('「'+bkLabel(b)+'」をコピーしました（'+rows.length+' 行・Excel に貼り付けできます）', 'ok'),
+    () => toast('コピーできませんでした（ブラウザの許可を確認してください）', 'warn'));
+}
 function jpXY(lon, lat){ return lon < 129 ? [4+(lon-127.5)*26, 4+(27.0-lat)*30] : [(lon-129.2)*8, (45.7-lat)*10]; }
 function renderMap(){
   const el = $('#b6-map'); if(!el) return;
+  /* ブッキングを選んでいる時は世界地図の航路 */
+  const sb = S.selBk && S.bk.get(S.selBk);
+  el.classList.toggle('route', !!sb);
+  if(sb){ renderRoute(el, sb); return; }
   const path = pts => 'M'+pts.map(([lo,la]) => jpXY(lo,la).map(v=>v.toFixed(1)).join(',')).join('L')+'Z';
   /* 件数 (担当で絞った削除済み以外) */
   const cnt = {}; S.bk.forEach(b => { if(!b.deleted && staffMatch(b) && !blank(b.port)){ const p = str(b.port).trim().toUpperCase(); cnt[p] = (cnt[p]||0)+1; } });
@@ -1246,7 +1464,7 @@ function renderMap(){
     + JP_MAP.LAND.map(pts => '<path class="land" d="'+path(pts)+'"/>').join('') + '<path class="land" d="'+path(JP_MAP.OKI)+'"/>'
     + dots + label + '</svg>'
     + '<div class="cap">'+(S.port && S.port!=='__blank' ? '⚓ '+esc(S.port) : S.staff ? '👤 '+esc(staffName(S.staff)) : '全港')
-    + '<button class="gmap" data-gmap="1" title="Google マップで開く（新しいタブ）'+(S.port && S.port!=='__blank' ? ' — '+esc(PORT_JA[S.port]||S.port) : '')+'">🗺</button></div>';
+    + '<button class="gmap" data-gmap="1" title="Google マップで開く（新しいタブ）'+(S.port && S.port!=='__blank' ? ' — '+esc(PORT_JA[S.port]||S.port) : '')+'">Maps ↗</button></div>';
 }
 function fillFilterOptions(){
   if(!$('#f-appr').options.length) $('#f-appr').innerHTML = '<option value="">すべて</option>'+APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'">'+o.label+'</option>').join('')+'<option value="OTHER">その他</option>';
@@ -3034,6 +3252,7 @@ function initUI(){
   });
   /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
   $('#b6-map').addEventListener('click', ev => {
+    if(ev.target.closest('[data-rtx]')){ selectBooking(null); return; }
     if(ev.target.closest('[data-gmap]')){ openGoogleMap(); return; }
     const d = ev.target.closest('[data-port]'); if(!d) return;
     const p = d.getAttribute('data-port');
@@ -3062,6 +3281,10 @@ function initUI(){
   $('#b-memo').addEventListener('click', () => toggleMemo());
   /* 表のクリック */
   $('#b6-board').addEventListener('click', ev => {
+    /* No. → ブッキングを選択 (もう一度で解除)。ほかのセルを押した時もそのブッキングを選ぶ */
+    const trk = ev.target.closest('tr[data-k]');
+    if(ev.target.closest('td.no') && trk){ selectBooking(S.selBk===trk.dataset.k ? null : trk.dataset.k); return; }
+    if(trk && S.selBk!==trk.dataset.k) selectBooking(trk.dataset.k);
     const ob = ev.target.closest('.ob');
     if(ob){
       ev.stopPropagation();
@@ -3076,6 +3299,18 @@ function initUI(){
     if(tg){ toggleStatus(tg.closest('td')); return; }
     const td = ev.target.closest('td.ed');
     if(td && !td.querySelector('input,textarea,select')) startEdit(td);
+  });
+  /* 選んだブッキング: Esc で解除・Ctrl+C でコピー (入力欄・メモ・モーダルの中では普通の動作) */
+  document.addEventListener('keydown', ev => {
+    if(!S.selBk || S.editing) return;
+    const ae = document.activeElement;
+    if(ae && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable)) return;
+    if(document.querySelector('.b6-modal-bg')) return;
+    if(ev.key==='Escape'){ selectBooking(null); return; }
+    if((ev.ctrlKey || ev.metaKey) && (ev.key==='c' || ev.key==='C')){
+      const sel = getSelection(); if(sel && !sel.isCollapsed) return;
+      const b = S.bk.get(S.selBk); if(b){ ev.preventDefault(); copyBooking(b); }
+    }
   });
   /* 右クリック → 書式 */
   $('#b6-board').addEventListener('contextmenu', ev => {
