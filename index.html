@@ -75,6 +75,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .me-bar{display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border)}
 .me-bar button{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;min-width:26px;height:24px;padding:0 6px;font:inherit;font-size:12px;cursor:pointer}
 .me-bar button:hover{border-color:var(--accent)}
+.me-bar button.me-save{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff;font-weight:700}
 .me-st{margin-left:auto;font-size:11px;white-space:nowrap}
 .me-ed{flex:1;overflow:auto;padding:10px 12px;font-size:13px;line-height:1.55;outline:none;min-height:180px;color:var(--text);word-break:break-word}
 .me-ed:empty::before{content:attr(data-ph);color:var(--text3)}
@@ -1494,12 +1495,16 @@ const SpMemo = {
   },
   _item(p){ return GRAPH+'drives/'+LEENAI.SP.DRIVE_ID+'/root:/'+spPath(p); },
   async get(p){
-    const r = await this._f(this._item(p)+'?$select=eTag,@microsoft.graph.downloadUrl');
+    /* eTag はメタデータ、本文は /content (共通ファイルの sp.getJson と同じ読み方) */
+    const r = await this._f(this._item(p));
     if(r.status===404) return {doc:null, etag:null};
     if(!r.ok) throw new Error('メモの読込に失敗 ('+r.status+')');
     const m = await r.json();
-    const d = await fetch(m['@microsoft.graph.downloadUrl']);
-    return {doc: await d.json(), etag: m.eTag};
+    const d = await this._f(this._item(p)+':/content', {cache:'no-store'});
+    if(!d.ok) throw new Error('メモの本文を読めません ('+d.status+')');
+    const t = await d.text();
+    let doc; try{ doc = JSON.parse(t); }catch(e){ throw new Error('メモの形式が正しくありません（JSON ではありません）'); }
+    return {doc:doc, etag:m.eTag};
   },
   async put(p, doc, etag){
     const h = {'Content-Type':'application/json'}; if(etag) h['If-Match'] = etag;
@@ -1592,6 +1597,7 @@ function makeMemoEditor(host, opt){
     + '<button data-c="insertUnorderedList" title="箇条書き">•≡</button>'
     + '<button data-c="removeFormat" title="書式を消す">⌫</button>'
     + '<button data-c="img" title="画像を追加（貼り付け・ドロップも可）">🖼 画像</button>'
+    + '<button data-c="save" class="me-save" title="今すぐ保存 (Ctrl+S) — 入力を止めると自動でも保存されます">💾 保存</button>'
     + '<span class="me-st muted"></span></div>'
     + '<div class="me-ed" contenteditable="true" spellcheck="false"></div><input type="file" accept="image/*" multiple hidden>';
   const ed = $('.me-ed', host), st = $('.me-st', host), fileIn = $('input[type=file]', host);
@@ -1629,6 +1635,7 @@ function makeMemoEditor(host, opt){
   }
   st.addEventListener('click', ev => {
     const x = ev.target.closest('[data-x]'); if(!x) return;
+    if(x.dataset.x==='retry'){ load(E.retry, true); return; }
     if(x.dataset.x==='theirs'){ E.dirty = false; load(E.path, true); }
     else { E.dirty = true; save(true); }
   });
@@ -1645,8 +1652,14 @@ function makeMemoEditor(host, opt){
       ed.innerHTML = r.doc ? memoSanitize(r.doc.html) : '';
       E.meta = r.doc ? {at:r.doc.updated_at, by:r.doc.updated_by} : null;
       hydrate(); showMeta();
-    }catch(e){ if(seq===E.loadSeq) setSt('⚠ '+e.message, 'ng'); }
-    if(seq===E.loadSeq) ed.contentEditable = 'true';
+      ed.contentEditable = 'true';
+    }catch(e){
+      if(seq!==E.loadSeq) return;
+      /* 読めなかった時は編集させない (空の内容で既存のメモを上書きしないため) */
+      E.path = null;
+      st.innerHTML = '<span class="ng">⚠ '+esc(e.message)+'</span> <button class="b6-btn sm" data-x="retry">再読込</button>';
+      st.className = 'me-st'; E.retry = path;
+    }
   }
   /* 画像: 大きい画像は縮小 (長辺 2400px・JPEG) してから SharePoint へ */
   async function shrink(blob){
@@ -1692,13 +1705,23 @@ function makeMemoEditor(host, opt){
     if(!fs.length) return; ev.preventDefault(); fs.forEach(addImage);
   });
   ed.addEventListener('input', schedule);
+  /* 💾 保存・Ctrl+S: 待たずにすぐ保存 (変更がなければ「保存済み」を表示) */
+  async function saveNow(){
+    if(!E.path){ toast('メモを読めていないため保存できません（再読込してください）', 'warn'); return; }
+    if(!E.dirty && !E.saving && !E.uploads){ if(E.meta) setSt('✔ 保存済み · '+fmtDT(E.meta.at)+' '+E.meta.by, 'ok'); else setSt('（変更なし）'); return; }
+    E.dirty = true; await save();
+  }
+  host.addEventListener('keydown', ev => {
+    if((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && (ev.key==='s' || ev.key==='S')){ ev.preventDefault(); saveNow(); }
+  });
   ed.addEventListener('blur', () => { if(E.dirty) save(); });
   ed.addEventListener('click', ev => { const im = ev.target.closest('img'); if(im && im.src && (ev.ctrlKey || ev.metaKey)) window.open(im.src, '_blank'); });
   ed.addEventListener('dblclick', ev => { const im = ev.target.closest('img'); if(im && im.src) window.open(im.src, '_blank'); });
   $('.me-bar', host).addEventListener('mousedown', ev => { if(ev.target.closest('button')) ev.preventDefault(); });
   $('.me-bar', host).addEventListener('click', ev => {
-    const b = ev.target.closest('button'); if(!b) return;
+    const b = ev.target.closest('button[data-c]'); if(!b) return;   /* 状態欄のボタン (再読込など) は別処理 */
     if(b.dataset.c==='img'){ fileIn.click(); return; }
+    if(b.dataset.c==='save'){ saveNow(); return; }
     ed.focus(); document.execCommand('styleWithCSS', false, true);
     document.execCommand(b.dataset.c, false, b.dataset.v || null); schedule();
   });
