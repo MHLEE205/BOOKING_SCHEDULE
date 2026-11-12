@@ -1461,8 +1461,9 @@ function renderRoute(el, b){
   const ZOOM_OUT = 1.05;   /* 2026-11-12 ユーザー確認: 105% 縮小 */
   let w = Math.max(18, (x1-x0)+6)*k*ZOOM_OUT, h = Math.max(14, (y1-y0)+6)*ZOOM_OUT;
   /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
-  const bx = el.getBoundingClientRect();
-  const AR = bx.width > 50 && bx.height > 80 ? Math.max(0.55, Math.min(2.4, (bx.width-12)/(bx.height-26))) : 1.55;
+  /* 枠の高さから比率を出すと、描くたびに地図が伸びて枠も伸びる (2026-11-12 不具合) → 高さは日本地図と同じ固定値 */
+  const RT_H = 185, bw = el.getBoundingClientRect().width;
+  const AR = Math.max(0.55, Math.min(2.4, ((bw > 50 ? bw : 158) - 12) / RT_H));
   if(w/h > AR) h = w/AR; else w = h*AR;
   const vx = cx*k - w/2, vy = -cy - h/2;
   const X = lon => lon*k, Y = lat => -lat;
@@ -1474,7 +1475,7 @@ function renderRoute(el, b){
   const [px, py] = [X(P[0]), Y(P[1])], [dx, dy] = [X(D[0]), Y(D[1])];
   const lbl = (x, y, t, right, dy) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+(dy==null?1:dy)*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.2*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
   el.innerHTML = head
-    + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="aspect-ratio:'+AR+'">'
+    + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="height:'+RT_H+'px">'
     + '<defs><clipPath id="rtclip"><rect x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
     + '<rect class="sea" x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/>' + land
     + '<path class="rt" d="'+pathOf(route)+'" style="stroke-width:'+(1.1*s).toFixed(2)+'px;stroke-dasharray:'+(2.4*s).toFixed(2)+' '+(1.6*s).toFixed(2)+'"/>'
