@@ -2740,6 +2740,8 @@ async function readAttrs(ln){
 async function openDiag(){
   if(CFG.DEMO){ modal('⚙ 診断', '<div class="muted">デモモードでは Dataverse に接続しないため診断できません。ログインして使ってください。</div>'); return; }
   const md = modal('⚙ 診断', '<div id="dg">確認中…</div>', [], true);
+  /* 診断の表示は書くたびに作り直すので、ボタンは委譲で受ける */
+  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); });
   const out = []; const w = s => { out.push(s); $('#dg', md.el).innerHTML = out.join(''); };
   out.length = 0; $('#dg', md.el).innerHTML = '';
   try{ const who = await dvGet('WhoAmI()'); w('<div>✅ Dataverse 接続 OK — '+esc((LEENAI.user||{}).name||'')+' ('+esc((LEENAI.user||{}).email||'')+') / UserId '+esc(who.UserId)+'</div>'); }
@@ -2763,7 +2765,6 @@ async function openDiag(){
     }catch(e){ w('<div class="ng">❌ '+ln+': '+esc(e.message.slice(0,160))+'</div>'); }
   }
   w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">列なし — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成</button>')+'</div>');
-  const fb = $('#dg-fmt', md.el); if(fb) fb.addEventListener('click', createFmtColumns);
   try{
     const m = await readAttrs(CFG.LN_B05);
     const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
