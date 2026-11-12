@@ -127,6 +127,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .me-ed ul,.me-ed ol{margin:4px 0;padding-left:22px}
 .bk-memo{cursor:pointer;margin-left:3px;font-size:12px}
 .bk-memo:hover{filter:brightness(1.3)}
+.bk-mtxt{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin-top:3px;padding:1px 5px;font-size:11px;line-height:1.35;color:var(--text2);background:color-mix(in srgb,var(--warn) 10%,transparent);border-left:2px solid var(--warn);border-radius:2px;cursor:pointer;max-width:230px;font-weight:400}
+.bk-mtxt:hover{background:color-mix(in srgb,var(--warn) 20%,transparent)}
+.bk-mtxt .im{margin-left:4px;color:var(--text3)}
 .bk-memo.add{opacity:0;font-size:11px;color:var(--text3);transition:opacity .15s}
 .b6-t tr:hover .bk-memo.add{opacity:.75}
 .b6-mbtn{background:none;border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;cursor:pointer}
@@ -1091,8 +1094,12 @@ function cellHtml(col, b, a){
       let h = esc(v);
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
-      h += hasBkMemo(b) ? '<span class="bk-memo" data-memo="1" title="メモを開く">📝</span>'
-                        : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
+      if(hasBkMemo(b)){
+        const pv = S.memoTxt && S.memoTxt.get(bkMemoId(b));
+        h += '<div class="bk-mtxt" data-memo="1" title="クリックでメモを開く">'
+          + (pv ? (pv.t ? esc(pv.t) : '') + (pv.img ? '<span class="im">🖼×'+pv.img+'</span>' : '') : '📝 メモ（読込中…）')
+          + '</div>';
+      } else h += '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
       return h;
     }
     return esc(v);
@@ -1926,7 +1933,7 @@ function makeMemoEditor(host, opt){
     try{
       if(memoEmpty(html) && opt.deleteWhenEmpty){ if(E.etag) await memoStore().del(path, force ? null : E.etag); E.etag = null; E.meta = null; setSt('（空のメモ — 削除しました）'); }
       else { E.etag = await memoStore().put(path, doc, force ? null : E.etag); E.meta = {at:doc.updated_at, by:doc.updated_by}; showMeta(); }
-      if(opt.onSaved) opt.onSaved(path, !memoEmpty(html));
+      if(opt.onSaved) opt.onSaved(path, !memoEmpty(html), html);
     }catch(e){
       if(e.status===412){ E.dirty = true; conflict(); }
       else { E.dirty = true; setSt('⚠ '+e.message, 'ng'); }
@@ -2103,12 +2110,30 @@ async function loadMemoIndex(){
   const names = await memoStore().list('bk');
   S.memoBk = new Set(names.filter(n => /\.json$/.test(n)).map(n => n.slice(0,-5)));
   if(S.ready) renderBoard();
+  /* Booking no. の下に出す本文 (メモのあるブッキングだけ読む) */
+  if(!S.memoTxt) S.memoTxt = new Map();
+  const ids = Array.from(S.memoBk);
+  await pool(ids, 4, async id => {
+    try{ const r = await memoStore().get('bk/'+id+'.json'); if(r.doc) S.memoTxt.set(id, memoPreview(r.doc.html)); }catch(e){}
+  });
+  if(ids.length && S.ready) renderBoard();
+}
+/* メモ HTML → 表に出す短い文 (改行を残す) と画像の数 */
+function memoPreview(html){
+  const d = document.createElement('div');
+  d.innerHTML = memoSanitize(html).replace(/<br\s*\/?>/gi, '\n').replace(/<(div|p|li|tr|h\d)[\s>]/gi, '\n$&').replace(/<\/(div|p|li|tr|h\d)>/gi, '$&\n');
+  const img = d.querySelectorAll('img').length;
+  const t = d.textContent.replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+  return {t: t.length > 200 ? t.slice(0, 200)+'…' : t, img: img};
 }
 function openBookingMemo(b){
   const m = modal('📝 メモ — '+esc(bkLabel(b))+' <span class="muted" style="font-weight:400;font-size:12px">'+esc(firstLine(b.vessel))+'</span>', '<div class="me-host" id="bm-host" style="min-height:260px"></div><div class="muted" style="font-size:11.5px;margin-top:6px">自動保存・全員で共有。空にすると削除されます。</div>', [{label:'閉じる', fn:c=>c()}], true);
-  const ed = makeMemoEditor($('#bm-host', m.el), {deleteWhenEmpty:true, placeholder:'このブッキングのメモ（画像も貼れます）', onSaved:(p, has) => {
+  const ed = makeMemoEditor($('#bm-host', m.el), {deleteWhenEmpty:true, placeholder:'このブッキングのメモ（画像も貼れます）', onSaved:(p, has, html) => {
     if(!S.memoBk) S.memoBk = new Set();
-    has ? S.memoBk.add(bkMemoId(b)) : S.memoBk.delete(bkMemoId(b)); renderBoard();
+    if(!S.memoTxt) S.memoTxt = new Map();
+    const id = bkMemoId(b);
+    if(has){ S.memoBk.add(id); S.memoTxt.set(id, memoPreview(html)); } else { S.memoBk.delete(id); S.memoTxt.delete(id); }
+    renderBoard();
   }});
   ed.load('bk/'+bkMemoId(b)+'.json');
   /* ✕・閉じる・背景クリックで閉じる直前に、入力途中の内容を保存 */
