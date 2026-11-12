@@ -30,7 +30,14 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-frow+.b6-frow{border-top:1px dashed var(--border);margin-top:3px;padding-top:6px}
 .b6-filter .b6-lbl{font-size:12px;font-weight:700;color:var(--text2);min-width:56px;padding-top:4px;white-space:nowrap}
 .b6-row{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;flex:1}
-.b6-grp{display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 2px;border-left:2px solid var(--border);margin-left:4px}
+.b6-grp{display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 2px;border-left:2px solid var(--border);margin-left:4px;cursor:grab;border-radius:4px}
+.b6-grp.drag{opacity:.4}
+.b6-grp.dl{box-shadow:-3px 0 0 var(--accent)}
+.b6-grp.dr{box-shadow:3px 0 0 var(--accent)}
+.b6-rhd .rmv{display:inline-flex;gap:2px;margin-left:8px;vertical-align:middle}
+.b6-rhd .rmv button{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:4px;font-size:10px;line-height:16px;padding:0 5px;cursor:pointer}
+.b6-rhd .rmv button:hover:not(:disabled){color:var(--accent);border-color:var(--accent)}
+.b6-rhd .rmv button:disabled{opacity:.3;cursor:default}
 .b6-rg{background:none;border:none;color:var(--text2);font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:6px}
 .b6-rg:hover{color:var(--accent)}
 .b6-rg.on{background:var(--accent-btn);color:#fff}
@@ -1234,16 +1241,36 @@ function renderBoard(){
   if(!list.length){ $('#b6-board').innerHTML = '<div class="b6-empty">表示するブッキングがありません（ETD 期間・フィルターを確認してください）</div>'; return; }
   /* 全地域: 地域ごとに表を分ける (地域で列が違うため) */
   const groups = S.region==='ALL'
-    ? REGIONS.map(r => ({r:r, list:list.filter(b => b.region===r.code)})).filter(g => g.list.length)
+    ? regionsOrdered().map(r => ({r:r, list:list.filter(b => b.region===r.code)})).filter(g => g.list.length)
     : [{r:REGIONS.find(x=>x.code===S.region), list:list}];
   let h = '';
-  groups.forEach(g => {
-    if(S.region==='ALL') h += '<div class="b6-rhd">🗾 '+esc(g.r.tab)+'<span class="n">'+g.list.filter(b=>!b.deleted).length+' 件</span></div>';
+  groups.forEach((g, gi) => {
+    if(S.region==='ALL') h += '<div class="b6-rhd" data-rg="'+g.r.code+'">🗾 '+esc(g.r.tab)+'<span class="n">'+g.list.filter(b=>!b.deleted).length+' 件</span>'
+      + (groups.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(gi===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(gi===groups.length-1?' disabled':'')+'>▼</button></span>' : '')
+      + '</div>';
     h += boardTable(g.r.code, g.list, F);
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
   S.renderPending = false;
+}
+/* 地域の並び順 (人ごとに記憶) — 港の行で地域をドラッグ・表の見出しの ▲▼ で変更 (2026-11-12) */
+function regionsOrdered(){
+  const o = S.regionOrder || [];
+  return REGIONS.slice().sort((a, b) => { const i = o.indexOf(a.code), j = o.indexOf(b.code); return (i<0 ? 99+REGIONS.indexOf(a) : i) - (j<0 ? 99+REGIONS.indexOf(b) : j); });
+}
+function setRegionOrder(codes){
+  S.regionOrder = codes; IDB.set('regionOrder', codes);
+  renderBoard();
+}
+/* 表示中の地域の中で 1 つ上・下へ (表示していない地域は飛ばす) */
+function moveRegion(code, dir){
+  const all = regionsOrdered().map(r => r.code);
+  const shown = Array.from(document.querySelectorAll('#b6-board .b6-rhd[data-rg]')).map(e => e.dataset.rg);
+  const k = shown.indexOf(code), other = shown[k+dir]; if(k<0 || !other) return;
+  const i = all.indexOf(code), j = all.indexOf(other);
+  all[i] = other; all[j] = code;
+  setRegionOrder(all);
 }
 function boardTable(region, list, F){
   const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
@@ -1297,7 +1324,7 @@ function renderChips(){
   }
   /* 地域 → 港 */
   const mine = all.filter(staffMatch);
-  const groups = REGIONS.map(r => {
+  const groups = regionsOrdered().map(r => {
     const bs = mine.filter(b => b.region===r.code), pc = new Map();
     let nBlank = 0;
     bs.forEach(b => { if(blank(b.port)){ nBlank++; return; } const p = str(b.port).trim().toUpperCase(); pc.set(p, (pc.get(p)||0)+1); });
@@ -1312,7 +1339,7 @@ function renderChips(){
   groups.forEach(g => {
     if(!g.n && g.r.code!==S.region) return;
     const rOn = S.region===g.r.code && !S.port;
-    ph += '<span class="b6-grp"><button class="b6-rg'+(rOn?' on':'')+'" data-region="'+g.r.code+'" title="'+esc(g.r.tab)+' の全件">'+esc(g.r.tab)+'<span class="n">'+g.n+'</span></button>'
+    ph += '<span class="b6-grp" draggable="true" data-rg="'+g.r.code+'" title="ドラッグで表の順番を変更"><button class="b6-rg'+(rOn?' on':'')+'" data-region="'+g.r.code+'" title="'+esc(g.r.tab)+' の全件">'+esc(g.r.tab)+'<span class="n">'+g.n+'</span></button>'
       + g.order.map(p => {
           const st = portStaff(p), who = st.length ? '担当 '+staffName(st[0])+(st[1]?' ／ 補助 '+staffName(st[1]):'') : '';
           return '<button class="b6-chip pt'+(p===S.port?' on':'')+'" data-port="'+esc(p)+'" title="'+esc(who)+'">'+esc(p)+'<span class="n">'+g.pc.get(p)+'</span></button>';
@@ -3885,6 +3912,35 @@ function initUI(){
     if(td && !td.querySelector('input,textarea,select')) startEdit(td);
   });
   initBoardZoom();
+  /* 地域の順番: 表の見出しの ▲▼ */
+  $('#b6-board').addEventListener('click', ev => {
+    const mv = ev.target.closest('[data-rmv]'); if(!mv) return;
+    ev.stopPropagation(); moveRegion(mv.closest('[data-rg]').dataset.rg, +mv.dataset.rmv);
+  }, true);
+  /* 地域の順番: 港の行で地域のかたまりをドラッグ */
+  const fl = $('#b6-filter');
+  fl.addEventListener('dragstart', ev => {
+    const g = ev.target.closest && ev.target.closest('.b6-grp[data-rg]'); if(!g) return;
+    S.dragRg = g.dataset.rg; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', g.dataset.rg); g.classList.add('drag');
+  });
+  fl.addEventListener('dragover', ev => {
+    const g = ev.target.closest('.b6-grp[data-rg]'); if(!g || !S.dragRg) return;
+    ev.preventDefault();
+    const rc = g.getBoundingClientRect(), after = ev.clientX > rc.left + rc.width/2;
+    $$('.b6-grp', fl).forEach(x => x.classList.remove('dl','dr'));
+    if(g.dataset.rg!==S.dragRg) g.classList.add(after ? 'dr' : 'dl');
+  });
+  fl.addEventListener('drop', ev => {
+    const g = ev.target.closest('.b6-grp[data-rg]'); if(!g || !S.dragRg) return;
+    ev.preventDefault();
+    const after = g.classList.contains('dr'), from = S.dragRg, to = g.dataset.rg;
+    S.dragRg = null;
+    if(from===to){ renderChips(); return; }
+    const all = regionsOrdered().map(r => r.code).filter(c => c!==from);
+    all.splice(all.indexOf(to) + (after ? 1 : 0), 0, from);
+    setRegionOrder(all);
+  });
+  fl.addEventListener('dragend', () => { S.dragRg = null; $$('.b6-grp', fl).forEach(x => x.classList.remove('drag','dl','dr')); });
   initFitBoard();
   /* 選んだブッキング: Esc で解除・Ctrl+C でコピー (入力欄・メモ・モーダルの中では普通の動作) */
   document.addEventListener('keydown', ev => {
@@ -3927,6 +3983,7 @@ async function restorePrefs(){
   const r = await IDB.get('region'); if(r && (r==='ALL' || REGIONS.some(x=>x.code===r))) S.region = r;
   const mw = await IDB.get('memoW'); if(mw) $('#b6-memo').style.width = mw+'px';
   const bz = await IDB.get('boardZoom'); if(bz) setBoardZoom(+bz, true);
+  const ro = await IDB.get('regionOrder'); if(Array.isArray(ro)) S.regionOrder = ro;
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
