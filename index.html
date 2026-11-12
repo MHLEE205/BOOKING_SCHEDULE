@@ -277,7 +277,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="fg"><span class="fl">承認</span><select class="b6-sel" id="f-appr"></select></span>
         <span class="fg"><span class="fl">Packer</span><input class="b6-in" id="f-packer" size="8"><label><input type="checkbox" id="f-nopk">未割当</label></span>
         <span class="fg"><label title="Booking no. がまだ無いブッキングだけ"><input type="checkbox" id="f-nobkg">BKG未取得</label><label title="削除したブッキングも表示（復元用）"><input type="checkbox" id="f-del">削除済み</label></span>
-        <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
+        <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="cut" selected>Cut 昇順</option><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
         <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel">
       </div>
       <div class="b6-bar b6-abar">
@@ -1112,6 +1112,7 @@ function visibleBookings(){
   if(F.nobkg) list = list.filter(b => blank(b.bkgno));
   if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].some(v => str(v).toLowerCase().includes(F.q)));
   if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
+  else if(F.sort==='cut') list.sort((a,b)=> (a.cycut||'9999-99-99').localeCompare(b.cycut||'9999-99-99') || (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   return list;
 }
