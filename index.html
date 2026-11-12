@@ -61,6 +61,30 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-fmt button.sw.on,.b6-fmt button.sz.on{outline:2px solid var(--accent);outline-offset:1px}
 .b6-fmt .ft2{border-top:1px solid var(--border);padding-top:6px;margin-top:8px}
 .b6-fmt .ft2 button{width:auto;display:inline-block}
+/* メモ */
+.b6-split{flex:1;display:flex;gap:8px;min-height:0}
+.b6-split>.b6-wrap{flex:1;min-width:0}
+.b6-memo{position:relative;width:440px;flex:none;display:flex;flex-direction:column;background:var(--read);border:1px solid var(--border);border-radius:8px;min-height:300px;overflow:hidden}
+.b6-memo[hidden]{display:none}
+.mp-hd{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.mp-hd select{flex:1;min-width:0}
+.mp-help{font-size:11px;padding:4px 10px}
+.mp-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:ew-resize}
+.mp-grip:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+.me-host{display:flex;flex-direction:column;flex:1;min-height:0}
+.me-bar{display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border)}
+.me-bar button{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;min-width:26px;height:24px;padding:0 6px;font:inherit;font-size:12px;cursor:pointer}
+.me-bar button:hover{border-color:var(--accent)}
+.me-st{margin-left:auto;font-size:11px;white-space:nowrap}
+.me-ed{flex:1;overflow:auto;padding:10px 12px;font-size:13px;line-height:1.55;outline:none;min-height:180px;color:var(--text);word-break:break-word}
+.me-ed:empty::before{content:attr(data-ph);color:var(--text3)}
+.me-ed img{max-width:100%;height:auto;display:block;margin:4px 0;border:1px solid var(--border);border-radius:4px;cursor:zoom-in}
+.me-ed img.up{opacity:.5}
+.me-ed table{border-collapse:collapse;margin:4px 0;font-size:12px}
+.me-ed td,.me-ed th{border:1px solid var(--border);padding:2px 6px;vertical-align:top}
+.me-ed ul,.me-ed ol{margin:4px 0;padding-left:22px}
+.bk-memo{cursor:pointer;margin-left:3px;font-size:12px}
+.bk-memo:hover{filter:brightness(1.3)}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
 .b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
 .b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
@@ -174,11 +198,15 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <label>並び <select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></label>
         <label><input type="checkbox" id="f-del"> 削除済みを表示</label>
         <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
+        <button class="b6-btn" id="b-memo" title="担当・港ごとのメモ帳（画像も貼れます）">📝 メモ帳</button>
         <span class="muted" style="font-size:11.5px">🎨 セルを右クリック → 文字色・サイズ・ハイライト</span>
         <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
       </div>
       <div class="b6-sum" id="b6-sum"></div>
-      <div class="b6-wrap" id="b6-board"></div>
+      <div class="b6-split">
+        <div class="b6-wrap" id="b6-board"></div>
+        <aside class="b6-memo" id="b6-memo" hidden></aside>
+      </div>
     </section>
 
     <!-- ② Packer日程 -->
@@ -921,13 +949,14 @@ async function applyStaffPin(){
   let pin = ''; try{ pin = (await IDB.get('staffPin')) || ''; }catch(e){}
   S.staffPin = pin;
   if(pin && S.masters.staffOrder && S.masters.staffOrder.includes(pin)) selectStaff(pin, true);
-  else if(S.ready) renderBoard();
+  else { if(S.ready) renderBoard(); memoFollow(); }
 }
 function selectStaff(code, quiet){
   S.staff = code || ''; S.port = '';
   /* 担当を選んだら、その担当の全地域の案件を表示 (港チップで絞り直せる) */
   if(S.staff) S.region = 'ALL';
   if(S.ready) renderBoard();
+  memoFollow();
   if(!quiet && S.staff) toast('担当: '+staffName(S.staff), 'info');
 }
 async function toggleStaffPin(){
@@ -999,8 +1028,13 @@ function cellHtml(col, b, a){
       if(k==='eta' && b.eta && b.etd && b.eta<b.etd) h += ' <span class="bdg d" title="ETA が ETD より前です">ETA&lt;ETD</span>';
       return h;
     }
-    if(k==='bkgno' && b.compass_status==='SENT') return esc(v)+' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
-    if(k==='bkgno' && b.compass_status==='ERROR') return esc(v)+' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
+    if(k==='bkgno'){
+      let h = esc(v);
+      if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
+      if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
+      if(hasBkMemo(b)) h += '<span class="bk-memo" data-memo="1" title="メモを開く">📝</span>';
+      return h;
+    }
     return esc(v);
   }
   const v = a[k];
@@ -1137,6 +1171,7 @@ async function loadBoard(){
     m.forEach(sortRows);
     S.bk = m; S.lastSync = syncAt; S.ready = true;
     fillFilterOptions(); renderBoard(); updSync();
+    loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
   }catch(e){
     toast('読込エラー: '+e.message.slice(0,120), 'danger');
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
@@ -1411,6 +1446,305 @@ async function createFmtColumns(){
   modal('書式の列', res.map(s=>'<div>'+esc(s)+'</div>').join('')+'<div class="muted" style="margin-top:8px">作成できたらページを再読み込みしてください。権限がなくて失敗した場合は、Power Apps でこの 2 テーブルに「複数行テキスト・最大 4000・スキーマ名 leenai_fmt」の列を追加してください。</div>', [{label:'再読み込み', pri:true, fn:()=>location.reload()},{label:'閉じる', fn:c=>c()}]);
 }
 
+/* ══════════ メモ (担当・港・ブッキング) — SharePoint B-06_MEMO に保存 (全員で共有)
+   staff/<code>.json · port/<PORT>.json · bk/<bookkey>.json = {html, updated_at, updated_by}
+   img/<yyyymm>/<uuid>.<ext> = 貼り付けた画像。HTML は許可したタグ・スタイルだけ残す (sanitize) ══════════ */
+const MEMO_ROOT = '古紙/-. AI 活用/B-06_MEMO';
+const GRAPH = 'https://graph.microsoft.com/v1.0/';
+function spPath(p){ return (MEMO_ROOT+'/'+p).split('/').map(encodeURIComponent).join('/'); }
+const SpMemo = {
+  _img: new Map(),
+  async _f(url, opt){
+    const tok = await LEENAI.auth.token('graph'); if(!tok) throw new Error('Graph トークンがありません（再ログインしてください）');
+    opt = opt || {}; opt.headers = Object.assign({Authorization:'Bearer '+tok}, opt.headers||{});
+    return fetch(url, opt);
+  },
+  _item(p){ return GRAPH+'drives/'+LEENAI.SP.DRIVE_ID+'/root:/'+spPath(p); },
+  async get(p){
+    const r = await this._f(this._item(p)+'?$select=eTag,@microsoft.graph.downloadUrl');
+    if(r.status===404) return {doc:null, etag:null};
+    if(!r.ok) throw new Error('メモの読込に失敗 ('+r.status+')');
+    const m = await r.json();
+    const d = await fetch(m['@microsoft.graph.downloadUrl']);
+    return {doc: await d.json(), etag: m.eTag};
+  },
+  async put(p, doc, etag){
+    const h = {'Content-Type':'application/json'}; if(etag) h['If-Match'] = etag;
+    const r = await this._f(this._item(p)+':/content', {method:'PUT', headers:h, body:JSON.stringify(doc)});
+    if(r.status===412){ const e = new Error('412'); e.status = 412; throw e; }
+    if(!r.ok) throw new Error('メモの保存に失敗 ('+r.status+')');
+    return (await r.json()).eTag;
+  },
+  async del(p, etag){
+    const r = await this._f(this._item(p), {method:'DELETE', headers: etag ? {'If-Match':etag} : {}});
+    if(r.status===412){ const e = new Error('412'); e.status = 412; throw e; }
+    if(!r.ok && r.status!==404) throw new Error('メモの削除に失敗 ('+r.status+')');
+  },
+  async putImg(p, blob){
+    const r = await this._f(this._item(p)+':/content', {method:'PUT', headers:{'Content-Type':blob.type||'application/octet-stream'}, body:blob});
+    if(!r.ok) throw new Error('画像の保存に失敗 ('+r.status+')');
+  },
+  async imgUrl(p){
+    if(this._img.has(p)) return this._img.get(p);
+    const r = await this._f(this._item(p)+':/content');
+    if(!r.ok) throw new Error('画像を読めません ('+r.status+')');
+    const u = URL.createObjectURL(await r.blob()); this._img.set(p, u); return u;
+  },
+  async list(folder){
+    try{ return (await LEENAI.sp.list(MEMO_ROOT+'/'+folder)).map(f=>f.name); }catch(e){ return []; }
+  },
+};
+/* デモ用 (メモリ) */
+function makeMemMemo(){
+  const T = new Map(), I = new Map(); let v = 1;
+  return {
+    async get(p){ const x = T.get(p); return x ? {doc:JSON.parse(JSON.stringify(x.doc)), etag:x.etag} : {doc:null, etag:null}; },
+    async put(p, doc, etag){ const x = T.get(p); if(x && etag && x.etag!==etag){ const e=new Error('412'); e.status=412; throw e; } const n='"'+(v++)+'"'; T.set(p, {doc:JSON.parse(JSON.stringify(doc)), etag:n}); return n; },
+    async del(p){ T.delete(p); },
+    async putImg(p, blob){ I.set(p, URL.createObjectURL(blob)); },
+    async imgUrl(p){ if(!I.has(p)) throw new Error('画像なし'); return I.get(p); },
+    async list(folder){ return Array.from(T.keys()).filter(k=>k.startsWith(folder+'/')).map(k=>k.slice(folder.length+1)); },
+  };
+}
+function memoStore(){ return S.memo || (S.memo = CFG.DEMO ? makeMemMemo() : SpMemo); }
+
+/* ── 貼り付け HTML の消毒 (他の人の画面にも出るので厳しめ) ── */
+const MEMO_TAGS = new Set(['B','STRONG','I','EM','U','S','STRIKE','BR','DIV','P','SPAN','FONT','TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','COLGROUP','COL','UL','OL','LI','IMG','H1','H2','H3','H4','HR','BLOCKQUOTE','PRE','CODE','SUB','SUP']);
+const MEMO_DROP = new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','LINK','META','TITLE','HEAD','SVG','MATH','FORM','INPUT','BUTTON','TEXTAREA','SELECT','TEMPLATE','NOSCRIPT','VIDEO','AUDIO','CANVAS']);
+const MEMO_CSS = /^(color|background-color|background|font-weight|font-style|font-size|text-decoration|text-align|vertical-align|border|border-(top|right|bottom|left|collapse|color|width|style)|padding|width|white-space)$/;
+const MEMO_IMG = /^img\/\d{6}\/[0-9a-f-]{36}\.(png|jpe?g|gif|webp)$/;
+function memoSanitize(html){
+  const doc = new DOMParser().parseFromString('<div>'+str(html)+'</div>', 'text/html');
+  const walk = el => {
+    Array.from(el.childNodes).forEach(n => {
+      if(n.nodeType===8){ n.remove(); return; }            /* コメント (Excel の <!--StartFragment--> 等) */
+      if(n.nodeType!==1) return;
+      const tag = n.tagName.toUpperCase();
+      if(MEMO_DROP.has(tag)){ n.remove(); return; }
+      walk(n);
+      if(!MEMO_TAGS.has(tag)){ n.replaceWith(...Array.from(n.childNodes)); return; }
+      const keep = {};
+      if(tag==='IMG'){ const sp = n.getAttribute('data-sp'); if(!sp || !MEMO_IMG.test(sp)){ n.remove(); return; } keep['data-sp'] = sp; }
+      if(tag==='TD' || tag==='TH'){ ['colspan','rowspan'].forEach(a => { const v = n.getAttribute(a); if(v && /^\d{1,2}$/.test(v)) keep[a] = v; }); }
+      if(tag==='FONT'){ const c = n.getAttribute('color'); if(c && /^#?[\w]{1,20}$/.test(c)) keep.color = c; }
+      if(tag==='LI' || tag==='DIV' || tag==='P' || tag==='SPAN'){ const cl = n.getAttribute('class'); if(cl==='chk' || cl==='chk done') keep['class'] = cl; }
+      const st = n.getAttribute('style');
+      if(st){
+        const ok = st.split(';').map(x=>x.trim()).filter(Boolean).filter(d => {
+          const i = d.indexOf(':'); if(i<0) return false;
+          const p = d.slice(0,i).trim().toLowerCase(), v = d.slice(i+1).trim().toLowerCase();
+          return MEMO_CSS.test(p) && !/url\(|expression|javascript|@import|[<>]/.test(v);
+        });
+        if(ok.length) keep.style = ok.join(';');
+      }
+      Array.from(n.attributes).forEach(a => n.removeAttribute(a.name));
+      Object.keys(keep).forEach(k => n.setAttribute(k, keep[k]));
+    });
+  };
+  const root = doc.body.firstChild; walk(root);
+  return root.innerHTML;
+}
+function memoEmpty(html){
+  const d = document.createElement('div'); d.innerHTML = html;
+  return !d.textContent.trim() && !d.querySelector('img,table,hr');
+}
+
+/* ── メモ エディター (貼り付け: Excel の範囲・スクリーンショットは画像、ふつうの文章・表は HTML) ── */
+function makeMemoEditor(host, opt){
+  opt = opt || {};
+  host.innerHTML = '<div class="me-bar">'
+    + '<button data-c="bold" title="太字 (Ctrl+B)"><b>B</b></button><button data-c="underline" title="下線"><u>U</u></button>'
+    + '<button data-c="foreColor" data-v="#e5484d" title="赤字" class="fc-red">A</button><button data-c="foreColor" data-v="#3b82f6" title="青字" class="fc-blue">A</button>'
+    + '<button data-c="hiliteColor" data-v="#fde047" title="マーカー" style="background:#fde04788">ab</button>'
+    + '<button data-c="insertUnorderedList" title="箇条書き">•≡</button>'
+    + '<button data-c="removeFormat" title="書式を消す">⌫</button>'
+    + '<button data-c="img" title="画像を追加（貼り付け・ドロップも可）">🖼 画像</button>'
+    + '<span class="me-st muted"></span></div>'
+    + '<div class="me-ed" contenteditable="true" spellcheck="false"></div><input type="file" accept="image/*" multiple hidden>';
+  const ed = $('.me-ed', host), st = $('.me-st', host), fileIn = $('input[type=file]', host);
+  const E = {path:null, etag:null, dirty:false, saving:false, uploads:0, timer:null, meta:null, loadSeq:0};
+  ed.setAttribute('data-ph', opt.placeholder || 'メモを入力 — 画像は Ctrl+V で貼り付け');
+  const setSt = (t, cls) => { st.textContent = t; st.className = 'me-st '+(cls||'muted'); };
+  const showMeta = () => setSt(E.meta ? '保存済み · '+fmtDT(E.meta.at)+' '+E.meta.by : '', 'muted');
+  const hydrate = () => $$('img[data-sp]', ed).forEach(im => {
+    if(im.src) return;
+    memoStore().imgUrl(im.getAttribute('data-sp')).then(u => { im.src = u; }).catch(() => { im.alt = '（画像を読めません）'; });
+  });
+  const serialize = () => { const c = ed.cloneNode(true); $$('img', c).forEach(im => im.removeAttribute('src')); return memoSanitize(c.innerHTML); };
+  const schedule = () => { E.dirty = true; setSt('編集中…'); clearTimeout(E.timer); E.timer = setTimeout(save, 1200); };
+  async function save(force){
+    clearTimeout(E.timer);
+    if(!E.path || !E.dirty) return;
+    if(E.uploads){ E.timer = setTimeout(save, 800); return; }
+    if(E.saving){ E.timer = setTimeout(save, 500); return; }
+    E.saving = true; E.dirty = false; setSt('保存中…');
+    const html = serialize(), path = E.path;
+    const doc = {html:html, updated_at:new Date().toISOString(), updated_by:(LEENAI.user && LEENAI.user.name) || userEmail()};
+    try{
+      if(memoEmpty(html) && opt.deleteWhenEmpty){ if(E.etag) await memoStore().del(path, force ? null : E.etag); E.etag = null; E.meta = null; setSt('（空のメモ — 削除しました）'); }
+      else { E.etag = await memoStore().put(path, doc, force ? null : E.etag); E.meta = {at:doc.updated_at, by:doc.updated_by}; showMeta(); }
+      if(opt.onSaved) opt.onSaved(path, !memoEmpty(html));
+    }catch(e){
+      if(e.status===412){ E.dirty = true; conflict(); }
+      else { E.dirty = true; setSt('⚠ '+e.message, 'ng'); }
+    }
+    E.saving = false;
+  }
+  function conflict(){
+    st.innerHTML = '<span class="ng">⚠ 他の人が先に更新しました</span> <button class="b6-btn sm" data-x="theirs">相手の内容を読む</button> <button class="b6-btn sm" data-x="mine">自分の内容で上書き</button>';
+    st.className = 'me-st';
+  }
+  st.addEventListener('click', ev => {
+    const x = ev.target.closest('[data-x]'); if(!x) return;
+    if(x.dataset.x==='theirs'){ E.dirty = false; load(E.path, true); }
+    else { E.dirty = true; save(true); }
+  });
+  async function load(path, forceReload){
+    if(E.path===path && !forceReload) return;
+    if(E.path && E.dirty) await save();
+    const seq = ++E.loadSeq;
+    E.path = path; E.etag = null; E.dirty = false; E.meta = null;
+    ed.innerHTML = ''; ed.contentEditable = 'false'; setSt('読込中…');
+    try{
+      const r = await memoStore().get(path);
+      if(seq!==E.loadSeq) return;
+      E.etag = r.etag;
+      ed.innerHTML = r.doc ? memoSanitize(r.doc.html) : '';
+      E.meta = r.doc ? {at:r.doc.updated_at, by:r.doc.updated_by} : null;
+      hydrate(); showMeta();
+    }catch(e){ if(seq===E.loadSeq) setSt('⚠ '+e.message, 'ng'); }
+    if(seq===E.loadSeq) ed.contentEditable = 'true';
+  }
+  /* 画像: 大きい画像は縮小 (長辺 2400px・JPEG) してから SharePoint へ */
+  async function shrink(blob){
+    if(blob.size < 1.5e6) return blob;
+    const bm = await createImageBitmap(blob), k = Math.min(1, 2400/Math.max(bm.width, bm.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bm.width*k); cv.height = Math.round(bm.height*k);
+    const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0,0,cv.width,cv.height); cx.drawImage(bm, 0, 0, cv.width, cv.height);
+    return await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.88));
+  }
+  async function addImage(file){
+    if(!E.path) return;
+    E.uploads++; setSt('画像を保存中…');
+    const im = document.createElement('img'); im.src = URL.createObjectURL(file); im.className = 'up';
+    insertNode(im);
+    try{
+      const blob = await shrink(file), ext = ({'image/jpeg':'jpg','image/gif':'gif','image/webp':'webp'})[blob.type] || 'png';
+      const d = new Date(), p = 'img/'+d.getFullYear()+pad2(d.getMonth()+1)+'/'+uuid()+'.'+ext;
+      await memoStore().putImg(p, blob);
+      im.setAttribute('data-sp', p); im.classList.remove('up');
+    }catch(e){ im.remove(); toast(e.message, 'danger'); }
+    E.uploads--; schedule();
+  }
+  function insertNode(node){
+    ed.focus();
+    const sel = getSelection();
+    if(sel.rangeCount && ed.contains(sel.anchorNode)){
+      const r = sel.getRangeAt(0); r.deleteContents(); r.insertNode(node); r.setStartAfter(node); r.collapse(true); sel.removeAllRanges(); sel.addRange(r);
+    } else ed.appendChild(node);
+  }
+  ed.addEventListener('paste', ev => {
+    const cd = ev.clipboardData; if(!cd) return;
+    const imgs = Array.from(cd.files||[]).filter(f => /^image\//.test(f.type));
+    const html = cd.getData('text/html');
+    const fromExcel = /urn:schemas-microsoft-com:office:(excel|spreadsheet)|ProgId content=Excel/i.test(html);
+    ev.preventDefault();
+    if(imgs.length && (!html || fromExcel || !ev.shiftKey && /<img/i.test(html) && !/<table/i.test(html))){ imgs.forEach(addImage); return; }
+    if(html && !ev.shiftKey){ document.execCommand('insertHTML', false, memoSanitize(html)); hydrate(); schedule(); return; }
+    const t = cd.getData('text/plain'); if(t) document.execCommand('insertText', false, t);
+  });
+  ed.addEventListener('dragover', ev => { if(Array.from(ev.dataTransfer.items||[]).some(i=>i.kind==='file')) ev.preventDefault(); });
+  ed.addEventListener('drop', ev => {
+    const fs = Array.from(ev.dataTransfer.files||[]).filter(f => /^image\//.test(f.type));
+    if(!fs.length) return; ev.preventDefault(); fs.forEach(addImage);
+  });
+  ed.addEventListener('input', schedule);
+  ed.addEventListener('blur', () => { if(E.dirty) save(); });
+  ed.addEventListener('click', ev => { const im = ev.target.closest('img'); if(im && im.src && (ev.ctrlKey || ev.metaKey)) window.open(im.src, '_blank'); });
+  ed.addEventListener('dblclick', ev => { const im = ev.target.closest('img'); if(im && im.src) window.open(im.src, '_blank'); });
+  $('.me-bar', host).addEventListener('mousedown', ev => { if(ev.target.closest('button')) ev.preventDefault(); });
+  $('.me-bar', host).addEventListener('click', ev => {
+    const b = ev.target.closest('button'); if(!b) return;
+    if(b.dataset.c==='img'){ fileIn.click(); return; }
+    ed.focus(); document.execCommand('styleWithCSS', false, true);
+    document.execCommand(b.dataset.c, false, b.dataset.v || null); schedule();
+  });
+  fileIn.addEventListener('change', () => { Array.from(fileIn.files).forEach(addImage); fileIn.value = ''; });
+  return {load:load, flush:() => save(), get path(){ return E.path; }, get busy(){ return E.dirty || E.saving || E.uploads>0; }};
+}
+
+/* ── 右側のメモ パネル (担当・港) ── */
+function memoTarget(){
+  if(S.port && S.port!=='__blank') return 'port:'+S.port;
+  if(S.staff) return 'staff:'+S.staff;
+  return S.memoKey || ('staff:'+((LEENAI.user && LEENAI.user.staffCode) || (S.masters.staffOrder||[])[0] || 'ALL'));
+}
+function memoPathOf(key){
+  const [t, v] = key.split(':'), id = str(v).toUpperCase().replace(/[^A-Z0-9_-]/g,'_') || 'ALL';
+  return (t==='port' ? 'port/' : 'staff/') + id + '.json';
+}
+function memoLabel(key){ const [t, v] = key.split(':'); return t==='port' ? '⚓ '+v : '👤 '+staffName(v); }
+function toggleMemo(open){
+  S.memoOpen = open==null ? !S.memoOpen : open;
+  IDB.set('memoOpen', S.memoOpen ? 1 : 0);
+  const p = $('#b6-memo'); p.hidden = !S.memoOpen;
+  $('#b-memo').classList.toggle('pri', S.memoOpen);
+  if(S.memoOpen){
+    if(!S.memoEd){
+      p.innerHTML = '<div class="mp-hd"><b>📝 メモ</b><select class="b6-sel" id="mp-sel"></select><button class="b6-btn sm" id="mp-x" title="閉じる">✕</button></div>'
+        + '<div class="mp-help muted">担当・港ごとのメモ帳。全員で共有・自動保存。Excel の範囲やスクショは Ctrl+V で画像として貼れます（Ctrl+Shift+V は文字だけ）。</div><div class="me-host" id="mp-host"></div><div class="mp-grip" title="ドラッグで幅を変更"></div>';
+      S.memoEd = makeMemoEditor($('#mp-host'), {placeholder:'このメモ帳は空です — 連絡先・注意事項・画像などを自由に'});
+      $('#mp-x').addEventListener('click', () => toggleMemo(false));
+      $('#mp-sel').addEventListener('change', ev => { S.memoKey = ev.target.value; S.memoPin = true; memoShow(); });
+      const grip = $('.mp-grip', p);
+      grip.addEventListener('mousedown', ev => {
+        ev.preventDefault(); const x0 = ev.clientX, w0 = p.offsetWidth;
+        const mv = e => { p.style.width = Math.max(280, Math.min(innerWidth*0.7, w0 + (x0 - e.clientX)))+'px'; };
+        const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); IDB.set('memoW', p.offsetWidth); };
+        addEventListener('mousemove', mv); addEventListener('mouseup', up);
+      });
+    }
+    S.memoPin = false; memoShow();
+  }
+}
+/* 担当・港を選び直したらメモもそれに合わせる (手で選んだ時はそのまま) */
+function memoFollow(){ if(S.memoOpen && S.memoEd){ S.memoPin = false; memoShow(); } }
+function memoShow(){
+  const key = S.memoPin && S.memoKey ? S.memoKey : memoTarget();
+  S.memoKey = key;
+  const staff = (S.masters.staffOrder||[]).map(c => 'staff:'+c);
+  const ports = []; REGIONS.forEach(r => r.ports.forEach(p => ports.push('port:'+p)));
+  S.bk.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(p && !ports.includes('port:'+p)) ports.push('port:'+p); });
+  if(!staff.includes(key) && !ports.includes(key)) (key.startsWith('port:') ? ports : staff).unshift(key);
+  const opt = k => '<option value="'+esc(k)+'"'+(k===key?' selected':'')+'>'+esc(memoLabel(k))+'</option>';
+  $('#mp-sel').innerHTML = (staff.length ? '<optgroup label="担当">'+staff.map(opt).join('')+'</optgroup>' : '') + '<optgroup label="港">'+ports.map(opt).join('')+'</optgroup>';
+  S.memoEd.load(memoPathOf(key));
+}
+
+/* ── ブッキングごとのメモ (≡ メニュー・Booking no. の 📝) ── */
+async function restoreMemo(){
+  let o = 0; try{ o = await IDB.get('memoOpen'); }catch(e){}
+  if(o) toggleMemo(true);
+}
+function bkMemoId(b){ return str(b.bookkey).replace(/[^\w-]/g,'_'); }
+function hasBkMemo(b){ return !!(S.memoBk && S.memoBk.has(bkMemoId(b))); }
+async function loadMemoIndex(){
+  const names = await memoStore().list('bk');
+  S.memoBk = new Set(names.filter(n => /\.json$/.test(n)).map(n => n.slice(0,-5)));
+  if(S.ready) renderBoard();
+}
+function openBookingMemo(b){
+  const m = modal('📝 メモ — '+esc(bkLabel(b))+' <span class="muted" style="font-weight:400;font-size:12px">'+esc(firstLine(b.vessel))+'</span>', '<div class="me-host" id="bm-host" style="min-height:260px"></div><div class="muted" style="font-size:11.5px;margin-top:6px">自動保存・全員で共有。空にすると削除されます。</div>', [{label:'閉じる', fn:c=>c()}], true);
+  const ed = makeMemoEditor($('#bm-host', m.el), {deleteWhenEmpty:true, placeholder:'このブッキングのメモ（画像も貼れます）', onSaved:(p, has) => {
+    if(!S.memoBk) S.memoBk = new Set();
+    has ? S.memoBk.add(bkMemoId(b)) : S.memoBk.delete(bkMemoId(b)); renderBoard();
+  }});
+  ed.load('bk/'+bkMemoId(b)+'.json');
+  /* ✕・閉じる・背景クリックで閉じる直前に、入力途中の内容を保存 */
+  m.el.addEventListener('mousedown', () => ed.flush(), true);
+  setTimeout(() => { const e = $('.me-ed', m.el); if(e) e.focus(); }, 200);
+}
+
 /* ── 行・ブッキング操作 ── */
 function menu(ev, items){
   closeMenu();
@@ -1433,6 +1767,7 @@ function bookingMenu(ev, b){
   if(!b.deleted){
     if(b.compass_status==='SENT') items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
+    items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
     items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
     items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
@@ -2556,13 +2891,14 @@ function initUI(){
       const p = pt.dataset.port, rIn = pt.dataset.in;
       if(p===S.port && (!rIn || rIn===S.region)){ S.port = ''; }          /* もう一度押すと解除 */
       else { S.port = p; S.region = rIn || 'ALL'; }
-      renderBoard();
+      renderBoard(); memoFollow();
     }
   });
   ['#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
   $('#f-reload').addEventListener('click', loadBoard);
   $('#b-add').addEventListener('click', addBooking);
+  $('#b-memo').addEventListener('click', () => toggleMemo());
   /* 表のクリック */
   $('#b6-board').addEventListener('click', ev => {
     const ob = ev.target.closest('.ob');
@@ -2573,6 +2909,8 @@ function initUI(){
       else { const a = b.rows.find(x=>x.id===tr.dataset.a); if(a) rowMenu(ev, b, a); }
       return;
     }
+    const mm = ev.target.closest('[data-memo]');
+    if(mm){ const b = S.bk.get(mm.closest('tr').dataset.k); if(b) openBookingMemo(b); return; }
     const tg = ev.target.closest('.tg');
     if(tg){ toggleStatus(tg.closest('td')); return; }
     const td = ev.target.closest('td.ed');
@@ -2602,6 +2940,7 @@ function initUI(){
 }
 async function restorePrefs(){
   const r = await IDB.get('region'); if(r && (r==='ALL' || REGIONS.some(x=>x.code===r))) S.region = r;
+  const mw = await IDB.get('memoW'); if(mw) $('#b6-memo').style.width = mw+'px';
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
@@ -2613,6 +2952,7 @@ async function startTool(){
   loadMasters().then(()=>{ if(S.ready) renderBoard(); });
   try{ await detectFmt(); }catch(e){ S.hasFmt = false; }
   await loadBoard();
+  await restoreMemo();
 }
 
 /* デモモード (?demo=1): 共通ファイルのログインを通さず、メモリ上の合成データで動かす */
@@ -2641,7 +2981,7 @@ function startDemo(){
     toast('「'+bkLabel(b)+'」(表の先頭) を他の人が更新しました。20 秒以内にこの行を編集すると 412 → 再読込になります', 'info');
   });
   initUI();
-  restorePrefs().then(loadBoard).then(fillDatalists).then(applyStaffPin);
+  restorePrefs().then(loadBoard).then(fillDatalists).then(restoreMemo).then(applyStaffPin);
 }
 
 if(CFG.DEMO){
