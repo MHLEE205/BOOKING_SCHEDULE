@@ -1157,7 +1157,7 @@ function fillFilterOptions(){
 }
 function findAsg(id){ for(const b of S.bk.values()){ const a = b.rows.find(x=>x.id===id); if(a) return {b:b, a:a}; } return null; }
 
-async function loadBoard(){
+async function loadBoard(retried){
   S.range = {from:$('#f-from').value, to:$('#f-to').value, noEtd:$('#f-noetd').checked};
   LEENAI.loading.show('データ読込中…');
   try{
@@ -1173,6 +1173,7 @@ async function loadBoard(){
     fillFilterOptions(); renderBoard(); updSync();
     loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
   }catch(e){
+    if(isFmtErr(e) && S.hasFmt && retried!==true){ LEENAI.loading.hide(); fmtFallback(e); return loadBoard(true); }
     toast('読込エラー: '+e.message.slice(0,120), 'danger');
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
   }finally{ LEENAI.loading.hide(); }
@@ -1191,7 +1192,7 @@ async function refreshTick(){
     if(S.editing){ S.pending = mergeChanges(S.pending, ch); }
     else await applyChanges(ch);
     updSync();
-  }catch(e){ /* 一時的な失敗は次回に再試行 */ }
+  }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
   finally{ S.refreshing = false; }
 }
 function mergeChanges(p, ch){ if(!p) return ch; return {B:p.B.concat(ch.B), A:p.A.concat(ch.A)}; }
@@ -1424,11 +1425,22 @@ async function detectFmt(){
 }
 function setHasFmt(v){
   S.hasFmt = v;
-  if(v){ if(!BK_FIELDS.includes('fmt')) BK_FIELDS.push('fmt'); if(!AS_FIELDS.includes('fmt')) AS_FIELDS.push('fmt'); }
+  [BK_FIELDS, AS_FIELDS].forEach(F => {
+    const i = F.indexOf('fmt');
+    if(v && i<0) F.push('fmt');
+    if(!v && i>=0) F.splice(i, 1);
+  });
+}
+/* 書式の列が (まだ) データ API で使えないエラーか — その時は書式だけ止めて表は読む */
+function isFmtErr(e){ return !!(e && /leenai_fmt/.test(String(e.message||''))); }
+function fmtFallback(e){
+  setHasFmt(false);
+  S.fmtErr = String(e.message||'').slice(0,200);
+  toast('書式の列がまだ使えないため、書式なしで表示します（数分後に再読み込みしてください）', 'warn');
 }
 /* 診断から: B-06 の 2 テーブルに leenai_fmt (複数行テキスト 4000) を作る。B-06 テーブル以外には作らない */
 async function createFmtColumns(){
-  if(!confirm('B-06 の 2 つのテーブルに「セル書式 (leenai_fmt)」列を作成します。よろしいですか？')) return;
+  if(!confirm('B-06 の 2 つのテーブルに「セル書式 (leenai_fmt)」列を作成し（既にあれば作成しません）、2 つのテーブルを公開 (Publish) します。よろしいですか？')) return;
   let lang = 1041; try{ lang = (await dvGet('organizations?$select=languagecode')).value[0].languagecode || 1041; }catch(e){}
   const res = [];
   for(const ln of [CFG.LN_BOOK, CFG.LN_ASG]){
@@ -1446,6 +1458,12 @@ async function createFmtColumns(){
       res.push(ln+': 作成しました');
     }catch(e){ res.push(ln+': 失敗 — '+e.message.slice(0,200)); }
   }
+  /* 公開 (Publish) — 新しい列をデータ API 全体に反映させる。B-06 の 2 テーブルだけ */
+  try{
+    await dvFetch('PublishXml', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+      ParameterXml:'<importexportxml><entities><entity>'+CFG.LN_BOOK+'</entity><entity>'+CFG.LN_ASG+'</entity></entities></importexportxml>'})});
+    res.push('公開 (Publish): 完了');
+  }catch(e){ res.push('公開 (Publish): 失敗 — '+e.message.slice(0,200)); }
   modal('書式の列', res.map(s=>'<div>'+esc(s)+'</div>').join('')+'<div class="muted" style="margin-top:8px">作成できたらページを再読み込みしてください。権限がなくて失敗した場合は、Power Apps でこの 2 テーブルに「複数行テキスト・最大 4000・スキーマ名 leenai_fmt」の列を追加してください。</div>', [{label:'再読み込み', pri:true, fn:()=>location.reload()},{label:'閉じる', fn:c=>c()}]);
 }
 
@@ -2767,7 +2785,7 @@ async function openDiag(){
       w('<div>'+(bad?'<span class="ng">❌ '+ln+': '+bad+' 列に問題</span>':'✅ '+ln+': 全 '+EXPECT[ln].length+' 列 OK')+'</div><details class="rp"'+(bad?' open':'')+'><summary>列の詳細</summary>'+h+'</table></details>');
     }catch(e){ w('<div class="ng">❌ '+ln+': '+esc(e.message.slice(0,160))+'</div>'); }
   }
-  w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">使えません — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成</button>'
+  w('<div style="margin-top:8px">セル書式 (leenai_fmt): '+(S.hasFmt ? '<span class="ok">✅ 使用中</span>' : '<span class="ng">使えません — 右クリックの書式は保存できません</span> <button class="b6-btn sm pri" id="dg-fmt">書式の列を作成・公開</button>'
     + (S.fmtErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.fmtErr)+'</div>' : ''))+'</div>');
   try{
     const m = await readAttrs(CFG.LN_B05);
