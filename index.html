@@ -132,7 +132,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bk-mtxt:hover{background:color-mix(in srgb,var(--warn) 20%,transparent)}
 .bk-mtxt .im{margin-left:4px;color:var(--text3)}
 .bk-memo.add{opacity:0;font-size:11px;color:var(--text3);transition:opacity .15s}
-.b6-t tr:hover .bk-memo.add{opacity:.75}
+.b6-t td:hover .bk-memo.add{opacity:.75}
+.b6-t td.dt .bk-mtxt{max-width:150px;font-family:inherit}
 .b6-mbtn{background:none;border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;cursor:pointer}
 .b6-mbtn:hover,.b6-mbtn.on{color:var(--accent);border-color:var(--accent)}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
@@ -1166,12 +1167,12 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
         } else {
-          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+'</td>';
+          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         }
       });
       h += '</tr>';
@@ -2107,6 +2108,40 @@ async function restoreMemo(){
   let o = 0; try{ o = await IDB.get('memoOpen'); }catch(e){}
   if(o) toggleMemo(true);
 }
+/* ── セルごとのメモ (Invoice no. 〜 ETA)。cell/<bookkey>__B-<列>.json · cell/<bookkey>__A-<行id>-<列>.json ── */
+const MEMO_COLS = new Set(['invoiceno','pod','carrier','vessel','grade','packer','qty_raw','cyopen','cycut','etd','eta']);
+function cellMemoId(b, a, k){
+  return bkMemoId(b)+'__'+(a ? 'A-'+str(a.id).replace(/[^\w-]/g,'_')+'-' : 'B-')+k;
+}
+/* セルの中身の後ろに付ける: 右端の 📝+ (マウスを乗せた時だけ) とメモの本文 */
+function memoDeco(c, b, a){
+  if(!MEMO_COLS.has(c.k)) return '';
+  const id = cellMemoId(b, c.lv==='A' ? a : null, c.k);
+  if(S.memoCell && S.memoCell.has(id)){
+    const pv = S.memoTxt && S.memoTxt.get(id);
+    return '<div class="bk-mtxt" data-cmemo="1" title="クリックでメモを開く">'
+      + (pv ? (pv.t ? esc(pv.t) : '') + (pv.img ? '<span class="im">🖼×'+pv.img+'</span>' : '') : '📝 メモ（読込中…）') + '</div>';
+  }
+  return '<span class="bk-memo add" data-cmemo="1" title="このセルにメモを書く">📝+</span>';
+}
+function openCellMemo(b, a, k){
+  const id = cellMemoId(b, a, k);
+  const where = esc(bkLabel(b))+' / '+esc(COL_LABEL[k]||k)+(a ? ' <span class="muted" style="font-weight:400;font-size:12px">（Packer 行 '+(b.rows.filter(x=>!x.deleted).indexOf(a)+1)+'）</span>' : '');
+  openMemoModal('📝 メモ — '+where, 'cell/'+id+'.json', 'このセルのメモ（画像も貼れます）', (has, html) => {
+    if(!S.memoCell) S.memoCell = new Set();
+    if(!S.memoTxt) S.memoTxt = new Map();
+    if(has){ S.memoCell.add(id); S.memoTxt.set(id, memoPreview(html)); } else { S.memoCell.delete(id); S.memoTxt.delete(id); }
+    renderBoard();
+  });
+}
+/* メモの小窓 (ブッキングメモ・セルメモ共通) */
+function openMemoModal(title, path, placeholder, onSaved){
+  const m = modal(title, '<div class="me-host" id="bm-host" style="min-height:260px"></div><div class="muted" style="font-size:11.5px;margin-top:6px">自動保存・全員で共有。空にすると削除されます。</div>', [{label:'閉じる', fn:c=>c()}], true);
+  const ed = makeMemoEditor($('#bm-host', m.el), {deleteWhenEmpty:true, placeholder:placeholder, onSaved:(p, has, html) => onSaved(has, html)});
+  ed.load(path);
+  m.el.addEventListener('mousedown', () => ed.flush(), true);   /* 閉じる直前に入力途中の内容を保存 */
+  setTimeout(() => { const e = $('.me-ed', m.el); if(e) e.focus(); }, 200);
+}
 function bkMemoId(b){ return str(b.bookkey).replace(/[^\w-]/g,'_'); }
 function hasBkMemo(b){ return !!(S.memoBk && S.memoBk.has(bkMemoId(b))); }
 async function loadMemoIndex(){
@@ -2115,9 +2150,15 @@ async function loadMemoIndex(){
   if(S.ready) renderBoard();
   /* Booking no. の下に出す本文 (メモのあるブッキングだけ読む) */
   if(!S.memoTxt) S.memoTxt = new Map();
-  const ids = Array.from(S.memoBk);
-  await pool(ids, 4, async id => {
-    try{ const r = await memoStore().get('bk/'+id+'.json'); if(r.doc) S.memoTxt.set(id, memoPreview(r.doc.html)); }catch(e){}
+  const cells = await memoStore().list('cell');
+  S.memoCell = new Set(cells.filter(n => /.json$/.test(n)).map(n => n.slice(0,-5)));
+  if(S.ready) renderBoard();
+  /* 本文は今読み込んでいるブッキングの分だけ */
+  const loaded = new Set(Array.from(S.bk.values()).map(bkMemoId));
+  const ids = Array.from(S.memoBk).map(id => ['bk', id])
+    .concat(Array.from(S.memoCell).filter(id => loaded.has(id.split('__')[0])).map(id => ['cell', id]));
+  await pool(ids, 4, async ([dir, id]) => {
+    try{ const r = await memoStore().get(dir+'/'+id+'.json'); if(r.doc) S.memoTxt.set(id, memoPreview(r.doc.html)); }catch(e){}
   });
   if(ids.length && S.ready) renderBoard();
 }
@@ -2130,18 +2171,14 @@ function memoPreview(html){
   return {t: t.length > 200 ? t.slice(0, 200)+'…' : t, img: img};
 }
 function openBookingMemo(b){
-  const m = modal('📝 メモ — '+esc(bkLabel(b))+' <span class="muted" style="font-weight:400;font-size:12px">'+esc(firstLine(b.vessel))+'</span>', '<div class="me-host" id="bm-host" style="min-height:260px"></div><div class="muted" style="font-size:11.5px;margin-top:6px">自動保存・全員で共有。空にすると削除されます。</div>', [{label:'閉じる', fn:c=>c()}], true);
-  const ed = makeMemoEditor($('#bm-host', m.el), {deleteWhenEmpty:true, placeholder:'このブッキングのメモ（画像も貼れます）', onSaved:(p, has, html) => {
-    if(!S.memoBk) S.memoBk = new Set();
-    if(!S.memoTxt) S.memoTxt = new Map();
-    const id = bkMemoId(b);
-    if(has){ S.memoBk.add(id); S.memoTxt.set(id, memoPreview(html)); } else { S.memoBk.delete(id); S.memoTxt.delete(id); }
-    renderBoard();
-  }});
-  ed.load('bk/'+bkMemoId(b)+'.json');
-  /* ✕・閉じる・背景クリックで閉じる直前に、入力途中の内容を保存 */
-  m.el.addEventListener('mousedown', () => ed.flush(), true);
-  setTimeout(() => { const e = $('.me-ed', m.el); if(e) e.focus(); }, 200);
+  const id = bkMemoId(b);
+  openMemoModal('📝 メモ — '+esc(bkLabel(b))+' <span class="muted" style="font-weight:400;font-size:12px">'+esc(firstLine(b.vessel))+'</span>',
+    'bk/'+id+'.json', 'このブッキングのメモ（画像も貼れます）', (has, html) => {
+      if(!S.memoBk) S.memoBk = new Set();
+      if(!S.memoTxt) S.memoTxt = new Map();
+      if(has){ S.memoBk.add(id); S.memoTxt.set(id, memoPreview(html)); } else { S.memoBk.delete(id); S.memoTxt.delete(id); }
+      renderBoard();
+    });
 }
 
 /* ── 行・ブッキング操作 ── */
@@ -3322,6 +3359,13 @@ function initUI(){
       if(ob.dataset.act==='bmenu') bookingMenu(ev, b);
       else { const a = b.rows.find(x=>x.id===tr.dataset.a); if(a) rowMenu(ev, b, a); }
       return;
+    }
+    const cm = ev.target.closest('[data-cmemo]');
+    if(cm){
+      const tr = cm.closest('tr'), td = cm.closest('td'), b = S.bk.get(tr.dataset.k); if(!b) return;
+      const a = td.dataset.lv==='A' ? b.rows.find(x => x.id===td.dataset.aid) : null;
+      if(td.dataset.lv==='A' && !a) return;
+      openCellMemo(b, a, td.dataset.f); return;
     }
     const mm = ev.target.closest('[data-memo]');
     if(mm){ const b = S.bk.get(mm.closest('tr').dataset.k); if(b) openBookingMemo(b); return; }
