@@ -162,6 +162,16 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-btn:disabled{opacity:.5;cursor:default}
 .b6-btn.sm{padding:1px 6px;font-size:11.5px}
 .b6-sum{display:flex;gap:14px;font-size:12.5px;color:var(--text2);margin-bottom:6px;flex-wrap:wrap}
+.b6-fbar{gap:6px 4px;font-size:12px}
+.b6-fbar .fg{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-right:1px solid var(--border)}
+.b6-fbar .fg:first-child{padding-left:0}
+.b6-fbar .fl{font-weight:700;color:var(--text2)}
+.b6-fbar label{gap:2px}
+.b6-fbar .fq{margin-left:4px;flex:1;min-width:160px;max-width:260px}
+.b6-abar{margin-bottom:6px}
+.b6-abar .b6-sum{margin:0;align-items:baseline}
+.b6-abar .b6-sum>span+span{border-left:1px solid var(--border);padding-left:14px}
+.b6-abar .b6-sync{margin-left:auto;font-size:11px}
 .b6-sum b{color:var(--text);font-size:14px}
 .b6-sum .warn b{color:var(--warn)}
 .b6-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:var(--read);min-height:300px}
@@ -253,26 +263,21 @@ details.rp summary{cursor:pointer;font-size:12.5px}
     <section class="b6-pane on" id="pane-board">
       <div class="b6-top"><div class="b6-topl">
       <div class="b6-filter" id="b6-filter"></div>
-      <div class="b6-bar">
-        <label>ETD <input type="date" class="b6-in" id="f-from"> 〜 <input type="date" class="b6-in" id="f-to"></label>
-        <label><input type="checkbox" id="f-noetd" checked> ETD未定を含む</label>
-        <button class="b6-btn" id="f-reload">⟳ 再読込</button>
-        <span class="muted">|</span>
-        <label>承認 <select class="b6-sel" id="f-appr"></select></label>
-        <label>Packer <input class="b6-in" id="f-packer" size="8"></label>
-        <label><input type="checkbox" id="f-nopk"> Packer未割当</label>
-        <label><input type="checkbox" id="f-nobkg"> Booking no.未取得</label>
-        <label>🔍 <input class="b6-in" id="f-q" size="14" placeholder="BKG・Invoice・Vessel"></label>
+      <div class="b6-bar b6-fbar">
+        <span class="fg"><span class="fl">ETD</span><input type="date" class="b6-in" id="f-from">〜<input type="date" class="b6-in" id="f-to"><label title="ETD が空のブッキングも表示"><input type="checkbox" id="f-noetd" checked>未定も</label></span>
+        <span class="fg"><span class="fl">承認</span><select class="b6-sel" id="f-appr"></select></span>
+        <span class="fg"><span class="fl">Packer</span><input class="b6-in" id="f-packer" size="8"><label><input type="checkbox" id="f-nopk">未割当</label></span>
+        <span class="fg"><label title="Booking no. がまだ無いブッキングだけ"><input type="checkbox" id="f-nobkg">BKG未取得</label><label title="削除したブッキングも表示（復元用）"><input type="checkbox" id="f-del">削除済み</label></span>
+        <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
+        <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel">
       </div>
-      <div class="b6-bar">
-        <label>並び <select class="b6-sel" id="f-sort"><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></label>
-        <label><input type="checkbox" id="f-del"> 削除済みを表示</label>
+      <div class="b6-bar b6-abar">
+        <div class="b6-sum" id="b6-sum"></div>
+        <span class="muted b6-sync" id="b6-sync" title="20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト"></span>
+        <button class="b6-btn sm" id="f-reload" title="今すぐ読み直す">⟳</button>
         <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
-        <button class="b6-btn" id="b-memo" title="担当・港ごとのメモ帳（画像も貼れます）">📝 メモ帳</button>
-        <span class="muted" style="font-size:11.5px">🎨 セルを右クリック → 文字色・サイズ・ハイライト</span>
-        <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
+        <button class="b6-btn" id="b-memo" hidden>📝 メモ帳</button>
       </div>
-      <div class="b6-sum" id="b6-sum"></div>
       </div><div class="b6-map" id="b6-map"><div class="mapc" id="b6-mapc" title="港をクリックで絞り込み"></div><div class="msearch"><input id="b6-site-q" class="b6-in" list="dl-site" placeholder="🔍 住所・営業所" autocomplete="off" title="住所・COMPASS 営業所・工場名を入力 → Enter"></div></div></div>
       <div class="b6-split">
         <div class="b6-wrap" id="b6-board"></div>
@@ -1181,7 +1186,7 @@ function renderBoard(){
   /* 要約 */
   let unap=0, nopk=0, hon=0;
   list.forEach(b => { if(b.deleted) return; if((b.approval||'NONE')==='NONE') unap++; if(noPacker(b)) nopk++; b.rows.forEach(a => { if(!a.deleted && a.totalhon) hon += +a.totalhon; }); });
-  $('#b6-sum').innerHTML = '<span>ブッキング <b>'+list.filter(b=>!b.deleted).length+'</b></span><span class="warn">未承認 <b>'+unap+'</b></span><span class="warn">Packer未割当 <b>'+nopk+'</b></span><span>本数合計 <b>'+hon+'</b></span>';
+  $('#b6-sum').innerHTML = '<span>ブッキング <b>'+list.filter(b=>!b.deleted).length+'</b></span><span class="warn">未承認 <b>'+unap+'</b></span><span class="warn">Packer未割当 <b>'+nopk+'</b></span><span>本数 <b>'+hon+'</b></span>';
   if(!list.length){ $('#b6-board').innerHTML = '<div class="b6-empty">表示するブッキングがありません（ETD 期間・フィルターを確認してください）</div>'; return; }
   /* 全地域: 地域ごとに表を分ける (地域で列が違うため) */
   const groups = S.region==='ALL'
@@ -1661,7 +1666,7 @@ async function loadBoard(retried){
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
   }finally{ LEENAI.loading.hide(); }
 }
-function updSync(){ $('#b6-sync').textContent = S.lastSync ? '最終同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP')+' ・ 20秒ごとに自動更新（'+S.store.name+'）' : ''; }
+function updSync(){ $('#b6-sync').textContent = S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : ''; }
 
 /* ── 20 秒自動更新 (modifiedon 基準・編集中のセルは上書きしない・非表示タブでは停止) ── */
 async function refreshTick(){
