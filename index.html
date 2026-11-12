@@ -149,6 +149,11 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-ploc .ps-c{margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11.5px}
 .b6-ploc .ps-c a{color:var(--info)}
 .bk-memo.has{font-size:12px}
+.cp-lk{display:flex;gap:4px;align-items:center}
+.cp-lk select{min-width:150px;max-width:220px}
+.cp-lk .cp-q{width:90px;font-size:11.5px}
+tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.cp-note{font-size:12px}
 .bk-mtxt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin-top:2px;padding:1px 5px;font-size:10.5px;line-height:1.3;color:var(--text2);background:color-mix(in srgb,var(--warn) 13%,transparent);border-left:2px solid var(--warn);border-radius:0 3px 3px 0;cursor:pointer;max-width:220px;font-weight:400;font-family:inherit}
 .bk-mtxt:hover{color:var(--text);background:color-mix(in srgb,var(--warn) 24%,transparent)}
 .bk-mtxt .im{margin-left:3px;color:var(--text3)}
@@ -2759,12 +2764,18 @@ const COMPASS = {
   ],
   LOOKUPS: [  /* COMPASS では一覧から選ぶ項目 — 名前が 1 件だけ完全一致した時だけ自動で選ぶ */
     {k:'port',    col:'cr49f_region_japan_id', label:'POL (港)',  key:b=>str(b.port).trim()},
-    {k:'pod',     col:'cr49f_region_id',       label:'POD',       key:b=>firstLine(b.pod)},
-    {k:'carrier', col:'cr49f_carrier_id',      label:'船社',       key:b=>firstLine(b.carrier).replace(/\s*[(（].*$/,'').trim()},
+    {k:'pod',     col:'cr49f_region_id',       label:'POD',       key:b=>firstLine(b.pod).split(/→|->/).pop().trim()},
+    {k:'carrier', col:'cr49f_carrier_id',      label:'船社',       key:b=>carrierKey(b.carrier)},
   ],
   NEED: ['bkgno','vessel','cyopen','cycut','etd'],   /* B-06 側で必須 */
   AUTO_COLS: ['ownerid','owneridtype','statecode','statuscode','overriddencreatedon','importsequencenumber','timezoneruleversionnumber','utcconversiontimezonecode','transactioncurrencyid'],
 };
+/* 船社の原文 → 船社名だけ: 「ONE(6→7)」→ ONE・「HA→SK(2)」→ SK・「ONE4〆」「ONE 8'6」→ ONE */
+function carrierKey(raw){
+  const s = PARSE.nfkcSame(firstLine(raw)).replace(/[(（][^)）]*[)）]?/g,'').split(/→|->/).pop().trim();
+  const m = s.match(/[A-Za-z][A-Za-z\s\-]*/);
+  return m ? m[0].replace(/[\s\-]+$/,'').trim() : s;
+}
 function compassDate(v, dateOnly){ return dateOnly ? v : v+'T00:00:00+09:00'; }
 
 /* ── COMPASS 読み書き (Dataverse) ── */
@@ -2833,7 +2844,7 @@ function makeMemCompass(){
   ]);
   const rels = new Map([['cr49f_region_japan_id',{target:'demo_port',nav:'cr49f_region_japan_id'}],['cr49f_region_id',{target:'demo_pod',nav:'cr49f_region_id'}],['cr49f_carrier_id',{target:'demo_carrier',nav:'cr49f_carrier_id'}]]);
   const L = names => ({set:'demo', list:names.map(n=>({id:uuid(), name:n}))});
-  const opts = {demo_port:L(Object.keys(PORT_REGION)), demo_pod:L(['BUSAN','KWANGYANG','PENANG','KAOHSIUNG','HOCHIMINH','LAEM CHABANG']), demo_carrier:L(['ONE','KM','HA','SK','SINOKOR','EVERGREEN'])};
+  const opts = {demo_port:L(Object.keys(PORT_REGION)), demo_pod:L(['BUSAN','INCHEON','KWANGYANG','PORT KLANG','PENANG','KAOHSIUNG','HO CHI MINH','HAIPHONG','LAEM CHABANG','LAT KRABANG','JAKARTA','SURABAYA']), demo_carrier:L(['ONE','KMTC','HEUNG-A','SINOKOR','DONG YOUNG','EVERGREEN','YANG MING','INTERASIA','PAN CONTINENTAL','PAN OCEAN','CNC'])};
   return {
     demo:true,
     async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
@@ -2841,6 +2852,70 @@ function makeMemCompass(){
     async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
     async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
   };
+}
+
+/* ── 一覧から選ぶ項目 (POL・POD・船社) の自動マッチング ──
+   ① 前回だれかが選んだ対応 (B-06_MEMO/cfg/compass_map.json — チームで共有) → ② 別名表で名前が一致 → ③ 似た名前を「候補」として上に */
+const CARRIER_ALIAS = [   /* 先頭が正式名。B-06 の表記 (サンプル 1,579 件から) */
+  ['ONE','OCEAN NETWORK EXPRESS'], ['CNC','CNC LINE','CHENG LIE'], ['KMTC','KM','KOREA MARINE'], ['YANG MING','YM','YML','YANGMING','YANMING'],
+  ['INTERASIA','INTER','IAL','INTER ASIA'], ['MAERSK','MRK','MSK','MARSK','MERSK'], ['HEUNG-A','HA','HEUNGA','HEUNG','HAL','HEUNG A'],
+  ['NAMSUNG','NS','NSL'], ['JINJIANG','JIN','JINJANG','JIN JIANG','JIN JANG'], ['DONG YOUNG','DY','DYL','DONGYOUNG'], ['SINOKOR','SK','SNK','SN'],
+  ['OOCL','OCL'], ['WAN HAI','WAN','WHL','WANHAI'], ['HAPAG-LLOYD','HPG','HLC','HAPAG'], ['EVERGREEN','EVER','EMC'], ['CMA CGM','CMA'],
+  ['COSCO'], ['DONGJIN','DJ'], ['PAN OCEAN','PANOCEAN'], ['PAN CONTINENTAL','PCL','PANCON'], ['TS LINES','TSL'], ['SITC'], ['MSC'], ['ZIM'], ['RCL'],
+  ['CK LINE','CKL'], ['HMM','HYUNDAI'], ['EHIME']];
+const cpNorm = s => PARSE.nfkcSame(str(s)).toUpperCase().replace(/[^A-Z0-9\u3040-\u30ff\u4e00-\u9fff]/g,'');
+/* B-06 の値 → 探す名前の一覧 */
+function cpAliases(kind, key){
+  const out = [key];
+  if(kind==='carrier'){
+    const k = cpNorm(key), g = CARRIER_ALIAS.find(g => g.some(x => cpNorm(x)===k));
+    if(g) out.push(...g);
+  } else if(kind==='pod'){
+    const D = podLL(key);
+    if(D){
+      out.push(D[2], D[2].replace(/\s*\(.*\)$/,''), (D[2].match(/\((.*?)\)/)||[])[1]||'');
+      Object.keys(POD_LL).forEach(t => { if(POD_LL[t][2]===D[2]) out.push(t); });
+    }
+  } else if(kind==='port'){
+    const p = str(key).trim().toUpperCase();
+    if(PORT_JA[p]) out.push(PORT_JA[p], PORT_JA[p].replace(/港$/,''));
+  }
+  return Array.from(new Set(out.map(cpNorm).filter(Boolean)));
+}
+/* 一覧の各項目に点数: 一致 100 / 前方一致 80 / 含む 60 / 頭 3 文字 40 */
+function cpMatch(list, aliases){
+  const res = [];
+  list.forEach(o => {
+    const n = cpNorm(o.name); if(!n) return;
+    let s = 0, via = '';
+    aliases.forEach(a => {
+      let t = 0;
+      if(n===a) t = 100;
+      else if(a.length>=4 && (n.startsWith(a) || a.startsWith(n) && n.length>=4)) t = 80;
+      else if(a.length>=4 && n.includes(a)) t = 60;
+      else if(a.length>=3 && n.startsWith(a)) t = 40;
+      if(t > s){ s = t; via = a; }
+    });
+    if(s) res.push({id:o.id, name:o.name, s:s, via:via});
+  });
+  return res.sort((x,y) => y.s-x.s || x.name.localeCompare(y.name));
+}
+const CP_MAP = 'cfg/compass_map.json';
+async function cpMapLoad(){
+  try{ const r = await memoStore().get(CP_MAP); S.cpMap = (r.doc && r.doc.map) || {}; }
+  catch(e){ S.cpMap = S.cpMap || {}; }
+  return S.cpMap;
+}
+/* 手で選び直した対応を覚える (次から自動で選ぶ)。保存に失敗しても入力は続ける */
+async function cpMapLearn(items){
+  if(!items.length) return;
+  for(let i=0;i<2;i++){
+    const r = await memoStore().get(CP_MAP).catch(() => ({doc:null, etag:null}));
+    const map = (r.doc && r.doc.map) || {};
+    items.forEach(x => { (map[x.kind] = map[x.kind] || {})[x.key] = {id:x.id, name:x.name, by:(LEENAI.user && LEENAI.user.name) || userEmail(), at:new Date().toISOString()}; });
+    try{ await memoStore().put(CP_MAP, {map:map, updated_at:new Date().toISOString()}, r.etag); S.cpMap = map; return; }
+    catch(e){ if(e.status!==412){ toast('選択の記憶に失敗: '+e.message, 'warn'); return; } }
+  }
 }
 
 /* ① チェック (読み取りのみ) → 送る内容 */
@@ -2868,16 +2943,21 @@ async function compassCheck(b){
     if(f.date && b[noteKey(f.k)]) row.note = (row.note?row.note+' / ':'')+'※ '+b[noteKey(f.k)];
     R.fields.push(row);
   });
+  const learned = await cpMapLoad();
   for(const f of COMPASS.LOOKUPS){
     const rel = M.rels.get(f.col), key = f.key(b);
-    const L = {label:f.label, col:f.col, key:key, nav:null, set:null, list:[], sel:'', note:''};
+    const L = {kind:f.k, label:f.label, col:f.col, key:key, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
     if(!rel){ L.note = 'COMPASS に一覧の列がない → 送らない'; R.lookups.push(L); continue; }
     try{
       const o = await C.options(rel.target);
       L.nav = rel.nav; L.set = o.set; L.list = o.list;
-      const hit = o.list.filter(x => x.name.trim().toUpperCase()===key.toUpperCase());
-      if(hit.length===1){ L.sel = hit[0].id; L.note = '自動で選択（名前が 1 件一致）'; }
-      else L.note = blank(key) ? 'B-06 が空 — 必要なら選んでください' : (hit.length ? '同じ名前が '+hit.length+' 件 — 選んでください' : '「'+key+'」が一覧にない — 選んでください');
+      const lr = !blank(key) && (learned[f.k]||{})[cpNorm(key)];
+      const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
+      L.cands = c.slice(0, 6);
+      if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
+      else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)){ L.sel = c[0].id; L.how = 'auto'; L.note = c[0].s===100 ? '自動で選択' : '自動で選択（似た名前）'; }
+      else L.note = blank(key) ? 'B-06 が空 — 必要なら選んでください' : c.length ? '候補から選んでください' : '「'+key+'」が一覧にない — 選んでください';
+      L.auto = L.sel;
       R.allowed.add(rel.nav+'@odata.bind');
     }catch(e){ L.note = '一覧を読めません（'+String(e.status||'')+'）→ 送らない'; }
     R.lookups.push(L);
@@ -2916,16 +2996,39 @@ async function openCompass(b){
   h += '<table class="b6-s" style="margin-top:8px"><tr><th>項目</th><th>B-06 の値</th><th>COMPASS に送る値</th><th>メモ</th></tr>';
   R.fields.forEach(f => { h += '<tr><td>'+esc(f.label)+'<div class="muted" style="font-size:11px">'+esc(f.col)+'</div></td><td>'+esc(f.b06)+'</td><td>'+(f.send!=null?'<b>'+esc(f.send)+'</b>':'<span class="muted">—</span>')+'</td><td>'+esc(f.note)+'</td></tr>'; });
   R.lookups.forEach((L, i) => {
-    const sel = L.list.length ? '<select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'+L.list.map(o=>'<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select>' : '<span class="muted">—</span>';
-    h += '<tr><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.key)+'</td><td>'+sel+'</td><td>'+esc(L.note)+'</td></tr>';
+    const op = o => '<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>';
+    const candIds = new Set(L.cands.map(c => c.id));
+    const sel = L.list.length
+      ? '<div class="cp-lk"><select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'
+        + (L.cands.length ? '<optgroup label="候補">'+L.cands.map(op).join('')+'</optgroup><optgroup label="すべて">' : '')
+        + L.list.filter(o => !candIds.has(o.id)).map(op).join('') + (L.cands.length ? '</optgroup>' : '') + '</select>'
+        + '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍 絞り込み" autocomplete="off"></div>'
+      : '<span class="muted">—</span>';
+    const badge = L.how==='learn' ? '<span class="bdg o">記憶</span> ' : L.how==='auto' ? '<span class="bdg o">自動</span> ' : L.list.length && !blank(L.key) ? '<span class="bdg w">選択</span> ' : '';
+    h += '<tr'+(L.list.length && !L.sel && !blank(L.key) ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+badge+esc(L.note)+'</td></tr>';
   });
-  h += '</table>';
+  h += '</table><div class="muted" style="font-size:11.5px;margin-top:6px">POL・POD・船社を手で選び直すと、その対応を覚えて次から自動で選びます（チームで共有）。</div>';
   const m = modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), h, [
     {label:'キャンセル', fn:c=>c()},
     {label:'送信内容を確認 →', pri:true, fn:c=>{
       const picks = {}; $$('.cp-pick', m.el).forEach(s => { picks[+s.dataset.i] = s.value; });
+      /* 手で選んだ (自動と違う) 対応を覚える */
+      cpMapLearn(R.lookups.map((L, i) => ({L:L, id:picks[i]})).filter(x => x.id && x.id!==x.L.auto && !blank(x.L.key))
+        .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})));
       c(); confirmCompass(b, R, picks);
     }}], true);
+  /* 絞り込み: 入力した文字を含む項目だけ */
+  m.el.addEventListener('input', ev => {
+    const q = ev.target.closest('.cp-q'); if(!q) return;
+    const s = m.el.querySelector('.cp-pick[data-i="'+q.dataset.i+'"]'), n = cpNorm(q.value);
+    Array.from(s.options).forEach(o => { if(o.value) o.hidden = !!n && !cpNorm(o.textContent).includes(n); });
+    const first = Array.from(s.options).find(o => o.value && !o.hidden);
+    if(n && first && (!s.value || s.selectedOptions[0].hidden)){ s.value = first.value; s.dispatchEvent(new Event('change', {bubbles:true})); }
+  });
+  m.el.addEventListener('change', ev => {
+    const s = ev.target.closest('.cp-pick'); if(!s) return;
+    s.closest('tr').classList.toggle('cp-need', !s.value && !blank(R.lookups[+s.dataset.i].key));
+  });
   if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
 }
 
