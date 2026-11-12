@@ -188,6 +188,9 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .b6-abar .b6-sum{margin:0;align-items:baseline}
 .b6-abar .b6-sum>span+span{border-left:1px solid var(--border);padding-left:14px}
 .b6-abar .b6-sync{margin-left:auto;font-size:11px}
+.b6-abar #b6-zoom{margin-left:auto}
+.b6-abar #b6-zoom:not([hidden]) + .b6-sync{margin-left:8px}
+#b6-board > *{zoom:var(--bz, 1)}
 .b6-sum b{color:var(--text);font-size:14px}
 .b6-sum .warn b{color:var(--warn)}
 .b6-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:var(--read);min-height:300px}
@@ -289,6 +292,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
       </div>
       <div class="b6-bar b6-abar">
         <div class="b6-sum" id="b6-sum"></div>
+        <button class="b6-btn sm" id="b6-zoom" hidden title="表の拡大・縮小 (Ctrl + マウスホイール) — クリックで 100% に戻す (Ctrl + 0)">🔍 100%</button>
         <span class="muted b6-sync" id="b6-sync" title="20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト"></span>
         <button class="b6-btn sm" id="f-reload" title="今すぐ読み直す">⟳</button>
         <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
@@ -3858,6 +3862,7 @@ function initUI(){
     const td = ev.target.closest('td.ed');
     if(td && !td.querySelector('input,textarea,select')) startEdit(td);
   });
+  initBoardZoom();
   /* 選んだブッキング: Esc で解除・Ctrl+C でコピー (入力欄・メモ・モーダルの中では普通の動作) */
   document.addEventListener('keydown', ev => {
     if(!S.selBk || S.editing) return;
@@ -3898,7 +3903,32 @@ function initUI(){
 async function restorePrefs(){
   const r = await IDB.get('region'); if(r && (r==='ALL' || REGIONS.some(x=>x.code===r))) S.region = r;
   const mw = await IDB.get('memoW'); if(mw) $('#b6-memo').style.width = mw+'px';
+  const bz = await IDB.get('boardZoom'); if(bz) setBoardZoom(+bz, true);
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
+}
+
+/* 表だけの拡大・縮小 (Ctrl + マウスホイール・Ctrl + 0 で 100%) — メモを開いた時など表を画面に収めるため (2026-11-12) */
+const BZ_MIN = 0.5, BZ_MAX = 1.5;
+function setBoardZoom(z, quiet){
+  z = Math.round(Math.max(BZ_MIN, Math.min(BZ_MAX, z)) * 20) / 20;
+  S.boardZoom = z;
+  $('#b6-board').style.setProperty('--bz', z);
+  const bt = $('#b6-zoom');
+  if(bt){ bt.hidden = z===1; bt.textContent = '🔍 '+Math.round(z*100)+'%'; }
+  if(!quiet) IDB.set('boardZoom', z);
+}
+function initBoardZoom(){
+  const el = $('#b6-board');
+  el.addEventListener('wheel', ev => {
+    if(!ev.ctrlKey) return;
+    ev.preventDefault();   /* ブラウザ全体の拡大はしない (表の上だけ) */
+    setBoardZoom((S.boardZoom||1) + (ev.deltaY < 0 ? 0.05 : -0.05));
+  }, {passive:false});
+  document.addEventListener('keydown', ev => {
+    if(!(ev.ctrlKey || ev.metaKey) || ev.key!=='0' || !el.matches(':hover')) return;
+    ev.preventDefault(); setBoardZoom(1);
+  });
+  $('#b6-zoom').addEventListener('click', () => setBoardZoom(1));
 }
 
 /* ログイン後 (LEENAI_COMMON onReady) */
