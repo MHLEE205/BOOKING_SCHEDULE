@@ -85,6 +85,10 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .me-ed ul,.me-ed ol{margin:4px 0;padding-left:22px}
 .bk-memo{cursor:pointer;margin-left:3px;font-size:12px}
 .bk-memo:hover{filter:brightness(1.3)}
+.bk-memo.add{opacity:0;font-size:11px;color:var(--text3);transition:opacity .15s}
+.b6-t tr:hover .bk-memo.add{opacity:.75}
+.b6-mbtn{background:none;border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;cursor:pointer}
+.b6-mbtn:hover,.b6-mbtn.on{color:var(--accent);border-color:var(--accent)}
 .b6-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px}
 .b6-bar label{display:inline-flex;align-items:center;gap:4px;color:var(--text2)}
 .b6-in,.b6-sel{background:var(--read);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
@@ -1032,7 +1036,8 @@ function cellHtml(col, b, a){
       let h = esc(v);
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
-      if(hasBkMemo(b)) h += '<span class="bk-memo" data-memo="1" title="メモを開く">📝</span>';
+      h += hasBkMemo(b) ? '<span class="bk-memo" data-memo="1" title="メモを開く">📝</span>'
+                        : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
       return h;
     }
     return esc(v);
@@ -1119,8 +1124,10 @@ function renderChips(){
     sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row">'
       + '<button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
       + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'">'+(c===S.staffPin?'📌':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
-      + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'">📌 '+(pinned?'固定中':'既定に固定')+'</button>' : '')
-      + '</div>';
+      + '<span style="margin-left:auto;display:inline-flex;gap:6px">'
+      + '<button class="b6-mbtn'+(S.memoOpen?' on':'')+'" data-mopen="1" title="担当・港ごとのメモ帳（画像も貼れます）">📝 '+(S.staff ? esc(staffName(S.staff))+' のメモ帳' : 'メモ帳')+'</button>'
+      + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" style="margin-left:0" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'">📌 '+(pinned?'固定中':'既定に固定')+'</button>' : '')
+      + '</span></div>';
   } else if(M.loaded){
     sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row muted" style="font-size:12px">pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</div>';
   }
@@ -1710,6 +1717,7 @@ function toggleMemo(open){
   IDB.set('memoOpen', S.memoOpen ? 1 : 0);
   const p = $('#b6-memo'); p.hidden = !S.memoOpen;
   $('#b-memo').classList.toggle('pri', S.memoOpen);
+  if(S.ready) renderChips();
   if(S.memoOpen){
     if(!S.memoEd){
       p.innerHTML = '<div class="mp-hd"><b>📝 メモ</b><select class="b6-sel" id="mp-sel"></select><button class="b6-btn sm" id="mp-x" title="閉じる">✕</button></div>'
@@ -2905,6 +2913,7 @@ function initUI(){
   });
   $('#b6-filter').addEventListener('click', ev => {
     if(ev.target.closest('#b6-pin')){ toggleStaffPin(); return; }
+    if(ev.target.closest('[data-mopen]')){ toggleMemo(); return; }
     const st = ev.target.closest('[data-staff]');
     if(st){ selectStaff(st.dataset.staff); return; }
     const rg = ev.target.closest('[data-region]');
