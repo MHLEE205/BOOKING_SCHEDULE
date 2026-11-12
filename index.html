@@ -117,6 +117,8 @@ table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-co
 .b6-t tr.del td.ops{text-decoration:none;opacity:1}
 .b6-t tr.hl td{background:color-mix(in srgb,var(--warn) 14%,transparent)}
 .b6-t td.ops{white-space:nowrap;padding:2px 3px;background:var(--surface)}
+.b6-t th.no,.b6-t td.no{text-align:right;min-width:26px;padding:3px 6px;font-family:var(--mono);font-size:11.5px}
+.b6-t td.no{color:var(--text2);font-weight:700;background:var(--surface)}
 .b6-t td textarea,.b6-t td input,.b6-t td select{width:100%;min-width:90px;background:var(--read);color:var(--text);border:1px solid var(--accent);border-radius:4px;font:inherit;font-size:12px;padding:2px 4px;box-sizing:border-box}
 .b6-t td textarea{resize:vertical;min-height:40px}
 .ob{border:none;background:none;color:var(--text3);cursor:pointer;padding:0 3px;font-size:12px}
@@ -1086,15 +1088,18 @@ function renderBoard(){
 }
 function boardTable(region, list, F){
   const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
-  let h = '<table class="b6-t"><thead><tr><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th>'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
+  let h = '<table class="b6-t"><thead><tr><th class="no" title="表示順の番号（並び・フィルターで変わります）">No.</th><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th>'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
+  let no = 0;   /* 表示順の番号 (削除済みは数えない) */
   list.forEach(b => {
     const rows = visRows(b, F.del); if(!rows.length) return;
     const n = rows.length;
+    const noTxt = b.deleted ? '—' : String(++no);
     const merged = {};
     span.forEach(k => { merged[k] = n>1 && rows.slice(1).every(a => blank(a[k])); });
     rows.forEach((a, i) => {
       const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':''].join(' ');
       h += '<tr class="'+cls+'" data-k="'+esc(b.bookkey)+'" data-a="'+esc(a.id)+'">';
+      if(i===0) h += '<td class="no" rowspan="'+n+'">'+noTxt+'</td>';
       if(i===0) h += '<td class="ops" rowspan="'+n+'"><button class="ob" data-act="bmenu" title="ブッキング操作">≡</button></td>';
       h += '<td class="ops"><button class="ob" data-act="rmenu" title="Packer 行の操作">⋮</button></td>';
       cols.forEach(c => {
