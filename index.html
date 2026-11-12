@@ -62,10 +62,10 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-fmt .ft2{border-top:1px solid var(--border);padding-top:6px;margin-top:8px}
 .b6-fmt .ft2 button{width:auto;display:inline-block}
 /* 日本地図 */
-.b6-top{display:flex;gap:10px;align-items:stretch}
+.b6-top{display:flex;gap:10px;align-items:flex-start}
 .b6-topl{flex:1;min-width:0}
-.b6-map{flex:none;width:170px;margin-bottom:8px;background:var(--read);border:1px solid var(--border);border-radius:8px;padding:4px 6px 2px;display:flex;flex-direction:column;align-items:center}
-.b6-map svg{width:100%;flex:1;max-height:185px}
+.b6-map{flex:none;width:210px;box-sizing:border-box;overflow:hidden;margin-bottom:8px;background:var(--read);border:1px solid var(--border);border-radius:8px;padding:4px 6px 2px;display:flex;flex-direction:column;align-items:center}
+.b6-map svg{width:100%;flex:1;min-height:0;max-height:185px}
 .b6-map .land{fill:color-mix(in srgb,var(--text3) 30%,var(--read));stroke:color-mix(in srgb,var(--text3) 55%,var(--read));stroke-width:.6;stroke-linejoin:round}
 .b6-map .oki{fill:none;stroke:var(--border);stroke-width:.5;stroke-dasharray:2 1.5}
 .b6-map .pd{fill:var(--text3);cursor:pointer;stroke:var(--read);stroke-width:.6}
@@ -1462,7 +1462,7 @@ function renderRoute(el, b){
   let w = Math.max(18, (x1-x0)+6)*k*ZOOM_OUT, h = Math.max(14, (y1-y0)+6)*ZOOM_OUT;
   /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
   /* 枠の高さから比率を出すと、描くたびに地図が伸びて枠も伸びる (2026-11-12 不具合) → 高さは日本地図と同じ固定値 */
-  const RT_H = 185, bw = el.getBoundingClientRect().width;
+  const RT_H = Math.max(60, Math.min(185, (S.mapH||185) - 74)), bw = el.getBoundingClientRect().width;
   const AR = Math.max(0.55, Math.min(2.4, ((bw > 50 ? bw : 158) - 12) / RT_H));
   if(w/h > AR) h = w/AR; else w = h*AR;
   const vx = cx*k - w/2, vy = -cy - h/2;
@@ -1612,8 +1612,21 @@ function copyBooking(b){
     () => toast('コピーできませんでした（ブラウザの許可を確認してください）', 'warn'));
 }
 function jpXY(lon, lat){ return lon < 129 ? [4+(lon-127.5)*26, 4+(27.0-lat)*30] : [(lon-129.2)*8, (45.7-lat)*10]; }
+/* 地図の枠の高さ = 左側 (絞り込み〜件数) の高さ。地図のせいで上部が縦に伸びないように (2026-11-12) */
+function mapBoxH(){
+  const t = $('.b6-topl'), box = $('#b6-map'); if(!t || !box) return 185;
+  const H = Math.max(140, t.offsetHeight - 8);
+  box.style.height = H+'px';
+  return H;
+}
 function renderMap(){
   const box = $('#b6-map'), el = $('#b6-mapc'); if(!el) return;
+  S.mapH = mapBoxH();
+  if(!S.mapRO && window.ResizeObserver){
+    let last = 0;
+    S.mapRO = new ResizeObserver(() => { const t = $('.b6-topl'); if(t && Math.abs(t.offsetHeight-last) > 2){ last = t.offsetHeight; renderMap(); } });
+    S.mapRO.observe($('.b6-topl'));
+  }
   /* ブッキングを選んでいる時は世界地図の航路 */
   const sb = S.selBk && S.bk.get(S.selBk);
   box.classList.toggle('route', !!sb);
