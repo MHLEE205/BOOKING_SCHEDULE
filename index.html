@@ -76,6 +76,10 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map .pr{fill:none;stroke:#e5484d;stroke-width:1.2;opacity:.8;transform-box:fill-box;transform-origin:center;animation:b6ping 1.6s ease-out infinite}
 @keyframes b6ping{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 .b6-map .pl{font-size:7px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--read);stroke-width:2px;font-family:var(--mono)}
+.b6-map .mapc{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;align-items:center}
+.b6-map .msearch{width:100%;padding:2px 0 3px}
+.b6-map .msearch input{width:100%;box-sizing:border-box;font-size:11px;padding:2px 6px}
+.b6-ploc .ps-list{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:5px}
 .b6-map .cap{font-size:11px;color:var(--text2);font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:4px;padding-bottom:2px}
 .b6-map .gmap{background:none;border:1px solid color-mix(in srgb,var(--info) 50%,transparent);color:var(--info);border-radius:999px;padding:0 6px;font:inherit;font-size:10px;font-weight:700;line-height:15px;cursor:pointer}
 .b6-map .gmap:hover{background:var(--info);color:#fff}
@@ -129,6 +133,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bk-memo{cursor:pointer;margin-left:6px;font-size:12px;float:right}
 .bk-memo:hover{filter:brightness(1.3)}
 .bk-memo.ploc{margin-left:2px}
+/* 他の人が変更したセル */
+.b6-t td.rfx{outline:2px solid #8b5cf6;outline-offset:-2px;position:relative}
+.rfx-by{position:absolute;bottom:-7px;right:2px;background:#8b5cf6;color:#fff;font-size:9.5px;font-weight:700;line-height:13px;padding:0 5px;border-radius:7px;box-shadow:0 1px 3px rgba(0,0,0,.25);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;z-index:1;font-family:var(--font, inherit)}
 .b6-ploc{min-width:300px;max-width:380px;padding:8px 10px}
 .b6-ploc .fh{font-weight:700;font-size:12.5px;margin-bottom:6px}
 .b6-ploc .ps-sel{width:100%;margin-bottom:6px}
@@ -268,7 +275,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="muted" id="b6-sync" style="margin-left:auto;font-size:11.5px"></span>
       </div>
       <div class="b6-sum" id="b6-sum"></div>
-      </div><div class="b6-map" id="b6-map" title="港をクリックで絞り込み"></div></div>
+      </div><div class="b6-map" id="b6-map"><div class="mapc" id="b6-mapc" title="港をクリックで絞り込み"></div><div class="msearch"><input id="b6-site-q" class="b6-in" list="dl-site" placeholder="🔍 住所・営業所" autocomplete="off" title="住所・COMPASS 営業所・工場名を入力 → Enter"></div></div></div>
       <div class="b6-split">
         <div class="b6-wrap" id="b6-board"></div>
         <aside class="b6-memo" id="b6-memo" hidden></aside>
@@ -1095,7 +1102,38 @@ function visibleBookings(){
   else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   return list;
 }
-function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return v ? ' '+v : ''; }
+function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return (v ? ' '+v : '') + (remoteOf(lv, id, k) ? ' rfx' : ''); }
+/* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、30 分間 紫の枠 + 名前 ══════════ */
+const REMOTE_MS = 30*60*1000;
+/* 原文・付随の列は画面の列に読み替える */
+const REMOTE_COL = {approval_raw:'approval', cy_note:'cyopen', etd_note:'etd', eta_note:'eta', slots:'qty_raw', totalhon:'qty_raw', datefrom:'qty_raw', dateto:'qty_raw', parse:'qty_raw', pol:'port'};
+const REMOTE_SKIP = new Set(['name','bookkey','seq','region','source','batch','importkey','createdby','compass_id','compass_status','compass_at','fmt']);
+function myName(){ return (LEENAI.user && LEENAI.user.name) || ''; }
+function markRemote(lv, cur, nx){
+  if(!S.remote) S.remote = {};
+  const by = str(nx.modifiedby);
+  if(!by || by===myName()) return;   /* 自分の変更は出さない */
+  const now = Date.now(), F = lv==='B' ? BK_FIELDS : AS_FIELDS;
+  const ks = new Set();
+  if(!cur) ks.add(lv==='B' ? 'bkgno' : 'packer');       /* 新しく追加された行 */
+  else F.forEach(f => {
+    if(REMOTE_SKIP.has(f)) return;
+    if(JSON.stringify(cur[f]==null?'':cur[f]) !== JSON.stringify(nx[f]==null?'':nx[f])) ks.add(REMOTE_COL[f] || f);
+  });
+  ks.forEach(k => { S.remote[lv+'|'+nx.id+'|'+k] = {by:by, at:now}; });
+}
+function remoteOf(lv, id, k){
+  const v = S.remote && S.remote[lv+'|'+id+'|'+k];
+  if(!v) return null;
+  if(Date.now() - v.at > REMOTE_MS){ delete S.remote[lv+'|'+id+'|'+k]; return null; }
+  return v;
+}
+/* セルの右上に名前の札 */
+function remoteTag(lv, id, k){
+  const v = remoteOf(lv, id, k); if(!v) return '';
+  const m = Math.max(0, Math.round((Date.now()-v.at)/60000));
+  return '<span class="rfx-by" title="'+esc(v.by)+' が変更（'+(m ? m+' 分前' : 'たった今')+'）">'+esc(v.by)+'</span>';
+}
 function cellHtml(col, b, a){
   const k = col.k;
   if(col.lv==='B'){
@@ -1183,12 +1221,12 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
         } else {
-          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+remoteTag('A',a.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         }
       });
       h += '</tr>';
@@ -1446,7 +1484,8 @@ function renderRoute(el, b){
         ? lbl(px, py, pol, false, -2.6) + lbl(dx, dy, D[2], false, 4.6)   /* 近い港同士: POL は上・POD は下 */
         : lbl(px, py, pol, px < dx) + lbl(dx, dy, D[2], dx < px || dx < vx + w*0.5))
     + '</g></svg>'
-    + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '');
+    + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '')
+    + '<div class="cap">⚓ '+esc(D[2])+'<button class="gmap" data-gmap="1" data-q="'+esc(D[2].replace(/\s*\(.*\)$/,'')+' port')+'" title="Google マップで開く（新しいタブ） — '+esc(D[2])+'">Maps ↗</button></div>';
   /* 日付・距離は見出しのツールチップに */
   const hd = el.querySelector('.rt-hd');
   if(hd) hd.title = (fmtMD(b.etd)||'ETD?')+' → '+(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km（目安の航路・実際の航路とは異なります）';
@@ -1492,59 +1531,65 @@ async function compassPlants(){
 }
 function gmapDir(origin, dest){ return 'https://www.google.com/maps/dir/?api=1&origin='+encodeURIComponent(origin)+'&destination='+encodeURIComponent(dest)+'&travelmode=driving'; }
 function gmapSearch(q){ return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q); }
-async function openPackerSite(ev, b, a){
+/* 地図の下の検索欄: 住所・COMPASS 営業所・工場名 → 候補と住所 → Google マップの経路 (押した時だけ新しいタブ) */
+async function fillSiteList(){
+  const cp = await compassPlants();
+  const opts = (S.masters.packerAddr||[]).map(r => str(r.plant || r.packer_name)).concat(cp.rows.map(x => x.plant)).filter(Boolean);
+  const dl = document.getElementById('dl-site'); if(dl) dl.innerHTML = Array.from(new Set(opts)).map(v => '<option value="'+esc(v)+'">').join('');
+}
+/* 行き先の港: 選んでいる港 → 選んでいるブッキングの港 → 自分の担当の最初の港 → 東京 */
+function siteDest(){
+  const sb = S.selBk && S.bk.get(S.selBk), me = myStaffCode();
+  return (S.port && S.port!=='__blank' && PORT_JA[S.port] && S.port) || (sb && PORT_JA[str(sb.port).trim().toUpperCase()] && str(sb.port).trim().toUpperCase())
+    || Object.keys(PORT_JA).find(p => me && portStaff(p)[0]===me) || 'TOKYO';
+}
+async function openSiteSearch(q){
+  q = str(q).trim(); if(!q) return;
   closeMenu();
+  const cp = await compassPlants();
+  const n = s => PARSE.nfkcSame(str(s)).replace(/\s+/g,'').toUpperCase(), nq = n(q);
+  const res = [];
+  const add = (name, addr, src) => { if(!res.some(x => x.name===name && x.addr===addr)) res.push({name:name, addr:addr, src:src}); };
+  /* マスター: Packer 表記の一致 (「兼子 埼玉」など) + 工場名・社名・住所の部分一致 → COMPASS 営業所 */
+  packerSites(q).slice(0, 8).forEach(r => add(str(r.plant||r.packer_name), str(r.address), 'マスター (問屋住所)'));
+  (S.masters.packerAddr||[]).forEach(r => { if(res.length<12 && (n(r.plant).includes(nq) || n(r.packer_name).includes(nq) || n(r.address).includes(nq))) add(str(r.plant||r.packer_name), str(r.address), 'マスター (問屋住所)'); });
+  cp.rows.forEach(x => { if(res.length<16 && n(x.plant).includes(nq)) add(x.plant, x.addr, 'COMPASS 営業所'); });
+  const looksAddr = /[都道府県市区町村郡]|丁目|番地|\d+-\d+/.test(q);
   const m = document.createElement('div'); m.className = 'b6-menu b6-ploc'; m.id = 'b6-menu';
-  const pol = str(b.port).trim().toUpperCase(), polJa = PORT_JA[pol] || (pol ? pol+' port' : '');
-  const dlv = firstLine(b.delivery);
-  const sites = packerSites(a.packer);
-  let pick = 0; try{ const k = localStorage.getItem('b6_site_'+hash(firstLine(a.packer))); if(k){ const i = sites.findIndex(r => str(r.plant)===k); if(i>=0) pick = i; } }catch(e){}
-  let cp = null;
+  let dest = siteDest();
+  const portOpts = () => Object.keys(PORT_JA).map(p => '<option value="'+p+'"'+(p===dest?' selected':'')+'>'+p+' ('+PORT_JA[p]+')</option>').join('');
+  const row = (name, addr, src) => '<div class="ps-a">'
+    + '<div class="muted" style="font-size:11px">'+esc(src)+'</div><div class="ps-ad">'+esc(name)+'</div>'
+    + (addr ? '<div style="font-size:11.5px">'+esc(addr)+'</div>' : '')
+    + '<div class="ps-b">'
+    + (addr ? '<a class="b6-btn sm pri" target="_blank" rel="noopener" href="'+esc(gmapDir(addr, PORT_JA[dest]))+'">🚚 経路 → '+esc(PORT_JA[dest])+'</a>'
+            + '<a class="b6-btn sm" target="_blank" rel="noopener" href="'+esc(gmapSearch(addr))+'">📍 地図</a>'
+            + '<button class="b6-btn sm" data-copy="'+esc(addr)+'">コピー</button>'
+          : '<a class="b6-btn sm" target="_blank" rel="noopener" href="'+esc(gmapSearch(name))+'">🔍 名前で地図検索</a><span class="muted" style="font-size:11px">住所なし</span>')
+    + '</div></div>';
   const draw = () => {
-    const r = sites[pick];
-    let h = '<div class="fh">📍 '+esc(firstLine(a.packer)||'—')+(packerShort(a.packer) ? ' <span class="bdg m">'+esc(packerShort(a.packer))+'</span>' : '')+'<span class="muted" style="font-weight:400"> → '+esc(pol||'POL?')+'</span></div>';
-    if(r){
-      if(sites.length > 1) h += '<select class="b6-sel ps-sel">'+sites.map((x, i) => '<option value="'+i+'"'+(i===pick?' selected':'')+'>'+esc(x.plant || x.packer_name)+'</option>').join('')+'</select>';
-      h += '<div class="ps-a"><div class="muted" style="font-size:11px">'+esc(r.packer_name)+(r.plant && r.plant!==r.packer_name ? ' / '+esc(r.plant) : '')+'</div><div class="ps-ad">'+esc(r.address)+'</div>'+(r.note ? '<div class="muted" style="font-size:11px">'+esc(r.note)+'</div>' : '')+'</div>'
-        + '<div class="ps-b">'
-        + (polJa ? '<a class="b6-btn sm pri" target="_blank" rel="noopener" href="'+esc(gmapDir(r.address, polJa))+'">🚚 経路 → '+esc(polJa)+'</a>' : '')
-        + (dlv ? '<a class="b6-btn sm" target="_blank" rel="noopener" href="'+esc(gmapDir(r.address, dlv))+'" title="'+esc(dlv)+'">🚚 経路 → 搬入先</a>' : '')
-        + '<a class="b6-btn sm" target="_blank" rel="noopener" href="'+esc(gmapSearch(r.address))+'">📍 住所を地図で</a>'
-        + '<button class="b6-btn sm" data-copy="1">住所をコピー</button></div>';
-    } else {
-      h += '<div class="ps-a muted">packer_addr マスターに該当する作業場がありません。</div>'
-        + '<div class="ps-b"><a class="b6-btn sm" target="_blank" rel="noopener" href="'+esc(gmapSearch(firstLine(a.packer)))+'">🔍 Google マップで「'+esc(firstLine(a.packer))+'」を検索</a></div>';
-    }
-    /* COMPASS の営業所 (住所の列がある時だけ住所付き) */
-    if(cp){
-      const toks = PARSE.nfkcSame(firstLine(a.packer)).split(/[\s　()（）・\/,、]+/).filter(t => t.length>=2);
-      const hit = cp.rows.filter(x => toks.some(t => x.plant.includes(t))).slice(0, 5);
-      h += '<div class="ps-c"><div class="muted" style="font-size:11px;font-weight:700">COMPASS 営業所</div>'
-        + (hit.length ? hit.map(x => '<div>'+esc(x.plant)+(x.addr ? ' — '+esc(x.addr)+' <a target="_blank" rel="noopener" href="'+esc(gmapDir(x.addr, polJa||x.addr))+'">経路↗</a>' : '')+'</div>').join('') : '<div class="muted">一致なし</div>')
-        + (cp.note ? '<div class="muted" style="font-size:11px">'+esc(cp.note)+'</div>' : '') + '</div>';
-    } else h += '<div class="ps-c muted" style="font-size:11px">COMPASS 営業所を確認中…</div>';
-    h += '<div class="muted" style="font-size:10.5px;margin-top:6px">経路は Google マップ（新しいタブ）で開きます。B-06 から住所を外部へ送ることはありません。</div>';
-    m.innerHTML = h;
+    let x = '<div class="fh">🔍 '+esc(q)+'<span class="muted" style="font-weight:400"> — 候補 '+res.length+' 件</span></div>'
+      + '<label class="muted" style="font-size:11px;display:flex;gap:4px;align-items:center;margin-bottom:6px">行き先の港 <select class="b6-sel ps-dest" style="flex:1">'+portOpts()+'</select></label>';
+    x += '<div class="ps-list">';
+    if(looksAddr) x += row('入力した住所', q, '住所');
+    x += res.map(y => row(y.name, y.addr, y.src)).join('');
+    if(!looksAddr && !res.length) x += row(q, '', '候補なし — 名前で検索');
+    x += '</div>';
+    if(cp.note) x += '<div class="muted" style="font-size:10.5px;margin-top:4px">'+esc(cp.note)+'</div>';
+    x += '<div class="muted" style="font-size:10.5px;margin-top:6px">経路は Google マップ（新しいタブ）で開きます。B-06 から住所を外部へ送ることはありません。</div>';
+    m.innerHTML = x;
   };
   draw();
   m.addEventListener('click', e => {
     e.stopPropagation();
-    if(e.target.closest('[data-copy]')){ const r = sites[pick]; if(r) navigator.clipboard.writeText(r.address).then(() => toast('住所をコピーしました', 'ok')); }
+    const c = e.target.closest('[data-copy]'); if(c) navigator.clipboard.writeText(c.dataset.copy).then(() => toast('住所をコピーしました', 'ok'));
   });
-  m.addEventListener('change', e => {
-    const s = e.target.closest('.ps-sel'); if(!s) return;
-    pick = +s.value; try{ localStorage.setItem('b6_site_'+hash(firstLine(a.packer)), str(sites[pick].plant)); }catch(x){}
-    draw();
-  });
+  m.addEventListener('change', e => { const s = e.target.closest('.ps-dest'); if(s){ dest = s.value; draw(); } });
   document.body.appendChild(m);
-  const place = () => {
-    m.style.left = Math.max(8, Math.min(ev.clientX, innerWidth - m.offsetWidth - 8))+'px';
-    m.style.top = Math.max(8, Math.min(ev.clientY + 8, innerHeight - m.offsetHeight - 8))+'px';
-  };
-  place();
+  const ib = $('#b6-site-q').getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(ib.right - m.offsetWidth, innerWidth - m.offsetWidth - 8))+'px';
+  m.style.top = Math.max(8, Math.min(ib.bottom + 4, innerHeight - m.offsetHeight - 8))+'px';
   setTimeout(() => document.addEventListener('click', closeMenu, {once:true}), 0);
-  cp = await compassPlants();
-  if(document.body.contains(m)){ draw(); place(); }
 }
 /* ── ブッキングの選択 (表は作り直さずにクラスだけ付け替える — 編集中のセルを壊さない) ── */
 function selectBooking(k){
@@ -1568,10 +1613,10 @@ function copyBooking(b){
 }
 function jpXY(lon, lat){ return lon < 129 ? [4+(lon-127.5)*26, 4+(27.0-lat)*30] : [(lon-129.2)*8, (45.7-lat)*10]; }
 function renderMap(){
-  const el = $('#b6-map'); if(!el) return;
+  const box = $('#b6-map'), el = $('#b6-mapc'); if(!el) return;
   /* ブッキングを選んでいる時は世界地図の航路 */
   const sb = S.selBk && S.bk.get(S.selBk);
-  el.classList.toggle('route', !!sb);
+  box.classList.toggle('route', !!sb);
   if(sb){ renderRoute(el, sb); return; }
   const path = pts => 'M'+pts.map(([lo,la]) => jpXY(lo,la).map(v=>v.toFixed(1)).join(',')).join('L')+'Z';
   /* 件数 (担当で絞った削除済み以外) */
@@ -1644,17 +1689,18 @@ async function applyChanges(ch){
   let changed = false; const newKeys = [];
   ch.B.forEach(nb => {
     const cur = S.bk.get(nb.bookkey);
-    if(cur){ if(cur.etag===nb.etag) return; const rows = cur.rows; Object.assign(cur, nb); cur.rows = rows; changed = true; }
+    if(cur){ if(cur.etag===nb.etag) return; markRemote('B', cur, nb); const rows = cur.rows; Object.assign(cur, nb); cur.rows = rows; changed = true; }
     else {
       const inRange = nb.etd ? (nb.etd>=S.range.from && nb.etd<=S.range.to) : S.range.noEtd;
       if(!inRange) return;
       nb.rows = []; S.bk.set(nb.bookkey, nb); newKeys.push(nb.bookkey); changed = true;
+      markRemote('B', null, nb);
     }
   });
   ch.A.forEach(na => {
     const b = S.bk.get(na.bookkey); if(!b) return;
     const i = b.rows.findIndex(x=>x.id===na.id);
-    if(i>=0){ if(b.rows[i].etag===na.etag) return; b.rows[i] = na; } else b.rows.push(na);
+    if(i>=0){ if(b.rows[i].etag===na.etag) return; markRemote('A', b.rows[i], na); b.rows[i] = na; } else { markRemote('A', null, na); b.rows.push(na); }
     sortRows(b); changed = true;
   });
   if(newKeys.length){
@@ -2233,14 +2279,12 @@ function cellMemoId(b, a, k){
 function memoDeco(c, b, a){
   if(!MEMO_COLS.has(c.k)) return '';
   const id = cellMemoId(b, c.lv==='A' ? a : null, c.k);
-  /* Packer: 作業場・経路の 📍 */
-  const pin = c.k==='packer' && a && !blank(a.packer) ? '<span class="bk-memo add ploc" data-ploc="1" title="作業場の住所・港までの経路 (Google マップ)">📍</span>' : '';
   if(S.memoCell && S.memoCell.has(id)){
     const pv = S.memoTxt && S.memoTxt.get(id);
-    return pin + '<div class="bk-mtxt" data-cmemo="1" title="クリックでメモを開く">'
+    return '<div class="bk-mtxt" data-cmemo="1" title="クリックでメモを開く">'
       + (pv ? (pv.t ? esc(pv.t) : '') + (pv.img ? '<span class="im">🖼×'+pv.img+'</span>' : '') : '📝 メモ（読込中…）') + '</div>';
   }
-  return '<span class="bk-memo add" data-cmemo="1" title="このセルにメモを書く">📝+</span>' + pin;
+  return '<span class="bk-memo add" data-cmemo="1" title="このセルにメモを書く">📝+</span>';
 }
 function openCellMemo(b, a, k){
   const id = cellMemoId(b, a, k);
@@ -3429,7 +3473,7 @@ function buildDemoStore(){
 /* ══════════ UI ══════════ */
 function initUI(){
   if(S.uiReady) return; S.uiReady = true;
-  const dl = document.createElement('div'); dl.innerHTML = '<datalist id="dl-packer"></datalist><datalist id="dl-cy"></datalist><datalist id="dl-forwarder"></datalist><datalist id="dl-port"></datalist>';
+  const dl = document.createElement('div'); dl.innerHTML = '<datalist id="dl-packer"></datalist><datalist id="dl-cy"></datalist><datalist id="dl-forwarder"></datalist><datalist id="dl-port"></datalist><datalist id="dl-site"></datalist>';
   document.body.appendChild(dl);
   const t = todayStr();
   $('#f-from').value = addDays(t, -14); $('#f-to').value = addDays(t, 60);
@@ -3444,10 +3488,16 @@ function initUI(){
     if(b.dataset.tab==='packer' && !$('#pk-grid').innerHTML) loadPackerTab();
     if(b.dataset.tab==='b05' && !S.b05) loadB05Tab();
   });
+  /* 地図の下の検索欄 (Enter・候補を選ぶ) */
+  const sq = $('#b6-site-q');
+  sq.addEventListener('focus', () => { if(!S.siteListed){ S.siteListed = true; fillSiteList(); } });
+  sq.addEventListener('keydown', ev => { if(ev.key==='Enter' && !ev.isComposing){ ev.preventDefault(); openSiteSearch(sq.value); } });
+  sq.addEventListener('change', () => { const dl = document.getElementById('dl-site'); if(dl && Array.from(dl.options).some(o => o.value===sq.value)) openSiteSearch(sq.value); });
   /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
   $('#b6-map').addEventListener('click', ev => {
     if(ev.target.closest('[data-rtx]')){ selectBooking(null); return; }
-    if(ev.target.closest('[data-gmap]')){ openGoogleMap(); return; }
+    const gm = ev.target.closest('[data-gmap]');
+    if(gm){ if(gm.dataset.q) window.open(gmapSearch(gm.dataset.q), '_blank', 'noopener'); else openGoogleMap(); return; }
     const d = ev.target.closest('[data-port]'); if(!d) return;
     const p = d.getAttribute('data-port');
     if(p===S.port) S.port = ''; else { S.port = p; S.region = 'ALL'; }
@@ -3484,13 +3534,6 @@ function initUI(){
       const tr = ob.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
       if(ob.dataset.act==='bmenu') bookingMenu(ev, b);
       else { const a = b.rows.find(x=>x.id===tr.dataset.a); if(a) rowMenu(ev, b, a); }
-      return;
-    }
-    const pl = ev.target.closest('[data-ploc]');
-    if(pl){
-      ev.stopPropagation();
-      const tr = pl.closest('tr'), td = pl.closest('td'), b = S.bk.get(tr.dataset.k); if(!b) return;
-      const a = b.rows.find(x => x.id===td.dataset.aid); if(a) openPackerSite(ev, b, a);
       return;
     }
     const cm = ev.target.closest('[data-cmemo]');
