@@ -1158,8 +1158,8 @@ function visibleBookings(){
   return list;
 }
 function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return (v ? ' '+v : '') + (remoteOf(lv, id, k) ? ' rfx' : ''); }
-/* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、30 分間 紫の枠 + 名前 ══════════ */
-const REMOTE_MS = 30*60*1000;
+/* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、20 秒間 紫の枠 + 名前 ══════════ */
+const REMOTE_MS = 20*1000;   /* 2026-11-12 ユーザー: 30 分 → 20 秒 */
 /* 原文・付随の列は画面の列に読み替える */
 const REMOTE_COL = {approval_raw:'approval', cy_note:'cyopen', etd_note:'etd', eta_note:'eta', slots:'qty_raw', totalhon:'qty_raw', datefrom:'qty_raw', dateto:'qty_raw', parse:'qty_raw', pol:'port'};
 const REMOTE_SKIP = new Set(['name','bookkey','seq','region','source','batch','importkey','createdby','compass_id','compass_status','compass_at','fmt']);
@@ -1176,6 +1176,8 @@ function markRemote(lv, cur, nx){
     if(JSON.stringify(cur[f]==null?'':cur[f]) !== JSON.stringify(nx[f]==null?'':nx[f])) ks.add(REMOTE_COL[f] || f);
   });
   ks.forEach(k => { S.remote[lv+'|'+nx.id+'|'+k] = {by:by, at:now}; });
+  /* 時間が来たら枠を消すために描き直す */
+  if(ks.size){ clearTimeout(S.remoteT); S.remoteT = setTimeout(() => renderBoard(), REMOTE_MS + 300); }
 }
 function remoteOf(lv, id, k){
   const v = S.remote && S.remote[lv+'|'+id+'|'+k];
