@@ -159,6 +159,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-ploc .ps-c{margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11.5px}
 .b6-ploc .ps-c a{color:var(--info)}
 .bk-memo.has{font-size:12px}
+.bkh{display:inline-block;margin-left:4px;padding:0 5px;border-radius:999px;font-size:10.5px;line-height:15px;cursor:pointer;color:var(--info);border:1px solid color-mix(in srgb,var(--info) 45%,transparent);background:color-mix(in srgb,var(--info) 10%,transparent)}
+.bkh:hover{background:var(--info);color:#fff}
 .amtg{display:inline-block;margin-left:3px;padding:0 4px;border-radius:4px;font-size:10px;font-weight:700;line-height:15px;cursor:pointer;border:1px dashed var(--border);color:var(--text3);opacity:0;transition:opacity .15s}
 .b6-t td:hover .amtg{opacity:.8}
 .amtg.on{opacity:1;border:1px solid #e5484d;background:#e5484d;color:#fff}
@@ -1076,6 +1078,11 @@ function myStaffCode(){
   return CFG.DEMO ? 'DEMO_C' : '';
 }
 function staffName(code){ return (S.masters.staffName && S.masters.staffName.get(code)) || code; }
+/* 作成者 (メール) → 名前 (staff マスター)。分からなければメールのまま */
+function creatorName(email){
+  const c = S.masters.staffEmail && S.masters.staffEmail.get(str(email).trim().toLowerCase());
+  return c ? staffName(c) : str(email);
+}
 /* 港の担当コード [担当, 補助] */
 function portStaff(port){
   const M = S.masters; if(!M.polStaff) return [];
@@ -1151,7 +1158,7 @@ function visibleBookings(){
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
   if(F.nopk) list = list.filter(noPacker);
   if(F.nobkg) list = list.filter(b => blank(b.bkgno));
-  if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].some(v => str(v).toLowerCase().includes(F.q)));
+  if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].concat(bkHistOf(b).map(e => e.from)).some(v => str(v).toLowerCase().includes(F.q)));
   if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
   else if(F.sort==='cut') list.sort((a,b)=> (a.cycut||'9999-99-99').localeCompare(b.cycut||'9999-99-99') || (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
@@ -1209,6 +1216,8 @@ function cellHtml(col, b, a){
       let h = esc(v);
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
+      const hs = bkHistOf(b);
+      if(hs.length) h += ' <span class="bkh" data-bkh="1" title="'+esc('Booking no. の変更 '+hs.length+' 回\n'+hs.slice(-3).map(e => fmtDT(e.at)+'  '+(e.from||'（空）').replace(/\n/g,' ')+' → '+(e.to||'（空）').replace(/\n/g,' ')+'  ('+e.by+')').join('\n')+'\n— クリックで履歴')+'">↺'+hs.length+'</span>';
       h += hasBkMemo(b) ? memoIcon(bkMemoId(b), 'data-memo="1"')
                         : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
       return h;
@@ -1751,12 +1760,43 @@ async function loadBoard(retried){
     S.bk = m; S.lastSync = syncAt; S.ready = true;
     fillFilterOptions(); renderBoard(); updSync();
     loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
+    loadBkHist();      /* Booking no. の変更履歴 (待たない) */
   }catch(e){
     if(isFmtErr(e) && S.hasFmt && retried!==true){ LEENAI.loading.hide(); fmtFallback(e); return loadBoard(true); }
     if(isQtyErr(e) && S.hasQty && retried!==true){ LEENAI.loading.hide(); qtyFallback(e); return loadBoard(true); }
     toast('読込エラー: '+e.message.slice(0,120), 'danger');
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
   }finally{ LEENAI.loading.hide(); }
+}
+/* ══════════ Booking no. の変更履歴 — SharePoint B-06_MEMO/hist/bkgno.json (全員で共有)
+   {map: {<bookkey>: [{from, to, by, at}, ...]}}。B-06 の画面で Booking no. を変えた時に追記 (2026-11-12) ══════════ */
+const BKH_PATH = 'hist/bkgno.json';
+async function loadBkHist(){
+  try{ const r = await memoStore().get(BKH_PATH); S.bkHist = (r.doc && r.doc.map) || {}; }
+  catch(e){ S.bkHistErr = e.message; if(!S.bkHist) S.bkHist = {}; return; }
+  if(S.ready) renderBoard();
+}
+function bkHistOf(b){ return (S.bkHist && S.bkHist[b.bookkey]) || []; }
+async function addBkHist(b, from, to){
+  const ent = {from:str(from), to:str(to), by:myName() || userEmail(), at:new Date().toISOString()};
+  for(let i=0;i<3;i++){
+    const r = await memoStore().get(BKH_PATH).catch(() => ({doc:null, etag:null}));
+    const map = (r.doc && r.doc.map) || {};
+    (map[b.bookkey] = map[b.bookkey] || []).push(ent);
+    try{ await memoStore().put(BKH_PATH, {map:map, updated_at:ent.at}, r.etag); S.bkHist = map; renderBoard(); return; }
+    catch(e){ if(e.status!==412){ toast('Booking no. の履歴を保存できません: '+e.message, 'warn'); return; } }
+  }
+  toast('Booking no. の履歴を保存できません（同時に更新が重なりました）', 'warn');
+}
+function openBkHist(b){
+  const hs = bkHistOf(b).slice().reverse();
+  let x = '<div style="margin-bottom:8px">今の Booking no.: <b>'+esc(b.bkgno || '（空）')+'</b></div>';
+  x += hs.length
+    ? '<table class="b6-s"><tr><th>日時</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
+      + hs.map(e => '<tr><td>'+esc(fmtDT(e.at))+'</td><td>'+(e.from ? esc(e.from).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>')+'</td><td>→</td><td>'+(e.to ? esc(e.to).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>')+'</td><td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
+    : '<div class="muted">変更の記録はありません。</div>';
+  x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で Booking no. を変えた時の記録です（2026-11-12 から）。前の番号で検索しても見つかります。</div>';
+  modal('↺ Booking no. の変更履歴 — '+esc(bkLabel(b)), x, [{label:'閉じる', fn:c=>c()}]);
 }
 function updSync(){ $('#b6-sync').textContent = S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : ''; }
 
@@ -1772,6 +1812,7 @@ async function refreshTick(){
     if(S.editing){ S.pending = mergeChanges(S.pending, ch); }
     else await applyChanges(ch);
     updSync();
+    if(ch.B && ch.B.length) loadBkHist();
   }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); if(isQtyErr(e) && S.hasQty) qtyFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
   finally{ S.refreshing = false; }
 }
@@ -1831,6 +1872,7 @@ async function saveBooking(b, patch, cellKey){
     const saved = await S.store.update('B', b, fields);
     b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
     setFx('B', b.id, fk, 'saved');
+    if('bkgno' in patch && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
     /* Booking no.・港 のコピーを Packer 行にも反映 */
     if('bkgno' in patch || 'port' in patch){
       for(const a of b.rows){
@@ -1908,6 +1950,14 @@ function startEdit(td){
     }
     if(k==='port') v = v.trim().toUpperCase();
     if(str(cur)===str(v) || (cur==null && v==='')){ renderBoard(); return; }
+    /* 他の人が作ったブッキングの Booking no. を消す時は一度確認 (2026-11-12) */
+    if(k==='bkgno' && lv==='B' && !blank(cur) && blank(v)){
+      const cb = str(b.createdby).trim(), me = userEmail();
+      if(cb && cb.toLowerCase()!==str(me).toLowerCase()){
+        const who = creatorName(cb);
+        if(!confirm('⚠ このブッキングは「'+who+'」さんが作成したものです。\n\nBooking no.「'+firstLine(cur)+'」を消そうとしています。\n（B-06 のデータは Booking no. を中心に動いています）\n\n本当に消しますか？')){ renderBoard(); return; }
+      }
+    }
     if(lv==='B') saveBooking(b, {[k]: DATE_KEYS.includes(k) ? (v||null) : v}, k);
     else saveAsg(b, a, {[k]: v}, k);
   };
@@ -2610,6 +2660,7 @@ function bookingMenu(ev, b){
     if(b.compass_status==='SENT') items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
+    items.push({label:'↺ Booking no. の変更履歴'+(bkHistOf(b).length ? '（'+bkHistOf(b).length+'）' : ''), fn:()=>openBkHist(b)});
     items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
     items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
@@ -3988,6 +4039,8 @@ function initUI(){
       if(td.dataset.lv==='A' && !a) return;
       openCellMemo(b, a, td.dataset.f); return;
     }
+    const bh = ev.target.closest('[data-bkh]');
+    if(bh){ const b = S.bk.get(bh.closest('tr').dataset.k); if(b) openBkHist(b); return; }
     const am = ev.target.closest('[data-am]');
     if(am){ const b = S.bk.get(am.closest('tr').dataset.k); if(b) toggleCutAM(b); return; }
     const bq = ev.target.closest('[data-bq]');
