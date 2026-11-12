@@ -273,7 +273,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
       <div class="b6-top"><div class="b6-topl">
       <div class="b6-filter" id="b6-filter"></div>
       <div class="b6-bar b6-fbar">
-        <span class="fg"><span class="fl">ETD</span><input type="date" class="b6-in" id="f-from">〜<input type="date" class="b6-in" id="f-to"><label title="ETD が空のブッキングも表示"><input type="checkbox" id="f-noetd" checked>未定も</label></span>
+        <span class="fg" title="CY Cut の日付で絞り込み（変えるとすぐ読み直します）"><span class="fl">Cut</span><input type="date" class="b6-in" id="f-from">〜<input type="date" class="b6-in" id="f-to"><label title="Cut が空のブッキングも表示"><input type="checkbox" id="f-noetd" checked>未定も</label></span>
         <span class="fg"><span class="fl">承認</span><select class="b6-sel" id="f-appr"></select></span>
         <span class="fg"><span class="fl">Packer</span><input class="b6-in" id="f-packer" size="8"><label><input type="checkbox" id="f-nopk">未割当</label></span>
         <span class="fg"><label title="Booking no. がまだ無いブッキングだけ"><input type="checkbox" id="f-nobkg">BKG未取得</label><label title="削除したブッキングも表示（復元用）"><input type="checkbox" id="f-del">削除済み</label></span>
@@ -835,8 +835,9 @@ const DvStore = {
     let f = [];
     if(!o.deleted) f.push(notDel);
     if(o.from && o.to){
-      const r = '(leenai_etd ge '+o.from+' and leenai_etd le '+o.to+')';
-      f.push(o.noEtd ? '('+r+' or leenai_etd eq null)' : r);
+      /* 期間は CY Cut で絞る (2026-11-12 ユーザー指定。以前は ETD) */
+      const r = '(leenai_cycut ge '+o.from+' and leenai_cycut le '+o.to+')';
+      f.push(o.noEtd ? '('+r+' or leenai_cycut eq null)' : r);
     }
     return (await dvGetAll(CFG.ES_BOOK+'?$select='+selOf('B')+(f.length?'&$filter='+encodeURIComponent(f.join(' and ')):''))).map(r=>fromDv('B',r));
   },
@@ -924,7 +925,7 @@ function makeMemStore(){
   const all = k => Array.from(T[k].values());
   const S = {
     name:'Memory', T:T,
-    async loadBookings(o){ return all('B').filter(b => (o.deleted || !b.deleted) && (!o.from || (b.etd ? (b.etd>=o.from && b.etd<=o.to) : !!o.noEtd))).map(clone); },
+    async loadBookings(o){ return all('B').filter(b => (o.deleted || !b.deleted) && (!o.from || (b.cycut ? (b.cycut>=o.from && b.cycut<=o.to) : !!o.noEtd))).map(clone); },
     async loadAssignments(keys, deleted){ const s=new Set(keys); return all('A').filter(a => s.has(a.bookkey) && (deleted || !a.deleted)).map(clone); },
     async bookingsByKeys(keys){ const s=new Set(keys); return all('B').filter(b => s.has(b.bookkey) && !b.deleted).map(clone); },
     async allAssignments(){ return all('A').filter(a=>!a.deleted).map(clone); },
@@ -1713,7 +1714,7 @@ async function applyChanges(ch){
     const cur = S.bk.get(nb.bookkey);
     if(cur){ if(cur.etag===nb.etag) return; markRemote('B', cur, nb); const rows = cur.rows; Object.assign(cur, nb); cur.rows = rows; changed = true; }
     else {
-      const inRange = nb.etd ? (nb.etd>=S.range.from && nb.etd<=S.range.to) : S.range.noEtd;
+      const inRange = nb.cycut ? (nb.cycut>=S.range.from && nb.cycut<=S.range.to) : S.range.noEtd;
       if(!inRange) return;
       nb.rows = []; S.bk.set(nb.bookkey, nb); newKeys.push(nb.bookkey); changed = true;
       markRemote('B', null, nb);
@@ -3643,6 +3644,17 @@ function initUI(){
   ['#f-appr','#f-nopk','#f-nobkg','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
   $('#f-reload').addEventListener('click', loadBoard);
+  /* 期間・未定もを変えたらすぐ読み直す (以前は ⟳ を押すまで反映されなかった) */
+  const rangeChanged = () => {
+    clearTimeout(S.rangeT);
+    S.rangeT = setTimeout(() => {
+      const a = $('#f-from').value, z = $('#f-to').value;
+      if(!a || !z) return;
+      if(a > z){ toast('期間の開始が終了より後です', 'warn'); return; }
+      loadBoard();
+    }, 500);
+  };
+  ['#f-from','#f-to','#f-noetd'].forEach(s => $(s).addEventListener('change', rangeChanged));
   $('#b-add').addEventListener('click', addBooking);
   $('#b-memo').addEventListener('click', () => toggleMemo());
   /* 表のクリック */
