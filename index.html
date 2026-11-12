@@ -210,7 +210,20 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .b6-sum b{color:var(--text);font-size:14px}
 .b6-sum .warn b{color:var(--warn)}
 .b6-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:var(--read);min-height:300px}
+.ic{display:inline-block;font-size:.82em;margin-right:4px;vertical-align:1px;opacity:.9}
+.b6-chip .ic,.b6-mbtn .ic,.b6-pin .ic{margin-right:3px}
+/* ＋ ブッキング追加: 目立つ色 (2026-11-12 ユーザー) */
+.b6-btn.b6-add{background:#f76b15;border-color:#f76b15;color:#fff;font-weight:800;box-shadow:0 2px 6px rgba(247,107,21,.35)}
+.b6-btn.b6-add:hover{background:#e25a07;border-color:#e25a07;filter:none}
 table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content;min-width:100%}
+/* 見やすさ (2026-11-12 ユーザー): UD フォント・少し大きく・縦は中央・日付/港/承認/状態は中央・数字は桁をそろえる */
+table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
+.b6-t th{font-size:12px;padding:6px 8px!important;vertical-align:middle}
+.b6-t td{padding:4px 8px!important;vertical-align:middle!important}
+.b6-t td.dt,.b6-t th.no,.b6-t td.no{font-family:inherit!important;font-size:13px!important}
+.b6-t td.dt,.b6-t th.dt,.b6-t td[data-f="port"],.b6-t th[data-f="port"],.b6-t td[data-f="approval"],.b6-t th[data-f="approval"],.b6-t th.stc,.b6-t th[data-f="grade"],.b6-t td[data-f="grade"]{text-align:center}
+.b6-t td.ed .st{justify-content:center}
+.b6-t td.ops{padding:2px 3px!important}
 .b6-t th{position:sticky;top:0;z-index:2;background:var(--surface2);color:var(--text2);font-weight:700;padding:5px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;text-align:left}
 .b6-t td{padding:3px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);vertical-align:top;white-space:pre-wrap;color:var(--text);max-width:260px}
 .b6-t tr.bk-first td{border-top:2px solid var(--border)}
@@ -288,10 +301,10 @@ details.rp summary{cursor:pointer;font-size:12.5px}
   <div id="b6-demo-bar" class="b6-demo" style="display:none">🧪 デモモード — ログインなし・合成サンプルデータ（ブラウザのメモリ内のみ。Dataverse には保存されません）</div>
   <div class="b6-main">
     <div class="b6-tabs" id="b6-tabs">
-      <button class="b6-tab on" data-tab="board">📋 スケジュール表</button>
-      <button class="b6-tab" data-tab="packer">👤 Packer日程</button>
-      <button class="b6-tab" data-tab="b05">⇄ B-05連携確認</button>
-      <button class="b6-tab" data-tab="io">📥 取込 / 📤 出力</button>
+      <button class="b6-tab on" data-tab="board"><span class="ic">📋</span>スケジュール表</button>
+      <button class="b6-tab" data-tab="packer"><span class="ic">👤</span>Packer日程</button>
+      <button class="b6-tab" data-tab="b05"><span class="ic">⇄</span>B-05連携確認</button>
+      <button class="b6-tab" data-tab="io"><span class="ic">📥</span>取込 / <span class="ic">📤</span>出力</button>
     </div>
 
     <!-- ① スケジュール表 -->
@@ -311,7 +324,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <button class="b6-btn sm" id="b6-zoom" hidden title="表の拡大・縮小 (Ctrl + マウスホイール) — クリックで 100% に戻す (Ctrl + 0)">🔍 100%</button>
         <span class="muted b6-sync" id="b6-sync" title="20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト"></span>
         <button class="b6-btn sm" id="f-reload" title="今すぐ読み直す">⟳</button>
-        <button class="b6-btn pri" id="b-add">＋ ブッキング追加</button>
+        <button class="b6-btn b6-add" id="b-add">＋ ブッキング追加</button>
         <button class="b6-btn" id="b-memo" hidden>📝 メモ帳</button>
       </div>
       </div><div class="b6-map" id="b6-map"><div class="mapc" id="b6-mapc" title="港をクリックで絞り込み"></div><div class="msearch"><input id="b6-site-q" class="b6-in" list="dl-site" placeholder="🔍 住所・営業所" autocomplete="off" title="住所・COMPASS 営業所・工場名を入力 → Enter"></div></div></div>
@@ -1290,7 +1303,7 @@ function moveRegion(code, dir){
 }
 function boardTable(region, list, F){
   const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
-  let h = '<table class="b6-t"><thead><tr><th class="no" title="表示順の番号（並び・フィルターで変わります）">No.</th><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th>'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
+  let h = '<table class="b6-t"><thead><tr><th class="no" title="表示順の番号（並び・フィルターで変わります）">No.</th><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th class="'+(c.dt?'dt':'')+(c.st?' stc':'')+'" data-f="'+c.k+'">'+esc(c.l)+'</th>').join('')+'</tr></thead><tbody>';
   let no = 0;   /* 表示順の番号 (削除済みは数えない) */
   list.forEach(b => {
     const rows = visRows(b, F.del); if(!rows.length) return;
@@ -1328,15 +1341,15 @@ function renderChips(){
   if(M.staffOrder && M.staffOrder.length){
     const n = code => all.filter(b => !blank(b.port) && portStaff(b.port).includes(code)).length;
     const pinned = S.staffPin && S.staffPin===S.staff;
-    sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row">'
+    sh = '<span class="b6-lbl"><span class="ic">👤</span>担当</span><div class="b6-row">'
       + '<button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
       + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'">'+(c===S.staffPin?'📌':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
       + '<span style="margin-left:auto;display:inline-flex;gap:6px">'
-      + '<button class="b6-mbtn'+(S.memoOpen?' on':'')+'" data-mopen="1" title="担当・港ごとのメモ帳（画像も貼れます）">📝 '+(S.staff ? esc(staffName(S.staff))+' のメモ帳' : 'メモ帳')+'</button>'
-      + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" style="margin-left:0" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'">📌 '+(pinned?'固定中':'既定に固定')+'</button>' : '')
+      + '<button class="b6-mbtn'+(S.memoOpen?' on':'')+'" data-mopen="1" title="担当・港ごとのメモ帳（画像も貼れます）"><span class="ic">📝</span>'+(S.staff ? esc(staffName(S.staff))+' のメモ帳' : 'メモ帳')+'</button>'
+      + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" style="margin-left:0" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'"><span class="ic">📌</span>'+(pinned?'固定中':'既定に固定')+'</button>' : '')
       + '</span></div>';
   } else if(M.loaded){
-    sh = '<span class="b6-lbl">👤 担当</span><div class="b6-row muted" style="font-size:12px">pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</div>';
+    sh = '<span class="b6-lbl"><span class="ic">👤</span>担当</span><div class="b6-row muted" style="font-size:12px">pol_staff マスターを読めないため担当で絞り込めません'+(M.err?'（'+esc(M.err)+'）':'')+'</div>';
   }
   /* 地域 → 港 */
   const mine = all.filter(staffMatch);
@@ -1350,7 +1363,7 @@ function renderChips(){
   /* 選んでいた港が消えたら解除 */
   if(S.port==='__blank' ? !groups.some(g => g.nBlank && (S.region==='ALL' || g.r.code===S.region)) : (S.port && !groups.some(g => g.pc.has(S.port)))) S.port = '';
   const allOn = S.region==='ALL' && !S.port;
-  let ph = '<span class="b6-lbl">⚓ 港</span><div class="b6-row">'
+  let ph = '<span class="b6-lbl"><span class="ic">⚓</span>港</span><div class="b6-row">'
     + '<button class="b6-chip'+(allOn?' on':'')+'" data-region="ALL">全地域<span class="n">'+mine.length+'</span></button>';
   groups.forEach(g => {
     if(!g.n && g.r.code!==S.region) return;
