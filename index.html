@@ -114,15 +114,17 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-memo[hidden]{display:none}
 .mp-hd{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface2)}
 .mp-hd select{flex:1;min-width:0}
-.mp-help{font-size:11px;padding:4px 10px}
+.mp-x{background:none;border:0;color:var(--text3);font-size:14px;cursor:pointer;padding:0 4px}
+.mp-x:hover{color:var(--text)}
 .mp-grip{position:absolute;left:0;top:0;bottom:0;width:6px;cursor:ew-resize}
 .mp-grip:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
 .me-host{display:flex;flex-direction:column;flex:1;min-height:0}
-.me-bar{display:flex;flex-wrap:wrap;gap:3px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border)}
-.me-bar button{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;min-width:26px;height:24px;padding:0 6px;font:inherit;font-size:12px;cursor:pointer}
-.me-bar button:hover{border-color:var(--accent)}
-.me-bar button.me-save{background:var(--accent-btn);border-color:var(--accent-btn);color:#fff;font-weight:700}
-.me-st{margin-left:auto;font-size:11px;white-space:nowrap}
+.me-bar{display:flex;gap:1px;align-items:center;padding:3px 6px;border-bottom:1px solid var(--border)}
+.me-bar button{background:none;border:1px solid transparent;color:var(--text2);border-radius:4px;min-width:24px;height:22px;padding:0 4px;font:inherit;font-size:12px;cursor:pointer}
+.me-bar button:hover{background:var(--surface2);border-color:var(--border)}
+.me-bar button.me-save{margin-left:auto}
+.me-ft{padding:2px 8px;text-align:right;min-height:16px}
+.me-st{font-size:10.5px}
 .me-ed{flex:1;overflow:auto;padding:10px 12px;font-size:13px;line-height:1.55;outline:none;min-height:180px;color:var(--text);word-break:break-word}
 .me-ed:empty::before{content:attr(data-ph);color:var(--text3)}
 .me-ed img{max-width:100%;height:auto;display:block;margin:4px 0;border:1px solid var(--border);border-radius:4px;cursor:zoom-in}
@@ -2065,15 +2067,14 @@ function makeMemoEditor(host, opt){
     + '<button data-c="hiliteColor" data-v="#fde047" title="マーカー" style="background:#fde04788">ab</button>'
     + '<button data-c="insertUnorderedList" title="箇条書き">•≡</button>'
     + '<button data-c="removeFormat" title="書式を消す">⌫</button>'
-    + '<button data-c="img" title="画像を追加（貼り付け・ドロップも可）">🖼 画像</button>'
-    + '<button data-c="save" class="me-save" title="今すぐ保存 (Ctrl+S) — 入力を止めると自動でも保存されます">💾 保存</button>'
-    + '<span class="me-st muted"></span></div>'
-    + '<div class="me-ed" contenteditable="true" spellcheck="false"></div><input type="file" accept="image/*" multiple hidden>';
+    + '<button data-c="img" title="画像を追加（Ctrl+V の貼り付け・ドロップも可）">🖼</button>'
+    + '<button data-c="save" class="me-save" title="今すぐ保存 (Ctrl+S) — 入力を止めると自動でも保存されます">💾</button></div>'
+    + '<div class="me-ed" contenteditable="true" spellcheck="false"></div><div class="me-ft"><span class="me-st muted"></span></div><input type="file" accept="image/*" multiple hidden>';
   const ed = $('.me-ed', host), st = $('.me-st', host), fileIn = $('input[type=file]', host);
   const E = {path:null, etag:null, dirty:false, saving:false, uploads:0, timer:null, meta:null, loadSeq:0};
   ed.setAttribute('data-ph', opt.placeholder || 'メモを入力 — 画像は Ctrl+V で貼り付け');
   const setSt = (t, cls) => { st.textContent = t; st.className = 'me-st '+(cls||'muted'); };
-  const showMeta = () => setSt(E.meta ? '保存済み · '+fmtDT(E.meta.at)+' '+E.meta.by : '', 'muted');
+  const showMeta = () => setSt(E.meta ? '✔ '+fmtDT(E.meta.at)+' '+E.meta.by : '', 'muted');
   const hydrate = () => $$('img[data-sp]', ed).forEach(im => {
     if(im.src) return;
     memoStore().imgUrl(im.getAttribute('data-sp')).then(u => { im.src = u; }).catch(() => { im.alt = '（画像を読めません）'; });
@@ -2177,7 +2178,7 @@ function makeMemoEditor(host, opt){
   /* 💾 保存・Ctrl+S: 待たずにすぐ保存 (変更がなければ「保存済み」を表示) */
   async function saveNow(){
     if(!E.path){ toast('メモを読めていないため保存できません（再読込してください）', 'warn'); return; }
-    if(!E.dirty && !E.saving && !E.uploads){ if(E.meta) setSt('✔ 保存済み · '+fmtDT(E.meta.at)+' '+E.meta.by, 'ok'); else setSt('（変更なし）'); return; }
+    if(!E.dirty && !E.saving && !E.uploads){ if(E.meta) setSt('✔ 保存済み '+fmtDT(E.meta.at)+' '+E.meta.by, 'ok'); else setSt('（変更なし）'); return; }
     E.dirty = true; await save();
   }
   host.addEventListener('keydown', ev => {
@@ -2217,8 +2218,8 @@ function toggleMemo(open){
   if(S.ready) renderChips();
   if(S.memoOpen){
     if(!S.memoEd){
-      p.innerHTML = '<div class="mp-hd"><b>📝 メモ</b><select class="b6-sel" id="mp-sel"></select><button class="b6-btn sm" id="mp-x" title="閉じる">✕</button></div>'
-        + '<div class="mp-help muted">担当・港ごとのメモ帳。全員で共有・自動保存。Excel の範囲やスクショは Ctrl+V で画像として貼れます（Ctrl+Shift+V は文字だけ）。</div><div class="me-host" id="mp-host"></div><div class="mp-grip" title="ドラッグで幅を変更"></div>';
+      p.innerHTML = '<div class="mp-hd" title="担当・港ごとのメモ帳。全員で共有・自動保存。Excel の範囲やスクショは Ctrl+V で画像として貼れます（Ctrl+Shift+V は文字だけ）。"><span>📝</span><select class="b6-sel" id="mp-sel"></select><button class="mp-x" id="mp-x" title="閉じる">✕</button></div>'
+        + '<div class="me-host" id="mp-host"></div><div class="mp-grip" title="ドラッグで幅を変更"></div>';
       S.memoEd = makeMemoEditor($('#mp-host'), {placeholder:'このメモ帳は空です — 連絡先・注意事項・画像などを自由に'});
       $('#mp-x').addEventListener('click', () => toggleMemo(false));
       $('#mp-sel').addEventListener('change', ev => { S.memoKey = ev.target.value; S.memoPin = true; memoShow(); });
