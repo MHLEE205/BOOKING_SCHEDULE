@@ -3073,7 +3073,8 @@ const COMPASS = {
     {k:'cycut',     col:'cr49f_cy_cut',            label:'CY Cut',      date:true},
     {k:'etd',       col:'cr49f_etd',               label:'ETD',         date:true},
     {k:'eta',       col:'cr49f_eta',               label:'ETA',         date:true},
-    {k:'delivery',  col:'crcf9_delivery_location', label:'搬入先',       val:b=>str(b.delivery).trim()},
+    /* 搬入先: TOKYO・YOKOHAMA は B-05 (ドレー) が使うので必ず送る (空なら警告)。ほかの港は値があれば送る (POL の CY か空 — 影響なし) — ユーザー 2026-11-13 */
+    {k:'delivery',  col:'crcf9_delivery_location', re:/^搬入先$/, label:'搬入先', val:b=>str(b.delivery).replace(/\s*\n\s*/g,' ').trim(), needPorts:['TOKYO','YOKOHAMA']},
   ],
   LOOKUPS: [  /* COMPASS では一覧から選ぶ項目 — 名前が 1 件だけ完全一致した時だけ自動で選ぶ */
     {k:'port',    col:'cr49f_region_japan_id', label:'POL (港)',  key:b=>str(b.port).trim()},
@@ -3466,13 +3467,18 @@ async function compassCheck(b){
     if(dup.length) R.blocks.push('COMPASS に同じ Booking no. が既にあります（'+dup.length+' 件 — '+dup.map(d=>fmtDT(d.at)).join(', ')+'）');
   }
   COMPASS.FIELDS.forEach(f => {
-    const a = M.attrs.get(f.col), v = f.date ? (b[f.k]||'') : f.val(b);
-    const row = {label:f.label, col:f.col, b06:v, send:null, note:''};
+    /* 列名が違っていても表示名で探す */
+    let col = f.col;
+    if(!M.attrs.get(col) && f.re){ for(const [k, a] of M.attrs){ if(a.type==='String' && f.re.test(a.label)){ col = k; break; } } }
+    const a = M.attrs.get(col), v = f.date ? (b[f.k]||'') : f.val(b);
+    const row = {label:f.label, col:col, b06:v, send:null, note:''};
+    if(f.needPorts && f.needPorts.includes(str(b.port).trim().toUpperCase()) && blank(v))
+      R.warns.push(f.label+' が空です（'+str(b.port).trim().toUpperCase()+' は B-05 のドレーで使います — B-06 に入れてから送ってください）');
     if(!a) row.note = 'COMPASS に列がない → 送らない';
     else if(!a.createOk) row.note = 'COMPASS で作成時に書けない列 → 送らない';
     else if(a.type==='Lookup' || a.type==='Customer') row.note = 'COMPASS では一覧から選ぶ列 → 1次では送らない';
     else if(blank(v)) row.note = '空 → 送らない';
-    else { row.send = f.date ? compassDate(v, a.dateOnly) : v; R.allowed.add(f.col); }
+    else { row.send = f.date ? compassDate(v, a.dateOnly) : v; R.allowed.add(col); }
     if(f.date && dateNote(b, f.k)) row.note = (row.note?row.note+' / ':'')+'※ '+dateNote(b, f.k);
     R.fields.push(row);
   });
@@ -3553,7 +3559,7 @@ async function compassCheck(b){
   R.am = {col:amCol, val:cutAM(b)};
   if(amCol && CFG.COMPASS_EXTRA_WRITE) R.allowed.add(amCol);
   /* COMPASS 側で必須なのに B-06 から送らない列 */
-  const sent = new Set(COMPASS.FIELDS.map(f=>f.col).concat(COMPASS.LOOKUPS.flatMap(f=>[].concat(f.col))));
+  const sent = new Set(R.fields.map(f=>f.col).concat(COMPASS.LOOKUPS.flatMap(f=>[].concat(f.col))));
   const miss = [];
   M.attrs.forEach((a, k) => {
     if((a.required==='ApplicationRequired' || a.required==='SystemRequired') && a.createOk && !a.of && !sent.has(k)
