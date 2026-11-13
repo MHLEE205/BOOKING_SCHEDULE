@@ -3173,7 +3173,7 @@ function cpEntMeta(logical){
 async function cpEntMetaLoad(logical){
   const base = "EntityDefinitions(LogicalName='"+logical+"')";
   const [ed, at, rel] = await Promise.all([
-    dvGet(base+'?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute'),
+    dvGet(base+'?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute,DisplayName'),
     dvGet(base+'/Attributes?$select=LogicalName,AttributeType,IsValidForCreate,AttributeOf,DisplayName'),
     dvGet(base+'/ManyToOneRelationships?$select=ReferencingAttribute,ReferencedEntity,ReferencingEntityNavigationPropertyName')]);
   const rels = new Map((rel.value||[]).map(x => [x.ReferencingAttribute, {target:x.ReferencedEntity, nav:x.ReferencingEntityNavigationPropertyName}]));
@@ -4233,9 +4233,69 @@ async function readAttrs(ln){
   try{ (await dvGet(base+'/Microsoft.Dynamics.CRM.DateTimeAttributeMetadata?$select=LogicalName,Format')).value.forEach(a => { if(m[a.LogicalName]) m[a.LogicalName].fmt = a.Format; }); }catch(e){}
   return m;
 }
+/* ══════════ COMPASS の既存ブッキングを調べる (読み取りのみ — 2026-11-13 ユーザー依頼) ══════════
+   COMPASS の画面で入力済みのブッキングを読み、各項目が「どのテーブルのどのレコード (ID)」につながっているかを表にする。
+   明細は 1 段先 (販売・購買のアイテム → 契約・品目・販売先/購買元) まで追う。書き込みは一切しない */
+async function dvGetAnn(path){ return (await dvFetch(path, {headers:{'Prefer':'odata.include-annotations="*"'}})).json(); }
+const CPI_SKIP = /^(createdby|modifiedby|createdonbehalfby|modifiedonbehalfby|ownerid|owningbusinessunit|owninguser|owningteam|transactioncurrencyid|versionnumber|timezoneruleversionnumber|utcconversiontimezonecode|importsequencenumber|overriddencreatedon|statecode|statuscode|exchangerate)$/;
+const cpEntLabel = E => (E.entity.DisplayName && E.entity.DisplayName.UserLocalizedLabel && E.entity.DisplayName.UserLocalizedLabel.Label) || E.entity.LogicalName;
+async function cpInspectRec(E, r, depth, lkOnly){
+  const FVK = '@OData.Community.Display.V1.FormattedValue', LLN = '@Microsoft.Dynamics.CRM.lookuplogicalname';
+  let lk = '', other = [];
+  for(const c of E.cols){
+    if(CPI_SKIP.test(c.col) || c.col===E.entity.PrimaryIdAttribute) continue;
+    if(c.rel){
+      const k = '_'+c.col+'_value', id = r[k];
+      if(id==null){ if(!lkOnly) lk += '<tr class="muted"><td>'+esc(c.label || c.col)+'<div style="font-size:10.5px">'+esc(c.col)+'</div></td><td>→ '+esc(c.rel.target)+'</td><td colspan="3">（空）</td></tr>'; continue; }
+      const tgt = r[k+LLN] || c.rel.target;
+      let TE = null, disp = '';
+      try{ TE = await cpEntMeta(tgt); }catch(e){}
+      try{ const N = await cpNames(tgt); const o = N.map.get(id); disp = o ? o.name : ''; }catch(e){}
+      lk += '<tr><td><b>'+esc(c.label || c.col)+'</b><div class="muted" style="font-size:10.5px">'+esc(c.col)+'</div></td>'
+        + '<td>→ <b>'+esc(TE ? cpEntLabel(TE) : tgt)+'</b><div class="muted" style="font-size:10.5px">'+esc(tgt)+(TE ? ' / '+esc(TE.entity.EntitySetName) : '')+'</div></td>'
+        + '<td>'+esc(str(r[k+FVK]))+'</td><td><b>'+esc(disp)+'</b></td><td class="muted" style="font-size:10.5px;font-family:var(--mono)">'+esc(id)+'</td></tr>';
+      if(depth>0 && TE && tgt!==COMPASS.LOGICAL){
+        try{ const tr = await dvGetAnn(TE.entity.EntitySetName+'('+id+')');
+             lk += '<tr><td colspan="5" style="padding:2px 0 6px 28px;background:var(--surface2)"><div class="muted" style="font-size:11px">└ '+esc(cpEntLabel(TE))+' の中身</div>'+await cpInspectRec(TE, tr, depth-1, false)+'</td></tr>'; }
+        catch(e){ lk += '<tr><td colspan="5" class="ng" style="font-size:11px">└ 読めません: '+esc(e.message.slice(0, 120))+'</td></tr>'; }
+      }
+    } else if(!lkOnly && r[c.col]!=null && r[c.col]!==''){
+      other.push('<span style="white-space:nowrap"><span class="muted">'+esc(c.label || c.col)+':</span> '+esc(str(r[c.col+FVK]!=null ? r[c.col+FVK] : r[c.col]))+'</span>');
+    }
+  }
+  return '<table class="b6-s" style="font-size:12px"><tr><th>項目</th><th>つながるテーブル</th><th>COMPASS の表示 (主の名前)</th><th>B-06 での名前</th><th>レコード ID</th></tr>'+lk+'</table>'
+    + (other.length ? '<div style="font-size:11.5px;margin:4px 0 8px;line-height:1.7">'+other.join('　')+'</div>' : '');
+}
+async function compassInspect(q, el){
+  q = str(q).trim(); if(!q){ el.innerHTML = '<span class="ng">Booking no. か Invoice no. を入れてください</span>'; return; }
+  el.innerHTML = '<div class="muted">COMPASS を読んでいます（読み取りのみ）…</div>';
+  try{
+    const M = await DvCompass.meta(), E = await cpEntMeta(M.entity.LogicalName), pid = M.entity.PrimaryIdAttribute;
+    const flt = encodeURIComponent('cr49f_booking_no eq '+qk(q)+' or cr49f_invoice_no eq '+qk(q));
+    const bk = (await dvGetAnn(COMPASS.ES+'?$filter='+flt+'&$top=3&$orderby=createdon desc')).value || [];
+    if(!bk.length){ el.innerHTML = '<span class="ng">COMPASS に「'+esc(q)+'」のブッキングがありません</span>'; return; }
+    const rl = await dvGet("EntityDefinitions(LogicalName='"+M.entity.LogicalName+"')/OneToManyRelationships?$select=ReferencingEntity,ReferencingAttribute");
+    const dr = (rl.value || []).find(x => x.ReferencingEntity==='cr49f_booking_detail') || (rl.value || []).find(x => /detail/i.test(x.ReferencingEntity));
+    let h = '';
+    for(const r of bk){
+      h += '<h4 style="margin:12px 0 4px">🚢 ブッキング '+esc(str(r.cr49f_booking_no))+' / '+esc(str(r.cr49f_invoice_no))+' <span class="muted" style="font-weight:400;font-size:11px">'+esc(cpEntLabel(E))+' ('+esc(COMPASS.ES)+') · 作成 '+esc(fmtDT(r.createdon))+'</span></h4>';
+      h += await cpInspectRec(E, r, 1, false);
+      if(dr){
+        const DE = await cpEntMeta(dr.ReferencingEntity);
+        const ds = (await dvGetAnn(DE.entity.EntitySetName+'?$filter='+encodeURIComponent('_'+dr.ReferencingAttribute+'_value eq '+r[pid]))).value || [];
+        h += '<h4 style="margin:10px 0 4px">📦 明細 — '+esc(cpEntLabel(DE))+' ('+esc(DE.entity.EntitySetName)+') '+ds.length+' 行</h4>';
+        for(let i=0; i<ds.length; i++) h += '<div style="font-weight:700;font-size:12px;margin-top:6px">明細 '+(i+1)+'</div>'+await cpInspectRec(DE, ds[i], 1, false);
+      } else h += '<div class="muted">明細のテーブルが見つかりません</div>';
+    }
+    el.innerHTML = h;
+  }catch(e){ el.innerHTML = '<span class="ng">読めません: '+esc(e.message.slice(0, 300))+'</span>'; }
+}
 async function openDiag(){
   if(CFG.DEMO){ modal('⚙ 診断', '<div class="muted">デモモードでは Dataverse に接続しないため診断できません。ログインして使ってください。</div>'); return; }
-  const md = modal('⚙ 診断', '<div id="dg">確認中…</div>', [], true);
+  const md = modal('⚙ 診断', '<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:10px"><b>🔎 COMPASS の既存ブッキングを調べる</b> <span class="muted" style="font-size:11.5px">（読み取りのみ — 各項目がどのテーブルのどのレコードにつながっているか）</span>'
+    + '<div style="margin-top:6px;display:flex;gap:6px"><input id="dg-cpq" class="b6-in" placeholder="Booking no. か Invoice no.（例 NHA2611-33）" style="width:300px"><button class="b6-btn sm pri" id="dg-cpgo">調べる</button></div><div id="dg-cpr" style="margin-top:6px"></div></div><div id="dg">確認中…</div>', [], true);
+  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-cpgo')) compassInspect($('#dg-cpq', md.el).value, $('#dg-cpr', md.el)); });
+  md.el.addEventListener('keydown', ev => { if(ev.key==='Enter' && ev.target.id==='dg-cpq') compassInspect(ev.target.value, $('#dg-cpr', md.el)); });
   /* 診断の表示は書くたびに作り直すので、ボタンは委譲で受ける */
   md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); if(ev.target.closest('#dg-qty')) createQtyColumns(); if(ev.target.closest('#dg-qfill')) fillQtyFromCarrier(); });
   const out = []; const w = s => { out.push(s); $('#dg', md.el).innerHTML = out.join(''); };
