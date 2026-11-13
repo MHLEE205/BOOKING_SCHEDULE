@@ -3078,7 +3078,7 @@ const COMPASS = {
   LOOKUPS: [  /* COMPASS では一覧から選ぶ項目 — 名前が 1 件だけ完全一致した時だけ自動で選ぶ */
     {k:'port',    col:'cr49f_region_japan_id', label:'POL (港)',  key:b=>str(b.port).trim()},
     {k:'pod',     col:'cr49f_region_id',       label:'POD',       key:b=>firstLine(b.pod).split(/→|->/).pop().trim()},
-    {k:'carrier', col:'cr49f_carrier_id',      label:'船社',       key:b=>carrierKey(b.carrier)},
+    {k:'carrier', col:['crcf9_carrier_id','cr49f_carrier_id'], label:'船社', key:b=>carrierKey(b.carrier)},   /* 実際の COMPASS は crcf9_carrier_id (船会社ID) — 2026-11-13 調査 */
   ],
   NEED: ['bkgno','vessel','cyopen','cycut','etd'],   /* B-06 側で必須 */
   AUTO_COLS: ['ownerid','owneridtype','statecode','statuscode','overriddencreatedon','importsequencenumber','timezoneruleversionnumber','utcconversiontimezonecode','transactioncurrencyid'],
@@ -3128,7 +3128,7 @@ const DvCompass = {
       if(c){ pa = c.col;
         try{ (await dvGetAll(N.set+'?$select='+N.E.entity.PrimaryIdAttribute+',_'+pa+'_value')).forEach(r => par.set(r[N.E.entity.PrimaryIdAttribute], r['_'+pa+'_value'] || null)); }catch(e){ pa = null; } }
     }
-    const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, port:o.port, parent:pa ? par.get(o.id) || null : null}))
+    const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, port:o.port, f:o.f, parent:pa ? par.get(o.id) || null : null}))
       .sort((x, y) => x.name.localeCompare(y.name, 'ja', {numeric:true}));
     return this._opts[ck] = {set:N.set, parentAttr:pa, nameCol:N.colLabel, portLabel:N.portLabel, list:list};
   },
@@ -3153,7 +3153,23 @@ const DvCompass = {
     const out = {ent:ent, set:D.entity.EntitySetName,
       cols:{sale:sL, purch:pL, item:cpCol(D, /品目/, 'lk'), hon:cpCol(D, /本数/, 'num'), wt:cpCol(D, /重量/, 'num')}, sale:null, purch:null};
     if(!sL || !pL) throw new Error('明細テーブル '+ent+' に 販売・購買のアイテムを指す列が見つかりません（一覧の列: '+lks.map(x => x.label+'→'+x.rel.target).join('、')+'）');
-    [out.sale, out.purch] = await Promise.all([cpLoadItems(sL.rel.target, false), cpLoadItems(pL.rel.target, true)]);
+    [out.sale, out.purch] = await Promise.all([cpLoadItems(sL.rel.target, false), cpLoadItems(pL.rel.target, false)]);
+    /* 割当量 = そのアイテムを使っている明細の 想定重量 の合計 (COMPASS に割当・残の列はない — 2026-11-13 調査。例 220 → 明細 23 t 追加で 243)。残 = 重量 − 割当量 */
+    const wc = out.cols.wt;
+    if(wc){
+      const agg = async k => {
+        try{ const j = await dvGet(D.entity.EntitySetName+'?$apply='+encodeURIComponent('filter(statecode eq 0)/groupby(('+k+'),aggregate('+wc.col+' with sum as w))'));
+             return new Map((j.value || []).filter(r => r[k]).map(r => [r[k], +r.w || 0])); }
+        catch(e){ const m = new Map(); (await dvGetAll(D.entity.EntitySetName+'?$select='+k+','+wc.col+'&$filter=statecode eq 0')).forEach(r => { if(r[k]) m.set(r[k], (m.get(r[k])||0) + (+r[wc.col]||0)); }); return m; }
+      };
+      const [aS, aP] = await Promise.all([agg('_'+sL.col+'_value'), agg('_'+pL.col+'_value')]);
+      [[out.sale, aS], [out.purch, aP]].forEach(([L, A]) => {
+        if(L.cols.alloc && L.cols.remain && !L.cols.remain.calc) return;   /* COMPASS に列があればそれを使う */
+        L.items.forEach(x => { x.alloc = Math.round((A.get(x.id) || 0)*100)/100; x.remain = x.wt!=null ? Math.round((x.wt - x.alloc)*100)/100 : null; });
+        L.cols.alloc = {label:'割当量（明細の'+wc.label+'の合計）', col:'calc'}; L.cols.remain = {label:(L.cols.wt ? L.cols.wt.label : '重量')+' − 割当量', col:'calc', calc:true};
+      });
+    }
+    out.purch.items = out.purch.items.filter(x => x.remain==null || x.remain>0);
     return this._dtl = out;
   },
   async create(body, allowed){
@@ -3184,6 +3200,13 @@ async function cpEntMetaLoad(logical){
    ① 「名前の列」をチームで設定していればそれ (複数の列は COMPASS の画面と同じく「|」でつなぐ — 例 乙仲「O.T.K|0|¥7,000」)
    ② なければ文字の列から「埋まっていて・重複が少なく・番号でない・名前らしい」列を自動で選ぶ (担当者・住所・備考などは避ける)
    ほかの文字の列 (最大 3) も alt として名前合わせに使う */
+/* COMPASS の一覧の表示 (列の表示名 — 「|」でつなぐ)。2026-11-13 に既存ブッキング NHA2611-31 を調べて分かったもの。⚙ の設定があればそちらが優先 */
+const CP_NAME_DEF = {
+  cr49f_region:[/^到着港$/], crcf9_region_japan:[/^出発港$/], crcf9_carrier:[/^船社$/],
+  crcf9_customs:[/^乙仲$/, /^区分$/, /^通関料$/],                         /* 例 O.T.K|0|¥7,000 */
+  crcf9_carrier_cost:[/^\$\s*\/\s*コンテナ/, /^[¥￥]\s*\/\s*コンテナ/, /^[¥￥]\s*\/\s*BL/i],   /* 例 $600|¥1500|¥4000 */
+  cr49f_sale_contract:[/販売契約番号/], cr49f_purchase_contract:[/購買契約番号/], cr49f_item:[/^品目$/],
+};
 /* hint: 名前に使いたい列の表示名 (例 乙仲 — 「海運貨物取扱業者」の 乙仲 列を名前に、金額の列を後ろにつなぐ)。
    port: 搬入港 (港) の列 — 直接の文字の列、または 港・乙仲・業者 の一覧の列の先の 搬入港 (乙仲を POL で絞るのに使う) */
 function cpNames(entity, hint, depth){
@@ -3194,7 +3217,7 @@ function cpNames(entity, hint, depth){
 function cpNamesForget(entity){ Array.from(_cpNm.keys()).forEach(k => { if(k.startsWith(entity+'|')) _cpNm.delete(k); }); }
 async function cpNamesLoad(entity, hint, depth){
   const E = await cpEntMeta(entity), pid = E.entity.PrimaryIdAttribute, pn = E.entity.PrimaryNameAttribute;
-  const cols = E.cols.filter(c => !c.rel && (c.col===pn || /^[a-z0-9]+_/.test(c.col)) && (c.type==='String' || DTL_NUM.has(c.type))
+  const cols = E.cols.filter(c => !c.rel && (c.col===pn || /^[a-z0-9]+_/.test(c.col)) && (c.type==='String' || c.type==='DateTime' || DTL_NUM.has(c.type))
     && !/yomi|traversedpath|_base$/i.test(c.col)).slice(0, 40);
   const portCol = cols.find(c => c.type==='String' && /搬入港|港|POL/i.test(c.label));
   const portLks = !portCol && !depth ? E.cols.filter(c => c.rel && /^[a-z0-9]+_/.test(c.col) && /港|POL|乙仲|業者|取扱|customs/i.test(c.label+' '+c.rel.target)).slice(0, 3) : [];
@@ -3217,7 +3240,10 @@ async function cpNamesLoad(entity, hint, depth){
   const conf = ((S.cpMap||{}).namecol||{})[entity];
   let chosen = conf && conf.name ? conf.name.split('|').filter(c => cols.some(x => x.col===c)) : [];
   const set = !!chosen.length;
-  if(!set){
+  /* COMPASS の画面と同じ表示 (2026-11-13 の調査で分かったもの)。列が全部あればこれを使う */
+  const def = (CP_NAME_DEF[entity] || []).map(re => (cols.find(c => re.test(c.label)) || {}).col);
+  if(!set && def.length && def.every(Boolean)) chosen = def;
+  else if(!set){
     chosen = [ranked.length ? ranked[0].c : pn];
     /* hint の列が見つかったら、金額の列を後ろにつなぐ (COMPASS の「O.T.K|0|¥7,000」のような表示) */
     if(hint && cpNorm(lab(chosen[0])).includes(cpNorm(hint))) chosen = chosen.concat(cols.filter(c => c.type==='Money').map(c => c.col));
@@ -3232,7 +3258,9 @@ async function cpNamesLoad(entity, hint, depth){
       if(o.port) return o.port; if(/港|POL/i.test(portLks[i].label)) return o.name; }
     return '';
   };
-  const map = new Map(rows.map(r => [r[pid], {id:r[pid], name:nameOf(r) || str(r[pn]), alt:alts.map(c => val(r, c)).filter(Boolean), port:portOf(r)}]));
+  /* f: 列の表示名 → 値 (運賃の 船社・出発港・到着港 で絞るのに使う)。日付は yyyy-mm-dd */
+  const fOf = r => { const o = {}; cols.forEach(c => { o[c.label] = c.type==='DateTime' ? str(r[c.col]).slice(0, 10) : val(r, c.col); }); return o; };
+  const map = new Map(rows.map(r => [r[pid], {id:r[pid], name:nameOf(r) || str(r[pn]), alt:alts.map(c => val(r, c)).filter(Boolean), port:portOf(r), f:fOf(r)}]));
   const cands = cols.map(c => ({col:c.col, label:lab(c.col), type:c.type, samples:Array.from(new Set(rows.map(r => val(r, c.col)).filter(Boolean))).slice(0, 4)}))
     .filter(c => c.samples.length);
   return {E:E, set:E.entity.EntitySetName, entity:entity, col:chosen.join('|'), chosen:chosen, colLabel:chosen.map(lab).join('|')+(set ? '（設定済み）' : '（自動）'),
@@ -3274,7 +3302,7 @@ function cpCol(E, re, kind){
 async function cpLoadItems(target, onlyRemain){
   const E = await cpEntMeta(target);
   const C = {item:cpCol(E, /品目/, 'lk') || cpCol(E, /品目/, 'txt'), co:cpCol(E, /CO\b|CO$|契約/i, 'lk'), party:cpCol(E, /販売先|購買元|仕入/, 'lk'),
-    remain:cpCol(E, /残/, 'num'), alloc:cpCol(E, /割当/, 'num'), wt:cpCol(E, /重量/, 'num'), unit:cpCol(E, /unit|単価/i, 'num'), note:cpCol(E, /備考/, 'txt'), tol:cpCol(E, /Tolerance|許容/i)};
+    remain:cpCol(E, /残/, 'num'), alloc:cpCol(E, /割当/, 'num'), wt:cpCol(E, /重量/, 'num'), unit:cpCol(E, /unit|単価/i, 'num'), note:cpCol(E, /備考/, 'txt') || cpCol(E, /積み地/, 'txt'), tol:cpCol(E, /Tolerance|許容/i)};
   const pid = E.entity.PrimaryIdAttribute, pn = E.entity.PrimaryNameAttribute;
   const sc = c => c ? (c.rel ? '_'+c.col+'_value' : c.col) : null;
   const base = E.entity.EntitySetName+'?$select='+Array.from(new Set([pid, pn].concat(Object.values(C).map(sc)).filter(Boolean))).join(',');
@@ -3450,8 +3478,9 @@ async function compassCheck(b){
   });
   const learned = await cpMapLoad();
   for(const f of COMPASS.LOOKUPS){
-    const rel = M.rels.get(f.col), key = f.key(b);
-    const L = {kind:f.k, label:f.label, col:f.col, key:key, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
+    const fc = [].concat(f.col).find(c => M.rels.get(c)) || [].concat(f.col)[0];
+    const rel = M.rels.get(fc), key = f.key(b);
+    const L = {kind:f.k, label:f.label, col:fc, key:key, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
     if(!rel){ L.note = 'COMPASS に一覧の列がない → 送らない'; R.lookups.push(L); continue; }
     try{
       const o = await C.options(rel.target);
@@ -3504,11 +3533,13 @@ async function compassCheck(b){
       } else {
         const lr = !blank(f.key) && (learned[f.k]||{})[cpNorm(f.key)];
         /* 乙仲: 「海運貨物取扱業者」の 搬入港 が POL と同じものを候補に (1 件なら自動) */
-        const pc = f.k==='otsu' && pol ? (() => { const al = cpAliases('port', pol); return o.list.filter(x => x.port && al.includes(cpNorm(x.port))); })() : [];
+        const pc = f.k==='otsu' && pol ? (() => { const al = cpAliases('port', pol); return o.list.filter(x => x.port && al.includes(cpNorm(x.port))); })()
+          : f.k==='freight' ? freightCands(o.list, pol, pod, car, b.cycut || b.etd || todayStr()) : [];
         if(f.k==='otsu'){ L.cands = pc; L.candLabel = pol+' の乙仲'; if(o.portLabel) L.nameCol = (L.nameCol||'')+' · 港＝'+o.portLabel; }
+        if(f.k==='freight'){ L.cands = pc; L.candLabel = [pol, pod, car].join(' → ')+' の運賃'; }
         if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
-        else if(pc.length===1){ L.sel = pc[0].id; L.how = 'auto'; L.note = '自動で選択（'+pol+' の乙仲が 1 件）'; }
-        else if(f.k==='otsu' && pc.length) L.note = pol+' の乙仲から選んでください（'+pc.length+' 件）— 次から自動';
+        else if(pc.length===1){ L.sel = pc[0].id; L.how = 'auto'; L.note = '自動で選択（'+L.candLabel+'が 1 件）'; }
+        else if(pc.length) L.note = L.candLabel+'から選んでください（'+pc.length+' 件）';
         else L.note = blank(f.key) ? '選んでください' : '選んでください — 次から「'+f.show+'」で自動'+(f.k==='otsu' ? '（搬入港 '+pol+' の乙仲が一覧にありません）' : '');
       }
       L.auto = L.sel;
@@ -3516,13 +3547,13 @@ async function compassCheck(b){
     }catch(e){ L.note = '一覧を読めません（'+String(e.status || e.message || '')+'）'; }
     R.lookups.push(L);
   }
-  let amCol = null; M.attrs.forEach((a, k) => { if(!amCol && a.type==='Boolean' && /^\s*(AM|ＡＭ)(\s|カット|$)|午前/i.test(a.label)) amCol = k; });
+  let amCol = null; M.attrs.forEach((a, k) => { if(!amCol && a.type==='Boolean' && /(^|\s|CUT\s*)(AM|ＡＭ)(\s|カット|$)|午前/i.test(a.label)) amCol = k; });
   /* 列が見つからない時に確かめられるよう、ブッキングの列を全部控えておく */
   R.allCols = Array.from(M.attrs.entries()).filter(([k, a]) => !a.of && a.label!==k).map(([k, a]) => a.label+'（'+k+' '+a.type+'）');
   R.am = {col:amCol, val:cutAM(b)};
   if(amCol && CFG.COMPASS_EXTRA_WRITE) R.allowed.add(amCol);
   /* COMPASS 側で必須なのに B-06 から送らない列 */
-  const sent = new Set(COMPASS.FIELDS.map(f=>f.col).concat(COMPASS.LOOKUPS.map(f=>f.col)));
+  const sent = new Set(COMPASS.FIELDS.map(f=>f.col).concat(COMPASS.LOOKUPS.flatMap(f=>[].concat(f.col))));
   const miss = [];
   M.attrs.forEach((a, k) => {
     if((a.required==='ApplicationRequired' || a.required==='SystemRequired') && a.createOk && !a.of && !sent.has(k)
@@ -3535,6 +3566,15 @@ async function compassCheck(b){
   R.infos.push('Packer 行 '+live.length+' 行・本数合計 '+hon+' 本（明細は下で選べます — 今はヘッダーだけ作成）');
   R.dtl = await dtlLoad(R, b);
   return R;
+}
+/* 海上運賃区分 (船社別単価) の候補: 出発港 = POL・到着港 = POD・船社 が合い、見積期限が Cut 以降 (期限の新しい順) */
+function freightCands(list, pol, pod, car, ref){
+  const P = cpAliases('port', pol), D = cpAliases('pod', pod), C = cpAliases('carrier', car);
+  const near = (v, al) => { const n = cpNorm(v); return !!n && al.some(a => n===a || (a.length>=3 && n.startsWith(a)) || (n.length>=3 && a.startsWith(n))); };
+  const g = (x, re) => { const k = Object.keys(x.f || {}).find(k => re.test(k)); return k ? x.f[k] : ''; };
+  return list.filter(x => near(g(x, /出発港/), P) && near(g(x, /到着港/), D) && (!car || near(g(x, /^船社/), C)))
+    .filter(x => { const d = g(x, /見積期限|期限/); return !d || !ref || d >= ref; })
+    .sort((a, b) => str(g(b, /見積期限|期限/)).localeCompare(str(g(a, /見積期限|期限/))));
 }
 /* 販売CO の候補: 選んだ販売先の契約 (親の列があれば)・Invoice の年月 (2611) を含むもの */
 function salecoCands(L, buyerId){
