@@ -2327,7 +2327,8 @@ async function openCpkPick(b, a){
   catch(e){ toast('COMPASS の購買元を読めません: '+e.message.slice(0,120), 'danger'); return; }
   const cur = cpkOf(a), same = pkRows(a.packer), sug = cpkSuggest(list, a.packer).slice(0, 8);
   const sugIds = new Set(sug.map(x => x.id));
-  const op = o => '<option value="'+esc(o.id)+'"'+(cur && cur.id===o.id ? ' selected' : '')+'>'+esc(o.name)+(o.alt && o.alt.length ? '　（'+esc(o.alt.slice(0, 2).join(' / '))+'）' : '')+'</option>';
+  const op = o => { const al = Array.from(new Set((o.alt || []).filter(x => x && x!==o.name))).slice(0, 2);
+    return '<option value="'+esc(o.id)+'"'+(cur && cur.id===o.id ? ' selected' : '')+'>'+esc(o.name)+(al.length ? '　（'+esc(al.join(' / '))+'）' : '')+'</option>'; };
   const h = '<div>Packer: <b>'+esc(a.packer || '（空）')+'</b>　<span class="muted">'+esc(bkLabel(b))+'</span></div>'
     + '<div style="margin:8px 0;display:flex;gap:6px"><select id="cpk-sel" class="b6-sel" size="12" style="min-width:420px"><option value="">— つながない（解除） —</option>'
     + (sug.length ? '<optgroup label="候補">'+sug.map(s => op(list.find(o => o.id===s.id))).join('')+'</optgroup>' : '')
@@ -2356,7 +2357,8 @@ async function openCpkBulk(){
   LEENAI.loading.hide();
   const G = new Map();
   S.bk.forEach(b => { if(b.deleted) return; b.rows.forEach(a => { if(a.deleted || blank(a.packer)) return;
-    const k = pkKey(a.packer); const g = G.get(k) || {text:k, rows:[], links:new Map()}; g.rows.push({b:b, a:a});
+    const k = pkKey(a.packer); const g = G.get(k) || {text:k, rows:[], links:new Map(), ports:new Map()}; g.rows.push({b:b, a:a});
+    const pt = str(b.port).trim().toUpperCase() || '—'; g.ports.set(pt, (g.ports.get(pt)||0)+1);
     const c = cpkOf(a); const lk = c ? c.id : ''; g.links.set(lk, (g.links.get(lk)||0)+1); G.set(k, g); }); });
   const groups = Array.from(G.values()).sort((x, y) => y.rows.length - x.rows.length);
   groups.forEach(g => {
@@ -2369,7 +2371,8 @@ async function openCpkBulk(){
     g.auto = !g.cur && !!g.pick;
   });
   const nm = id => (list.find(o => o.id===id) || {}).name || '';
-  const lbl = o => esc(o.name)+(o.alt && o.alt.length ? '（'+esc(o.alt.slice(0, 2).join(' / '))+'）' : '');
+  const lbl = o => { const al = Array.from(new Set((o.alt || []).filter(x => x && x!==o.name))).slice(0, 2); return esc(o.name)+(al.length ? '（'+esc(al.join(' / '))+'）' : ''); };
+  const portsOf = g => Array.from(g.ports.entries()).sort((x, y) => y[1]-x[1]).map(([p, n]) => '<span style="white-space:nowrap">'+esc(p)+' <span class="muted">'+n+'</span></span>').join(' · ');
   const opts = g => { const ids = new Set(g.sug.map(x => x.id));
     return '<option value="">— つながない —</option>' + (g.sug.length ? '<optgroup label="候補">'+g.sug.map(x => { const o = list.find(y => y.id===x.id) || x; return '<option value="'+esc(x.id)+'"'+(x.id===g.pick?' selected':'')+'>'+lbl(o)+'</option>'; }).join('')+'</optgroup>' : '')
       + '<optgroup label="すべて">'+list.filter(o => !ids.has(o.id)).map(o => '<option value="'+esc(o.id)+'"'+(o.id===g.pick?' selected':'')+'>'+lbl(o)+'</option>').join('')+'</optgroup>'; };
@@ -2377,8 +2380,8 @@ async function openCpkBulk(){
   let h = '<div class="muted" style="font-size:12px;margin-bottom:6px">B-06 の Packer の表記ごとに、COMPASS の購買元（読み取り — '+list.length+' 件）を選んでください。保存すると、その表記の行すべてに入ります。Packer の文字は変えません。<br>'
     + '連結済み '+done+' / '+groups.length+' 表記。<span class="bdg o">自動</span> は名前がはっきり合ったもの（確認してください）。dray_packer マスターは使いません。</div>';
   h += '<div style="margin-bottom:6px"><label><input type="checkbox" id="cpk-only"> まだつながっていない表記だけ表示</label></div>';
-  h += '<table class="b6-s" id="cpk-t"><tr><th>B-06 の Packer 表記</th><th>行</th><th>COMPASS 購買元</th><th></th></tr>'
-    + groups.map((g, i) => '<tr data-i="'+i+'"'+(g.cur && !g.mixed ? ' class="cpk-done"' : '')+'><td>'+esc(g.text)+'</td><td style="text-align:right">'+g.rows.length+'</td>'
+  h += '<table class="b6-s" id="cpk-t"><tr><th>B-06 の Packer 表記</th><th>行</th><th>港 (B-06)</th><th>COMPASS 購買元</th><th></th></tr>'
+    + groups.map((g, i) => '<tr data-i="'+i+'"'+(g.cur && !g.mixed ? ' class="cpk-done"' : '')+'><td>'+esc(g.text)+'</td><td style="text-align:right">'+g.rows.length+'</td><td style="font-size:11.5px;max-width:240px;line-height:1.5">'+portsOf(g)+'</td>'
       + '<td><div class="cp-lk"><select class="b6-sel cpk-g" data-i="'+i+'" style="max-width:280px">'+opts(g)+'</select><input class="b6-in cpk-gq" data-i="'+i+'" placeholder="🔍" style="width:70px"></div></td>'
       + '<td style="font-size:11.5px">'+(g.cur ? (g.mixed ? '<span class="bdg w">一部だけ</span> ' : '<span class="bdg o">連結済み</span> ')+esc(nm(g.cur)) : g.auto ? '<span class="bdg o">自動</span>' : g.sug.length ? '<span class="bdg w">選択</span>' : '<span class="muted">候補なし</span>')+'</td></tr>').join('')
     + '</table>';
