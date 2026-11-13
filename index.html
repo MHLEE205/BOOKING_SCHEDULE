@@ -680,7 +680,7 @@ const CFG = {
      2026-11-12 承認 → true (実データで試しながら修正) */
   COMPASS_WRITE: true,
   COMPASS_EXTRA_WRITE: false,   /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 形님承認後に true (それまでは画面で選ぶだけ) */
-  COMPASS_TON_PER_HON: 23,      /* 明細の 予想重量 = 本数 × これ (t)。画面で変えるとチームで共有して覚える */
+  COMPASS_TON_PER_HON: 23,      /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
 /* ══════════ CONST (DOC-B-06 §2-5 — 値を変えるのはここ 1 か所) ══════════ */
@@ -3429,17 +3429,17 @@ function salecoCands(L, buyerId){
 }
 /* ── 明細: Packer 行 1 行 → 明細 1 行 (2026-11-13 ユーザーと決めた形) ──
    販売: 選んだ 販売CO のアイテムから Grade の品目 / 購買: Packer → 購買元 → 残のある購買アイテム (月は問わない。販売と品目が違ってもよい)
-   予想重量 = 本数 × 1 本あたり t。候補が 1 件の時だけ自動で選び、手で選んだ対応は覚える (チームで共有)。今は画面で選ぶだけ */
+   予想重量 = 本数 × 23 t (固定)。候補が 1 件の時だけ自動で選ぶ。ブッキングごとに使う契約が違うので、選んだ対応は覚えない (ユーザー 2026-11-13)。
+   今は画面で選ぶだけ */
 async function dtlLoad(R, b){
   let D;
   try{ D = Object.assign({}, await S.store.compass.details()); }
   catch(e){ return {err:'明細の一覧を読めません: '+String(e.message || e.status || e).slice(0, 300)}; }
-  const lt = ((S.cpMap||{}).cfg||{}).TONPERHON;
-  D.ton = D.ton0 = lt && +lt.name>0 ? +lt.name : CFG.COMPASS_TON_PER_HON;
+  D.ton = CFG.COMPASS_TON_PER_HON;
   const seen = new Set(); D.parties = [];
   D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party}); } });
   D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), hon:+a.totalhon||0,
-    sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0, wtMan:false}));
+    sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0}));
   const sc = R.lookups.find(L => L.kind==='saleco');
   D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); dtlAuto(D, r, sc ? sc.sel : ''); });
   return D;
@@ -3455,14 +3455,11 @@ function dtlItemScore(name, wants){
 const dtlRank = (list, wants) => list.map(x => ({x:x, s:dtlItemScore(x.item, wants)})).filter(y => y.s>0)
   .sort((p, q) => q.s-p.s || str(p.x.co).localeCompare(str(q.x.co))).map(y => y.x);
 function dtlSaleCands(D, r, coId){
-  const lr = ((S.cpMap||{}).sitem||{})[cpNorm(r.grade)];
-  return dtlRank(dtlSaleList(D, coId), [lr && cpNorm(lr.name), cpNorm(r.grade)]);
+  return dtlRank(dtlSaleList(D, coId), [cpNorm(r.grade)]);
 }
-/* Packer → 購買元: ① 前回の選択 ② Packer 名・略称・COMPASS コード (dray_packer マスター) で名前が近いもの */
+/* Packer → 購買元: Packer 名・略称・COMPASS コード (dray_packer マスター) で名前が近いもの */
 function dtlSuppliers(D, r){
   if(!r.packer) return {list:[], how:''};
-  const lr = ((S.cpMap||{}).supplier||{})[cpNorm(r.packer)];
-  if(lr && D.parties.some(p => p.name===lr.name)) return {list:[lr.name], how:'learn'};
   const al = [r.packer]; let sh = null;
   try{ sh = packerShort(r.packer); }catch(e){}
   if(sh){ al.push(sh); (S.masters.packerCodeShort||[]).forEach(([code, s]) => { if(s===sh) al.push(code); }); }
@@ -3473,20 +3470,19 @@ function dtlSuppliers(D, r){
 function dtlPurCands(D, r){
   if(!r.sup.list.length) return [];
   const si = D.sale.items.find(x => x.id===r.sale), sn = si ? si.item : r.grade;
-  const lr = ((S.cpMap||{}).pitem||{})[cpNorm(r.packer+'|'+sn)];
-  return dtlRank(D.purch.items.filter(x => r.sup.list.includes(x.party)), [lr && cpNorm(lr.name), cpNorm(sn), cpNorm(r.grade)]);
+  return dtlRank(D.purch.items.filter(x => r.sup.list.includes(x.party)), [cpNorm(sn), cpNorm(r.grade)]);
 }
 /* 手で選んでいない所だけ自動で選び直す (候補がちょうど 1 件の時だけ) */
 function dtlAuto(D, r, coId){
   if(r.howS!=='man'){
     const c = dtlSaleCands(D, r, coId);
-    r.sale = c.length===1 ? c[0].id : ''; r.howS = c.length===1 ? (((S.cpMap||{}).sitem||{})[cpNorm(r.grade)] ? 'learn' : 'auto') : '';
+    r.sale = c.length===1 ? c[0].id : ''; r.howS = c.length===1 ? 'auto' : '';
   }
   if(r.howP!=='man'){
     const c = dtlPurCands(D, r);
     r.pur = c.length===1 ? c[0].id : ''; r.howP = c.length===1 ? 'auto' : '';
   }
-  if(!r.wtMan) r.wt = Math.round(r.hon * D.ton * 100) / 100;
+  r.wt = Math.round(r.hon * D.ton * 100) / 100;
 }
 const dtlNum = v => v==null ? '' : (+v).toLocaleString('ja-JP', {maximumFractionDigits:2});
 const dtlLabel = x => [x.item || '?', x.co || x.name, x.party, x.remain!=null ? '残 '+dtlNum(x.remain) : ''].filter(Boolean).join(' | ');
@@ -3505,7 +3501,7 @@ function dtlTr(D, i, coId){
   const sP = '<div class="cp-lk"><select class="b6-sel cp-dp" data-r="'+i+'">'+dtlOpts([['候補', dtlPurCands(D, r)], ['この購買元', bySup], ['すべて（残あり）', D.purch.items]], r.pur)+'</select>'
     + '<input class="b6-in cp-dq" data-r="'+i+'" placeholder="🔍" autocomplete="off"></div>';
   return '<td>'+esc(r.packer || '（Packer なし）')+'<div class="muted" style="font-size:11px">'+esc(r.grade || '—')+'</div></td><td style="text-align:right">'+r.hon+'</td>'
-    + '<td>'+sS+'</td><td>'+sP+'</td><td><input class="b6-in cp-dw" data-r="'+i+'" type="number" step="0.01" min="0" style="width:76px" value="'+r.wt+'"> t</td><td class="cp-dn"></td>';
+    + '<td>'+sS+'</td><td>'+sP+'</td><td style="text-align:right">'+dtlNum(r.wt)+' t</td><td class="cp-dn"></td>';
 }
 /* 各行のメモ: 自動/記憶/選択・購買元・残を超えるか (同じアイテムを使う行の予想重量の合計で見る) */
 function dtlNotes(D){
@@ -3530,30 +3526,15 @@ function dtlHtml(D, coId){
     + cl(D.cols.purch, '購買')+' → '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件）・'+cl(D.cols.item, '品目')+'・'+cl(D.cols.hon, '本数')+'・'+cl(D.cols.wt, '重量')
     + '<br>アイテムの列: 販売 ['+['item','co','party','remain'].map(k => cl(D.sale.cols[k], {item:'品目',co:'CO',party:'販売先',remain:'残'}[k])).join(' ')+'] 購買 ['
     + ['item','co','party','remain'].map(k => cl(D.purch.cols[k], {item:'品目',co:'CO',party:'購買元',remain:'残'}[k])).join(' ')+']</div>';
-  h += '<div style="margin:6px 0">1 本あたり <input id="cp-ton" class="b6-in" type="number" step="0.01" min="0" style="width:70px" value="'+D.ton+'"> t <span class="muted" style="font-size:11.5px">（予想重量 = 本数 × これ。行ごとに直すこともできます）</span></div>';
+  h += '<div class="muted" style="margin:6px 0;font-size:11.5px">予想重量 = 本数 × '+D.ton+' t（すべての品目で固定）</div>';
   if(!D.rows.length) return h + '<div class="muted">Packer 行がありません</div>';
   h += '<table class="b6-s cp-dtl"><tr><th>Packer / Grade</th><th>本数</th><th>販売（品目 | 販売CO | 販売先 | 残）</th><th>購買（品目 | 購買CO | 購買元 | 残）</th><th>予想重量</th><th>メモ</th></tr>';
   D.rows.forEach((r, i) => { h += '<tr data-r="'+i+'">'+dtlTr(D, i, coId)+'</tr>'; });
-  return h + '</table><div class="muted" style="font-size:11.5px;margin-top:4px">購買は月を問わず残のある契約から探します。手で選ぶと「Packer→購買元」「Grade→販売の品目」「販売の品目→購買の品目」を覚えて次から自動で選びます（チームで共有）。</div>';
+  return h + '</table><div class="muted" style="font-size:11.5px;margin-top:4px">購買は月を問わず残のある契約から探します。候補が 1 件の時だけ自動で選びます（選んだ対応は覚えません — ブッキングごとに選んでください）。</div>';
 }
 function dtlPaintNotes(D, el){
   if(!D || D.err || !D.rows) return;
   dtlNotes(D).forEach((n, i) => { const tr = el.querySelector('tr[data-r="'+i+'"]'); if(!tr) return; tr.querySelector('.cp-dn').innerHTML = n.html; tr.classList.toggle('cp-need', n.need); });
-}
-/* 手で選んだ対応 → 覚える項目 */
-function dtlLearnItems(D){
-  if(!D || D.err || !D.rows) return [];
-  const out = [];
-  D.rows.forEach(r => {
-    const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
-    if(r.howS==='man' && si && r.grade) out.push({kind:'sitem', key:cpNorm(r.grade), id:'', name:si.item});
-    if(r.howP==='man' && pi && r.packer){
-      if(pi.party && !(r.sup.list.length===1 && r.sup.list[0]===pi.party)) out.push({kind:'supplier', key:cpNorm(r.packer), id:'', name:pi.party});
-      out.push({kind:'pitem', key:cpNorm(r.packer+'|'+(si ? si.item : r.grade)), id:'', name:pi.item});
-    }
-  });
-  if(D.ton!==D.ton0 && D.ton>0) out.push({kind:'cfg', key:'TONPERHON', id:'', name:String(D.ton)});
-  return out;
 }
 function compassBody(R, picks){
   const body = {};
@@ -3602,7 +3583,7 @@ async function openCompass(b){
       const amc = m.el.querySelector('#cp-am'); picks.am = amc ? amc.checked : false;
       /* 手で選んだ (自動と違う) 対応を覚える */
       cpMapLearn(R.lookups.map((L, i) => ({L:L, id:picks[i]})).filter(x => x.id && x.id!==x.L.auto && !blank(x.L.key))
-        .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})).concat(dtlLearnItems(R.dtl)));
+        .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})));
       c(); confirmCompass(b, R, picks);
     }}], true);
   /* ── 明細の操作 ── */
@@ -3613,10 +3594,6 @@ async function openCompass(b){
   m.el.addEventListener('input', ev => {
     if(!hasD) return;
     const t = ev.target;
-    if(t.id==='cp-ton'){ const v = +t.value; if(!(v>0)) return; D.ton = v;
-      D.rows.forEach((r, i) => { if(r.wtMan) return; r.wt = Math.round(r.hon*v*100)/100; const w = m.el.querySelector('.cp-dw[data-r="'+i+'"]'); if(w) w.value = r.wt; });
-      dtlPaintNotes(D, m.el); return; }
-    if(t.classList.contains('cp-dw')){ const r = D.rows[+t.dataset.r]; r.wt = +t.value || 0; r.wtMan = true; dtlPaintNotes(D, m.el); return; }
     if(t.classList.contains('cp-dq')){
       const s = m.el.querySelector('.cp-dp[data-r="'+t.dataset.r+'"]'), n = cpNorm(t.value);
       Array.from(s.options).forEach(o => { if(o.value) o.hidden = !!n && !cpNorm(o.textContent).includes(n); });
