@@ -3326,9 +3326,10 @@ async function cpLoadItems(target, onlyRemain){
       const CE = await cpEntMeta(C.co.rel.target), pc = cpCol(CE, /販売先|購買元|仕入/, 'lk');
       if(pc){
         const cr = await dvGetAll(CE.entity.EntitySetName+'?$select='+CE.entity.PrimaryIdAttribute+',_'+pc.col+'_value');
-        const pn2 = await cpNameOf(pc);
-        const mp = new Map(cr.map(r => [r[CE.entity.PrimaryIdAttribute], (pn2 && pn2(r['_'+pc.col+'_value'])) || str(r['_'+pc.col+'_value'+FVK])]));
-        items.forEach(x => { x.party = mp.get(x.coId) || ''; });
+        let N2 = null; try{ N2 = await cpNames(pc.rel.target); }catch(e){}
+        const mp = new Map(cr.map(r => { const id = r['_'+pc.col+'_value'], o = N2 && N2.map.get(id);
+          return [r[CE.entity.PrimaryIdAttribute], {name:(o && o.name) || str(r['_'+pc.col+'_value'+FVK]), alt:o ? o.alt : []}]; }));
+        items.forEach(x => { const o = mp.get(x.coId); x.party = o ? o.name : ''; x.partyAlt = o ? o.alt : []; });
         C.party = Object.assign({via:C.co.label}, pc);
       }
     }catch(e){}
@@ -3427,6 +3428,7 @@ function cpMatch(list, aliases){
       if(n===a) t = 100;
       else if(a.length>=4 && (n.startsWith(a) || a.startsWith(n) && n.length>=4)) t = 80;
       else if(a.length>=4 && n.includes(a)) t = 60;
+      else if(a.length>=2 && /[぀-ヿ一-鿿]/.test(a) && n.includes(a)) t = 50;   /* 漢字・かな 2 文字以上を含む (兼子 ↔ 株式会社兼子) */
       else if(a.length>=3 && n.startsWith(a)) t = 40;
       if(t > s){ s = t; via = a; }
     }));
@@ -3598,7 +3600,7 @@ async function dtlLoad(R, b){
   catch(e){ return {err:'明細の一覧を読めません: '+String(e.message || e.status || e).slice(0, 300)}; }
   D.ton = CFG.COMPASS_TON_PER_HON;
   const seen = new Set(); D.parties = [];
-  D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party}); } });
+  D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, alt:x.partyAlt || []}); } });
   D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), hon:+a.totalhon||0,
     sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0}));
   const sc = R.lookups.find(L => L.kind==='saleco');
@@ -3619,14 +3621,36 @@ const dtlRank = (list, wants) => list.map(x => ({x:x, s:dtlItemScore(x.item, wan
 function dtlSaleCands(D, r, coId){
   return dtlRank(dtlSaleList(D, coId), [cpNorm(r.grade)]);
 }
+/* ひらがな・カタカナ → ローマ字 (ヘボン式)。長音の書き方違いも返す (とうきょう → TOUKYOU / TOKYO)。かな以外を含むと空 */
+const KANA_R = (() => { const m = {};
+  'あa いi うu えe おo かka きki くku けke こko さsa しshi すsu せse そso たta ちchi つtsu てte とto なna にni ぬnu ねne のno はha ひhi ふfu へhe ほho まma みmi むmu めme もmo やya ゆyu よyo らra りri るru れre ろro わwa をo んn がga ぎgi ぐgu げge ごgo ざza じji ずzu ぜze ぞzo だda ぢji づzu でde どdo ばba びbi ぶbu べbe ぼbo ぱpa ぴpi ぷpu ぺpe ぽpo ぁa ぃi ぅu ぇe ぉo ゔvu'
+    .split(' ').forEach(p => { m[p[0]] = p.slice(1); }); return m; })();
+function kanaRomaji(s){
+  const h = str(s).replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60)).replace(/\s+/g, '');
+  if(!h || !/^[ぁ-ゖー]+$/.test(h)) return [];
+  let out = '', dbl = false;
+  for(const ch of h){
+    if(ch==='っ'){ dbl = true; continue; }
+    if(ch==='ー') continue;
+    if('ゃゅょ'.includes(ch)){ const v = {'ゃ':'a','ゅ':'u','ょ':'o'}[ch]; out = /(sh|ch|j)i$/.test(out) ? out.slice(0, -1)+v : out.replace(/i$/, 'y'+v); continue; }
+    let r = KANA_R[ch] || ''; if(dbl && r){ r = r[0]+r; dbl = false; } out += r;
+  }
+  const up = out.toUpperCase(), shortV = x => x.replace(/OU/g, 'O').replace(/UU/g, 'U').replace(/OO/g, 'O');
+  /* 訓令式の書き方 (TOMISYO・SINKO・TUTIYA …) も */
+  const kun = up.replace(/SH([AUO])/g, 'SY$1').replace(/CH([AUO])/g, 'TY$1').replace(/J([AUO])/g, 'ZY$1').replace(/SHI/g, 'SI').replace(/CHI/g, 'TI').replace(/TSU/g, 'TU').replace(/FU/g, 'HU').replace(/JI/g, 'ZI');
+  return Array.from(new Set([up, shortV(up), kun, shortV(kun)]));
+}
 /* Packer → 購買元: Packer 名・略称・COMPASS コード (dray_packer マスター) で名前が近いもの */
 function dtlSuppliers(D, r){
   if(!r.packer) return {list:[], how:''};
-  const al = [r.packer]; let sh = null;
+  /* Packer の表記 (「兼子 船橋」「東京紙(川鈴)」→ 先頭の名前も)・略称・COMPASS コード (dray_packer マスター)・かなのローマ字 (ふじ → FUJI) */
+  const head = r.packer.split(/[\s(（・\/]/)[0];
+  const al = [r.packer, head]; let sh = null;
   try{ sh = packerShort(r.packer); }catch(e){}
   if(sh){ al.push(sh); (S.masters.packerCodeShort||[]).forEach(([code, s]) => { if(s===sh) al.push(code); }); }
+  al.slice().forEach(a => al.push(...kanaRomaji(a)));
   const c = cpMatch(D.parties, Array.from(new Set(al.map(cpNorm).filter(Boolean))));
-  if(!c.length || c[0].s<60) return {list:[], how:''};
+  if(!c.length || c[0].s<50) return {list:[], how:''};
   return {list:c.filter(y => y.s===c[0].s).map(y => y.name), how:'auto'};
 }
 /* 購買元が分かればその購買元の品目が合うもの。分からない時は COMPASS の画面と同じく 品目 が合うもの全部 (購買元順) */
