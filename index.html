@@ -186,7 +186,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .cp-dtl select{min-width:170px;max-width:260px;font-size:12px}
 .cp-dtl .cp-dq{width:60px;font-size:11.5px}
 .cp-dtl td.cp-dn{font-size:11.5px;line-height:1.5;min-width:160px}
-.bdg.cpk{cursor:pointer;font-size:10.5px}
+.bdg.cpk{cursor:pointer;font-size:7.4px;padding:0 3.5px;line-height:1.5;margin-left:auto;flex:none}   /* 今の 70% (10.5px → 7.4px) — ユーザー 2026-11-13 */
+.pkc{display:flex;align-items:center;gap:4px;text-align:left}
+.pkc .pkt{flex:1 1 auto;min-width:0}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-note{font-size:12px}
@@ -1274,7 +1276,8 @@ function cellHtml(col, b, a){
     return h || '<span class="muted">—</span>';
   }
   if(k==='packer' && !blank(v)){
-    let h = esc(v);
+    /* 文字は左、COMPASS 購買元 (英字) は右に小さく */
+    let h = '<span class="pkt">'+esc(v)+'</span>';
     /* dray_packer マスターの略称バッジは表に出さない (COMPASS と合っていない所が多く紛らわしい — ユーザー 2026-11-13)。
        マスターは B-05 照合・作業場検索では引き続き使う。列がない時 (COMPASS 購買元を使えない時) だけ従来どおり表示 */
     if(!S.hasCpk && S.masters.loaded && S.masters.packerShort.length){ const sh = packerShort(v);
@@ -1283,7 +1286,7 @@ function cellHtml(col, b, a){
     if(S.hasCpk){ const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), nm = o ? o.name : c && c.name;
       h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(nm)+(o && o.alt.length ? '（'+esc(o.alt[0])+'）' : '')+' — クリックで変更">'+esc(nm)+'</span>'
              : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
-    return h;
+    return '<div class="pkc">'+h+'</div>';
   }
   if(col.st){
     const o = statusOf(v);
