@@ -1275,7 +1275,9 @@ function cellHtml(col, b, a){
   }
   if(k==='packer' && !blank(v)){
     let h = esc(v);
-    if(S.masters.loaded && S.masters.packerShort.length){ const sh = packerShort(v);
+    /* dray_packer マスターの略称バッジは表に出さない (COMPASS と合っていない所が多く紛らわしい — ユーザー 2026-11-13)。
+       マスターは B-05 照合・作業場検索では引き続き使う。列がない時 (COMPASS 購買元を使えない時) だけ従来どおり表示 */
+    if(!S.hasCpk && S.masters.loaded && S.masters.packerShort.length){ const sh = packerShort(v);
       h += sh ? ' <span class="bdg m">'+esc(sh)+'</span>' : ' <span class="bdg w" title="dray_packer マスターで略称にできません">⚠</span>'; }
     /* COMPASS 購買元 (別の列 leenai_cpacker) — クリックで選ぶ */
     if(S.hasCpk){ const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), nm = o ? o.name : c && c.name;
