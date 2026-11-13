@@ -3109,19 +3109,21 @@ const DvCompass = {
     const rels = new Map((rel.value||[]).map(x=>[x.ReferencingAttribute, {target:x.ReferencedEntity, nav:x.ReferencingEntityNavigationPropertyName}]));
     return this._meta = {entity:ed, attrs:attrs, rels:rels};
   },
+  /* 一覧 (POL・POD・船社・販売CO …)。COMPASS は主の名前列が番号 (1, 10, 1000…) なので、表示名は cpNames で選んだ文字の列を使う */
   async options(entity, parentEntity){
     const ck = entity+'|'+(parentEntity||'');
     if(this._opts[ck]) return this._opts[ck];
-    const ed = await dvGet("EntityDefinitions(LogicalName='"+entity+"')?$select=EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute");
+    const N = await cpNames(entity);
     /* 親の一覧 (例: 販売CO の 販売先) を指す列 — あれば一緒に読んで絞り込みに使う */
-    let pa = null;
+    let pa = null, par = new Map();
     if(parentEntity){
-      try{ const rl = await dvGet("EntityDefinitions(LogicalName='"+entity+"')/ManyToOneRelationships?$select=ReferencingAttribute,ReferencedEntity");
-           const x = (rl.value||[]).find(y => y.ReferencedEntity===parentEntity); if(x) pa = x.ReferencingAttribute; }catch(e){}
+      const c = N.E.cols.find(x => x.rel && x.rel.target===parentEntity);
+      if(c){ pa = c.col;
+        try{ (await dvGetAll(N.set+'?$select='+N.E.entity.PrimaryIdAttribute+',_'+pa+'_value')).forEach(r => par.set(r[N.E.entity.PrimaryIdAttribute], r['_'+pa+'_value'] || null)); }catch(e){ pa = null; } }
     }
-    const sel = ed.EntitySetName+'?$select='+ed.PrimaryIdAttribute+','+ed.PrimaryNameAttribute+(pa ? ',_'+pa+'_value' : '')+'&$orderby='+ed.PrimaryNameAttribute;
-    let rows; try{ rows = await dvGetAll(sel+'&$filter=statecode eq 0'); }catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(sel); }
-    return this._opts[ck] = {set:ed.EntitySetName, parentAttr:pa, list:rows.map(r=>({id:r[ed.PrimaryIdAttribute], name:str(r[ed.PrimaryNameAttribute]), parent: pa ? r['_'+pa+'_value'] : null}))};
+    const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, parent:pa ? par.get(o.id) || null : null}))
+      .sort((x, y) => x.name.localeCompare(y.name, 'ja', {numeric:true}));
+    return this._opts[ck] = {set:N.set, parentAttr:pa, nameCol:N.colLabel, list:list};
   },
   async findByBookingNo(no){
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
@@ -3156,7 +3158,12 @@ const DvCompass = {
 };
 DvStore.compass = DvCompass;
 const DTL_NUM = new Set(['Integer','Decimal','Double','Money','BigInt']);
-async function cpEntMeta(logical){
+const _cpEM = new Map(), _cpNm = new Map();
+function cpEntMeta(logical){
+  if(!_cpEM.has(logical)){ const p = cpEntMetaLoad(logical); _cpEM.set(logical, p); p.catch(() => _cpEM.delete(logical)); }
+  return _cpEM.get(logical);
+}
+async function cpEntMetaLoad(logical){
   const base = "EntityDefinitions(LogicalName='"+logical+"')";
   const [ed, at, rel] = await Promise.all([
     dvGet(base+'?$select=LogicalName,EntitySetName,PrimaryIdAttribute,PrimaryNameAttribute'),
@@ -3165,6 +3172,35 @@ async function cpEntMeta(logical){
   const rels = new Map((rel.value||[]).map(x => [x.ReferencingAttribute, {target:x.ReferencedEntity, nav:x.ReferencingEntityNavigationPropertyName}]));
   return {entity:ed, cols:(at.value||[]).filter(x => !x.AttributeOf).map(x => ({col:x.LogicalName, type:x.AttributeType, createOk:x.IsValidForCreate!==false,
     label:(x.DisplayName && x.DisplayName.UserLocalizedLabel && x.DisplayName.UserLocalizedLabel.Label) || '', rel:rels.get(x.LogicalName) || null}))};
+}
+/* 一覧の表示名: COMPASS の主の名前列は番号だけ (1, 10, 1000…) なので、文字の列から「埋まっていて・重複が少なく・番号でない」列を選ぶ。
+   ほかの文字の列 (最大 3) も alt として名前合わせに使う */
+function cpNames(entity){
+  if(!_cpNm.has(entity)){ const p = cpNamesLoad(entity); _cpNm.set(entity, p); p.catch(() => _cpNm.delete(entity)); }
+  return _cpNm.get(entity);
+}
+async function cpNamesLoad(entity){
+  const E = await cpEntMeta(entity), pid = E.entity.PrimaryIdAttribute, pn = E.entity.PrimaryNameAttribute;
+  const strs = E.cols.filter(c => c.type==='String' && c.col!==pn && !/yomi|traversedpath|address|email|url|telephone|fax/i.test(c.col)).slice(0, 20).map(c => c.col);
+  const cols = [pn].concat(strs);
+  const sel = E.entity.EntitySetName+'?$select='+[pid].concat(cols).join(',');
+  let rows; try{ rows = await dvGetAll(sel+'&$filter=statecode eq 0'); }catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(sel); }
+  const isNum = v => /^[\d.,\-\s]+$/.test(v);
+  const lab = c => (E.cols.find(x => x.col===c) || {}).label || c;
+  const score = c => {
+    const v = rows.map(r => str(r[c]).trim()), f = v.filter(Boolean); if(!f.length) return -1;
+    const nn = f.filter(x => !isNum(x)).length / f.length; if(nn < 0.5) return -1;
+    return f.length/v.length*0.4 + new Set(f).size/f.length*0.3 + nn*0.3 + (/名|name|コード|code|CO|No/i.test(lab(c)) ? 0.1 : 0) + (c===pn ? 0.05 : 0);
+  };
+  const ranked = cols.map(c => ({c:c, s:score(c)})).filter(x => x.s>=0).sort((a, b) => b.s-a.s);
+  const best = ranked.length ? ranked[0].c : pn, alts = ranked.slice(1, 4).map(x => x.c);
+  const map = new Map(rows.map(r => [r[pid], {id:r[pid], name:str(r[best]).trim() || str(r[pn]), alt:alts.map(c => str(r[c]).trim()).filter(Boolean)}]));
+  return {E:E, set:E.entity.EntitySetName, col:best, colLabel:lab(best)+'（'+best+'）', map:map};
+}
+/* 一覧の列の値 (id) → 表示名 */
+async function cpNameOf(c){
+  if(!c || !c.rel) return null;
+  try{ const N = await cpNames(c.rel.target); return id => { const o = id && N.map.get(id); return o ? o.name : ''; }; }catch(e){ return null; }
 }
 /* 表示名で列を探す — kind: 'lk' 一覧 / 'num' 数値 / 'txt' 文字 */
 function cpCol(E, re, kind){
@@ -3180,28 +3216,32 @@ async function cpLoadItems(target, onlyRemain){
   const sc = c => c ? (c.rel ? '_'+c.col+'_value' : c.col) : null;
   const base = E.entity.EntitySetName+'?$select='+Array.from(new Set([pid, pn].concat(Object.values(C).map(sc)).filter(Boolean))).join(',');
   const tries = [];
-  if(onlyRemain && C.remain) tries.push('&$filter='+encodeURIComponent('statecode eq 0 and '+C.remain.col+' gt 0'));
+  if(onlyRemain && C.remain && !C.remain.calc) tries.push('&$filter='+encodeURIComponent('statecode eq 0 and '+C.remain.col+' gt 0'));
   tries.push('&$filter='+encodeURIComponent('statecode eq 0'), '');
   let rows;
   for(const t of tries){ try{ rows = await dvGetAll(base+t); break; }catch(e){ if(e.status!==400 || t==='') throw e; } }
   const FVK = '@OData.Community.Display.V1.FormattedValue';
-  const F = (r, c) => !c ? '' : c.rel ? str(r['_'+c.col+'_value'+FVK]) : str(r[c.col+FVK] || r[c.col]);
+  const nm = {item:await cpNameOf(C.item), co:await cpNameOf(C.co), party:await cpNameOf(C.party)};
+  const F = (r, c, k) => !c ? '' : c.rel ? ((nm[k] && nm[k](r['_'+c.col+'_value'])) || str(r['_'+c.col+'_value'+FVK])) : str(r[c.col+FVK] || r[c.col]);
   const N = (r, c) => c && r[c.col]!=null ? +r[c.col] : null;
-  const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item), co:F(r, C.co), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
-    party:F(r, C.party), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), unit:F(r, C.unit), note:F(r, C.note)}));
+  const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item, 'item'), co:F(r, C.co, 'co'), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
+    party:F(r, C.party, 'party'), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), unit:F(r, C.unit), note:F(r, C.note)}));
+  /* 残の列がない時は 重量 − 割当量 */
+  if(!C.remain && C.wt && C.alloc){ items.forEach(x => { if(x.wt!=null) x.remain = Math.round((x.wt - (x.alloc||0))*100)/100; }); C.remain = {label:C.wt.label+'−'+C.alloc.label, col:'calc', calc:true}; }
   /* 販売先・購買元がアイテムになく、契約 (CO) の方にある時は契約から引く */
   if(!C.party && C.co){
     try{
       const CE = await cpEntMeta(C.co.rel.target), pc = cpCol(CE, /販売先|購買元|仕入/, 'lk');
       if(pc){
         const cr = await dvGetAll(CE.entity.EntitySetName+'?$select='+CE.entity.PrimaryIdAttribute+',_'+pc.col+'_value');
-        const mp = new Map(cr.map(r => [r[CE.entity.PrimaryIdAttribute], str(r['_'+pc.col+'_value'+FVK])]));
+        const pn2 = await cpNameOf(pc);
+        const mp = new Map(cr.map(r => [r[CE.entity.PrimaryIdAttribute], (pn2 && pn2(r['_'+pc.col+'_value'])) || str(r['_'+pc.col+'_value'+FVK])]));
         items.forEach(x => { x.party = mp.get(x.coId) || ''; });
         C.party = Object.assign({via:C.co.label}, pc);
       }
     }catch(e){}
   }
-  return {target:target, set:E.entity.EntitySetName, cols:C, items:onlyRemain ? items.filter(x => x.remain==null || x.remain>0) : items};
+  return {target:target, set:E.entity.EntitySetName, cols:C, all:E.cols.filter(c => c.label).map(c => c.label+'（'+c.col+' '+c.type+'）'), items:onlyRemain ? items.filter(x => x.remain==null || x.remain>0) : items};
 }
 /* COMPASS への書き込みは cr49f_bookings の新規作成・決めた列だけ */
 function compassGuard(es, body, allowed){
@@ -3288,16 +3328,16 @@ function cpAliases(kind, key){
 function cpMatch(list, aliases){
   const res = [];
   list.forEach(o => {
-    const n = cpNorm(o.name); if(!n) return;
+    const ns = [o.name].concat(o.alt||[]).map(cpNorm).filter(Boolean); if(!ns.length) return;
     let s = 0, via = '';
-    aliases.forEach(a => {
+    ns.forEach(n => aliases.forEach(a => {
       let t = 0;
       if(n===a) t = 100;
       else if(a.length>=4 && (n.startsWith(a) || a.startsWith(n) && n.length>=4)) t = 80;
       else if(a.length>=4 && n.includes(a)) t = 60;
       else if(a.length>=3 && n.startsWith(a)) t = 40;
       if(t > s){ s = t; via = a; }
-    });
+    }));
     if(s) res.push({id:o.id, name:o.name, s:s, via:via});
   });
   return res.sort((x,y) => y.s-x.s || x.name.localeCompare(y.name));
@@ -3352,7 +3392,7 @@ async function compassCheck(b){
     if(!rel){ L.note = 'COMPASS に一覧の列がない → 送らない'; R.lookups.push(L); continue; }
     try{
       const o = await C.options(rel.target);
-      L.nav = rel.nav; L.set = o.set; L.list = o.list;
+      L.nav = rel.nav; L.set = o.set; L.list = o.list; L.nameCol = o.nameCol;
       const lr = !blank(key) && (learned[f.k]||{})[cpNorm(key)];
       const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
       L.cands = c.slice(0, 6);
@@ -3378,15 +3418,20 @@ async function compassCheck(b){
   ];
   const exIdx = {};
   for(const f of EX){
-    const col = findCol(f.re);
-    const L = {extra:true, kind:f.k, label:f.label, col:col || '（見つかりません）', key:f.key, show:f.show, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
+    const col = findCol(f.re), rel = col ? M.rels.get(col) : null;
+    let tgt = rel ? rel.target : null, viaCo = '';
+    /* ブッキングに 販売先 の列がない時: 販売CO の契約が持つ 販売先 を「絞り込み用」に使う (COMPASS には送らない) */
+    if(!tgt && f.k==='buyer' && C.demo!==true){
+      try{ const sc = findCol(/販売\s*CO|販売契約/i), CE = sc && await cpEntMeta(M.rels.get(sc).target), pc = CE && CE.cols.find(c => c.rel && /販売先/.test(c.label));
+           if(pc){ tgt = pc.rel.target; viaCo = pc.label; } }catch(e){}
+    }
+    const L = {extra:true, kind:f.k, label:f.label, col:col || (viaCo ? '（販売CO の「'+viaCo+'」— 絞り込み用・送らない）' : '（見つかりません）'), key:f.key, show:f.show, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
     exIdx[f.k] = R.lookups.length;
-    if(!col){ L.note = 'COMPASS に「'+f.label+'」の列が見つかりません'; R.lookups.push(L); continue; }
-    const rel = M.rels.get(col);
+    if(!tgt){ L.note = 'COMPASS に「'+f.label+'」の列が見つかりません'; R.lookups.push(L); continue; }
     try{
       const par = f.parent ? R.lookups[exIdx[f.parent]] : null;
-      const o = await C.options(rel.target, par && par.target);
-      L.nav = rel.nav; L.set = o.set; L.list = o.list; L.target = rel.target; L.hasParent = !!o.parentAttr;
+      const o = await C.options(tgt, par && par.target);
+      L.nav = rel ? rel.nav : null; L.set = o.set; L.list = o.list; L.target = tgt; L.hasParent = !!o.parentAttr; L.nameCol = o.nameCol;
       if(f.k==='saleco'){
         L.month = invMon; L.parentIdx = exIdx.buyer;
         const c = salecoCands(L, par ? par.sel : '');
@@ -3399,11 +3444,13 @@ async function compassCheck(b){
         else L.note = blank(f.key) ? '選んでください' : '選んでください — 次から「'+f.show+'」で自動';
       }
       L.auto = L.sel;
-      if(CFG.COMPASS_EXTRA_WRITE) R.allowed.add(rel.nav+'@odata.bind');
+      if(CFG.COMPASS_EXTRA_WRITE && rel) R.allowed.add(rel.nav+'@odata.bind');
     }catch(e){ L.note = '一覧を読めません（'+String(e.status || e.message || '')+'）'; }
     R.lookups.push(L);
   }
-  let amCol = null; M.attrs.forEach((a, k) => { if(!amCol && a.type==='Boolean' && /^\s*AM\s*$/i.test(a.label)) amCol = k; });
+  let amCol = null; M.attrs.forEach((a, k) => { if(!amCol && a.type==='Boolean' && /^\s*(AM|ＡＭ)(\s|カット|$)|午前/i.test(a.label)) amCol = k; });
+  /* 列が見つからない時に確かめられるよう、ブッキングの列を全部控えておく */
+  R.allCols = Array.from(M.attrs.entries()).filter(([k, a]) => !a.of && a.label!==k).map(([k, a]) => a.label+'（'+k+' '+a.type+'）');
   R.am = {col:amCol, val:cutAM(b)};
   if(amCol && CFG.COMPASS_EXTRA_WRITE) R.allowed.add(amCol);
   /* COMPASS 側で必須なのに B-06 から送らない列 */
@@ -3467,10 +3514,12 @@ function dtlSuppliers(D, r){
   if(!c.length || c[0].s<60) return {list:[], how:''};
   return {list:c.filter(y => y.s===c[0].s).map(y => y.name), how:'auto'};
 }
+/* 購買元が分かればその購買元の品目が合うもの。分からない時は COMPASS の画面と同じく 品目 が合うもの全部 (購買元順) */
 function dtlPurCands(D, r){
-  if(!r.sup.list.length) return [];
   const si = D.sale.items.find(x => x.id===r.sale), sn = si ? si.item : r.grade;
-  return dtlRank(D.purch.items.filter(x => r.sup.list.includes(x.party)), [cpNorm(sn), cpNorm(r.grade)]);
+  const w = [cpNorm(sn), cpNorm(r.grade)];
+  if(r.sup.list.length) return dtlRank(D.purch.items.filter(x => r.sup.list.includes(x.party)), w);
+  return D.purch.items.filter(x => dtlItemScore(x.item, w)>0).sort((p, q) => str(p.party).localeCompare(str(q.party)) || str(p.co).localeCompare(str(q.co)));
 }
 /* 手で選んでいない所だけ自動で選び直す (候補がちょうど 1 件の時だけ) */
 function dtlAuto(D, r, coId){
@@ -3480,7 +3529,8 @@ function dtlAuto(D, r, coId){
   }
   if(r.howP!=='man'){
     const c = dtlPurCands(D, r);
-    r.pur = c.length===1 ? c[0].id : ''; r.howP = c.length===1 ? 'auto' : '';
+    const one = c.length===1 && r.sup.list.length;   /* 購買元が分からない時は自動で選ばない */
+    r.pur = one ? c[0].id : ''; r.howP = one ? 'auto' : '';
   }
   r.wt = Math.round(r.hon * D.ton * 100) / 100;
 }
@@ -3511,7 +3561,7 @@ function dtlNotes(D){
   return D.rows.map(r => {
     const out = [], si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     out.push('販売 '+(si ? how(r.howS) : '<span class="bdg w">選択</span> '+(r.grade ? '品目「'+esc(r.grade)+'」' : '')));
-    out.push('購買元 '+(r.sup.list.length ? how(r.sup.how)+' '+esc(r.sup.list.join(' / ')) : '<span class="bdg w">⚠</span> 見つかりません（「'+esc(r.packer)+'」）'));
+    out.push('購買元 '+(r.sup.list.length ? how(r.sup.how)+' '+esc(r.sup.list.join(' / ')) : '<span class="bdg w">⚠</span> 見つかりません（「'+esc(r.packer)+'」— 品目が合う購買を全部候補に出しています。🔍 で購買元を絞ってください）'));
     out.push('購買 '+(pi ? how(r.howP) : '<span class="bdg w">選択</span>'));
     if(si && si.remain!=null && use.S.get(si.id) > si.remain) out.push('<span class="bdg w">⚠</span> 販売の残 '+dtlNum(si.remain)+' を超えます（計 '+dtlNum(use.S.get(si.id))+'）');
     if(pi && pi.remain!=null && use.P.get(pi.id) > pi.remain) out.push('<span class="bdg w">⚠</span> 購買の残 '+dtlNum(pi.remain)+' を超えます（計 '+dtlNum(use.P.get(pi.id))+'）');
@@ -3526,6 +3576,7 @@ function dtlHtml(D, coId){
     + cl(D.cols.purch, '購買')+' → '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件）・'+cl(D.cols.item, '品目')+'・'+cl(D.cols.hon, '本数')+'・'+cl(D.cols.wt, '重量')
     + '<br>アイテムの列: 販売 ['+['item','co','party','remain'].map(k => cl(D.sale.cols[k], {item:'品目',co:'CO',party:'販売先',remain:'残'}[k])).join(' ')+'] 購買 ['
     + ['item','co','party','remain'].map(k => cl(D.purch.cols[k], {item:'品目',co:'CO',party:'購買元',remain:'残'}[k])).join(' ')+']</div>';
+  if(D.sale.all) h += '<details style="font-size:11px" class="muted"><summary>販売・購買アイテムの列（確認用）</summary>販売 '+esc(D.sale.set)+': '+esc(D.sale.all.join('、'))+'<br>購買 '+esc(D.purch.set)+': '+esc(D.purch.all.join('、'))+'</details>';
   h += '<div class="muted" style="margin:6px 0;font-size:11.5px">予想重量 = 本数 × '+D.ton+' t（すべての品目で固定）</div>';
   if(!D.rows.length) return h + '<div class="muted">Packer 行がありません</div>';
   h += '<table class="b6-s cp-dtl"><tr><th>Packer / Grade</th><th>本数</th><th>販売（品目 | 販売CO | 販売先 | 残）</th><th>購買（品目 | 購買CO | 購買元 | 残）</th><th>予想重量</th><th>メモ</th></tr>';
@@ -3569,10 +3620,11 @@ async function openCompass(b){
       : '<span class="muted">—</span>';
     const badge = L.how==='learn' ? '<span class="bdg o">記憶</span> ' : L.how==='auto' ? '<span class="bdg o">自動</span> ' : L.list.length && !blank(L.key) ? '<span class="bdg w">選択</span> ' : '';
     const need = L.list.length && !L.sel && (L.extra || !blank(L.key));
-    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+'</div></td><td>'+esc(L.extra ? L.show : L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+(L.extra && !L.how && L.list.length ? '<span class="bdg w">選択</span> ' : badge)+esc(L.note)+'</td></tr>';
+    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+(L.nameCol ? '<br>名前＝'+esc(L.nameCol) : '')+'</div></td><td>'+esc(L.extra ? L.show : L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+(L.extra && !L.how && L.list.length ? '<span class="bdg w">選択</span> ' : badge)+esc(L.note)+'</td></tr>';
   });
   if(R.am) h += '<tr><td>AM<div class="muted" style="font-size:11px">'+esc(R.am.col || '（見つかりません）')+'</div></td><td>Cut '+(R.am.val ? '<b>AM</b>' : '—')+'</td><td>'+(R.am.col ? '<label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> AM（午前カット）</label>' : '<span class="muted">—</span>')+'</td><td class="cp-note">'+(R.am.col ? 'B-06 の Cut の AM から' : 'COMPASS に「AM」の列が見つかりません')+'</td></tr>';
   h += '</table><div class="muted" style="font-size:11.5px;margin-top:6px">POL・POD・船社・販売先・乙仲・海上運賃区分を手で選ぶと、その対応を覚えて次から自動で選びます（チームで共有）。販売CO は選んだ販売先と Invoice の年月で絞り込みます。</div>';
+  if(R.allCols) h += '<details style="margin-top:4px;font-size:11px" class="muted"><summary>COMPASS ブッキングの列（'+R.allCols.length+'）— 見つからない列の確認用</summary>'+esc(R.allCols.join('、'))+'</details>';
   const scI = R.lookups.findIndex(L => L.kind==='saleco');
   const coSel = el => { const s = scI>=0 && el.querySelector('.cp-pick[data-i="'+scI+'"]'); return s ? s.value : ''; };
   h += '<div class="cp-dtlw">'+dtlHtml(R.dtl, scI>=0 ? R.lookups[scI].sel : '')+'</div>';
