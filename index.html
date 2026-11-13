@@ -1278,8 +1278,8 @@ function cellHtml(col, b, a){
     if(S.masters.loaded && S.masters.packerShort.length){ const sh = packerShort(v);
       h += sh ? ' <span class="bdg m">'+esc(sh)+'</span>' : ' <span class="bdg w" title="dray_packer マスターで略称にできません">⚠</span>'; }
     /* COMPASS 購買元 (別の列 leenai_cpacker) — クリックで選ぶ */
-    if(S.hasCpk){ const c = cpkOf(a);
-      h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(c.name)+' — クリックで変更">'+esc(c.name)+'</span>'
+    if(S.hasCpk){ const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), nm = o ? o.name : c && c.name;
+      h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(nm)+(o && o.alt.length ? '（'+esc(o.alt[0])+'）' : '')+' — クリックで変更">'+esc(nm)+'</span>'
              : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
     return h;
   }
@@ -2259,6 +2259,10 @@ const CPK_ENT = 'cr49f_packer';
 async function detectCpk(){
   try{ await dvGet(CFG.ES_ASG+'?$select=leenai_cpacker&$top=1'); setHasCpk(true); }
   catch(e){ S.cpkErr = String(e.message||'').slice(0,200); setHasCpk(false); }
+}
+/* 表のバッジ用: COMPASS の購買元の今の名前 (英字)。保存してある名前より優先 */
+function cpkLoadNames(){
+  cpkList().then(list => { S.cpkName = new Map(list.map(o => [o.id, o])); if(S.ready) renderBoard(); }).catch(() => {});
 }
 function setHasCpk(v){
   S.hasCpk = v;
@@ -3378,6 +3382,7 @@ const CP_NAME_DEF = {
   crcf9_customs:[/^乙仲$/, /^区分$/, /^通関料$/],                         /* 例 O.T.K|0|¥7,000 */
   crcf9_carrier_cost:[/^\$\s*\/\s*コンテナ/, /^[¥￥]\s*\/\s*コンテナ/, /^[¥￥]\s*\/\s*BL/i],   /* 例 $600|¥1500|¥4000 */
   cr49f_sale_contract:[/販売契約番号/], cr49f_purchase_contract:[/購買契約番号/], cr49f_item:[/^品目$/],
+  cr49f_packer:[/^(購買元|略称)$/],                                       /* 英字 (SANNO・FUJI・OOMOTO) — 名称 (株式会社…) は名前合わせに使う */
 };
 /* hint: 名前に使いたい列の表示名 (例 乙仲 — 「海運貨物取扱業者」の 乙仲 列を名前に、金額の列を後ろにつなぐ)。
    port: 搬入港 (港) の列 — 直接の文字の列、または 港・乙仲・業者 の一覧の列の先の 搬入港 (乙仲を POL で絞るのに使う) */
@@ -4914,6 +4919,7 @@ async function startTool(){
   try{ await detectFmt(); }catch(e){ S.hasFmt = false; }
   try{ await detectQty(); }catch(e){ setHasQty(false); }
   try{ await detectCpk(); }catch(e){ setHasCpk(false); }
+  if(S.hasCpk) cpkLoadNames();
   await loadBoard();
   await restoreMemo();
 }
@@ -4935,7 +4941,7 @@ function startDemo(){
   $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
   S.store = buildDemoStore();
   S.store.compass = makeMemCompass();
-  setHasFmt(true); setHasQty(true); setHasCpk(true);
+  setHasFmt(true); setHasQty(true); setHasCpk(true); cpkLoadNames();
   $('#demo-other').addEventListener('click', () => {
     const vis = visibleBookings().filter(b=>!b.deleted);
     if(!vis.length) return;
