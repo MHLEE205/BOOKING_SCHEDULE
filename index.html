@@ -186,6 +186,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .cp-dtl select{min-width:170px;max-width:260px;font-size:12px}
 .cp-dtl .cp-dq{width:60px;font-size:11.5px}
 .cp-dtl td.cp-dn{font-size:11.5px;line-height:1.5;min-width:160px}
+.bdg.cpk{cursor:pointer;font-size:10.5px}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-note{font-size:12px}
@@ -1272,9 +1273,15 @@ function cellHtml(col, b, a){
     if(a.totalhon!=null && a.totalhon!=='') h += ' <span class="bdg m">計'+esc(a.totalhon)+'</span>';
     return h || '<span class="muted">—</span>';
   }
-  if(k==='packer' && !blank(v) && S.masters.loaded && S.masters.packerShort.length){
-    const sh = packerShort(v);
-    return esc(v) + (sh ? ' <span class="bdg m">'+esc(sh)+'</span>' : ' <span class="bdg w" title="dray_packer マスターで略称にできません">⚠</span>');
+  if(k==='packer' && !blank(v)){
+    let h = esc(v);
+    if(S.masters.loaded && S.masters.packerShort.length){ const sh = packerShort(v);
+      h += sh ? ' <span class="bdg m">'+esc(sh)+'</span>' : ' <span class="bdg w" title="dray_packer マスターで略称にできません">⚠</span>'; }
+    /* COMPASS 購買元 (別の列 leenai_cpacker) — クリックで選ぶ */
+    if(S.hasCpk){ const c = cpkOf(a);
+      h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(c.name)+' — クリックで変更">'+esc(c.name)+'</span>'
+             : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
+    return h;
   }
   if(col.st){
     const o = statusOf(v);
@@ -1806,6 +1813,7 @@ async function loadBoard(retried){
   }catch(e){
     if(isFmtErr(e) && S.hasFmt && retried!==true){ LEENAI.loading.hide(); fmtFallback(e); return loadBoard(true); }
     if(isQtyErr(e) && S.hasQty && retried!==true){ LEENAI.loading.hide(); qtyFallback(e); return loadBoard(true); }
+    if(isCpkErr(e) && S.hasCpk && retried!==true){ LEENAI.loading.hide(); cpkFallback(e); return loadBoard(true); }
     toast('読込エラー: '+e.message.slice(0,120), 'danger');
     $('#b6-board').innerHTML = '<div class="b6-empty">読込に失敗しました: '+esc(e.message)+'<br>⚙ 診断 でテーブル・権限を確認してください。</div>';
   }finally{ LEENAI.loading.hide(); }
@@ -1855,7 +1863,7 @@ async function refreshTick(){
     else await applyChanges(ch);
     updSync();
     if(ch.B && ch.B.length) loadBkHist();
-  }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); if(isQtyErr(e) && S.hasQty) qtyFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
+  }catch(e){ if(isFmtErr(e) && S.hasFmt) fmtFallback(e); if(isQtyErr(e) && S.hasQty) qtyFallback(e); if(isCpkErr(e) && S.hasCpk) cpkFallback(e); /* それ以外の一時的な失敗は次回に再試行 */ }
   finally{ S.refreshing = false; }
 }
 function mergeChanges(p, ch){ if(!p) return ch; return {B:p.B.concat(ch.B), A:p.A.concat(ch.A)}; }
@@ -1931,6 +1939,11 @@ async function saveBooking(b, patch, cellKey){
   renderBoard();
 }
 async function saveAsg(b, a, patch, cellKey){
+  /* Packer の文字を変えたら COMPASS 購買元も合わせる: 同じ表記の行がつながっていればそれ、なければ空 (違う会社のままにしない) */
+  if(S.hasCpk && 'packer' in patch && !('cpacker' in patch) && pkKey(patch.packer)!==pkKey(a.packer)){
+    const sib = pkRows(patch.packer).find(x => x.a!==a && cpkOf(x.a));
+    patch = Object.assign({}, patch, {cpacker: sib ? sib.a.cpacker : ''});
+  }
   const prev = {}; Object.keys(patch).forEach(k => prev[k] = a[k]);
   Object.assign(a, patch); a.name = asName(b, a);
   const fields = Object.keys(patch).concat(['name']);
@@ -2238,6 +2251,159 @@ async function fillQtyFromCarrier(){
     }}]);
 }
 
+/* ══════════ Packer ↔ COMPASS 購買元 の連結 (2026-11-13 ユーザーと決めた形) ══════════
+   Packer の文字 (工場名つき — B-05・作業場で使う) はそのまま残し、COMPASS の購買元 (cr49f_packer) を別の列 leenai_cpacker に「ID|名前」で持つ。
+   「この Packer の表記 = この会社」は変わらないので、同じ表記の行は同じ購買元にする (契約はブッキングごとに選ぶ — 覚えない)。
+   dray_packer マスターは使わない (COMPASS と合っていない所が多い — 後で一括整理の予定) */
+const CPK_ENT = 'cr49f_packer';
+async function detectCpk(){
+  try{ await dvGet(CFG.ES_ASG+'?$select=leenai_cpacker&$top=1'); setHasCpk(true); }
+  catch(e){ S.cpkErr = String(e.message||'').slice(0,200); setHasCpk(false); }
+}
+function setHasCpk(v){
+  S.hasCpk = v;
+  const i = AS_FIELDS.indexOf('cpacker'); if(v && i<0) AS_FIELDS.push('cpacker'); if(!v && i>=0) AS_FIELDS.splice(i, 1);
+}
+function isCpkErr(e){ return !!(e && /leenai_cpacker/.test(String(e.message||''))); }
+function cpkFallback(e){
+  setHasCpk(false); S.cpkErr = String(e.message||'').slice(0,200);
+  toast('COMPASS 購買元の列がまだ使えないため、なしで表示します（数分後に再読み込みしてください）', 'warn');
+}
+const cpkOf = a => { const s = str(a && a.cpacker); if(!s) return null; const i = s.indexOf('|'); return i<0 ? {id:s, name:''} : {id:s.slice(0, i), name:s.slice(i+1)}; };
+const pkKey = t => str(t).replace(/\s+/g, ' ').trim();
+/* 診断から: B-06 Packer 行テーブルに 1 列を作って公開 */
+async function createCpkColumn(){
+  if(!confirm('B-06 Packer 行テーブル ('+CFG.LN_ASG+') に「COMPASS 購買元 (leenai_cpacker・テキスト 200)」の列を作成し（既にあれば作成しません）、このテーブルを公開 (Publish) します。よろしいですか？')) return;
+  let lang = 1041; try{ lang = (await dvGet('organizations?$select=languagecode')).value[0].languagecode || 1041; }catch(e){}
+  const L = t => ({'@odata.type':'Microsoft.Dynamics.CRM.Label', LocalizedLabels:[{'@odata.type':'Microsoft.Dynamics.CRM.LocalizedLabel', Label:t, LanguageCode:lang}]});
+  const req = {Value:'None', CanBeChanged:true, ManagedPropertyLogicalName:'canmodifyrequirementlevelsettings'};
+  const base = "EntityDefinitions(LogicalName='"+CFG.LN_ASG+"')", res = [];
+  const exists = await dvGet(base+"/Attributes?$select=LogicalName&$filter=LogicalName eq 'leenai_cpacker'").then(r => (r.value||[]).length>0, () => false);
+  if(exists) res.push('leenai_cpacker: 既にあります');
+  else {
+    try{ await dvFetch(base+'/Attributes', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({'@odata.type':'Microsoft.Dynamics.CRM.StringAttributeMetadata', SchemaName:'leenai_cpacker', MaxLength:200, FormatName:{Value:'Text'}, RequiredLevel:req, DisplayName:L('COMPASS 購買元'), Description:L('B-06: COMPASS の購買元 (cr49f_packer) の「ID|名前」')})}); res.push('leenai_cpacker: 作成しました'); }
+    catch(e){ res.push('leenai_cpacker: 失敗 — '+e.message.slice(0,200)); }
+  }
+  try{ await dvFetch('PublishXml', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ParameterXml:'<importexportxml><entities><entity>'+CFG.LN_ASG+'</entity></entities></importexportxml>'})}); res.push('公開 (Publish): 完了'); }
+  catch(e){ res.push('公開 (Publish): 失敗 — '+e.message.slice(0,200)); }
+  modal('COMPASS 購買元の列', res.map(s => '<div>'+esc(s)+'</div>').join('')+'<div class="muted" style="margin-top:8px">作成できたらページを再読み込みし、診断の「Packer を COMPASS 購買元に一括で連結」で既存の行をつないでください。</div>', [{label:'再読み込み', pri:true, fn:()=>location.reload()},{label:'閉じる', fn:c=>c()}]);
+}
+/* COMPASS の購買元一覧 {id, name, alt} (読み取りのみ) */
+async function cpkList(){
+  const C = S.store.compass;
+  if(C.packers) return C.packers();
+  const N = await cpNames(CPK_ENT);
+  return Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt || []})).sort((x, y) => x.name.localeCompare(y.name, 'ja'));
+}
+/* Packer の表記 → 購買元の候補 (点数順)。表記全体・先頭の名前・かなのローマ字で、購買元の名前とほかの名前の列に合わせる */
+function cpkSuggest(list, text){
+  const head = pkKey(text).split(/[\s(（・\/]/)[0], al = [text, head];
+  al.slice().forEach(a => al.push(...kanaRomaji(a)));
+  return cpMatch(list, Array.from(new Set(al.map(cpNorm).filter(Boolean))));
+}
+/* 同じ表記の行 (今読み込んでいる全ブッキング) */
+function pkRows(text){
+  const k = pkKey(text), out = [];
+  S.bk.forEach(b => { if(b.deleted) return; b.rows.forEach(a => { if(!a.deleted && pkKey(a.packer)===k) out.push({b:b, a:a}); }); });
+  return out;
+}
+async function cpkApply(items, val, label){
+  let ok = 0, ng = 0;
+  LEENAI.loading.show(label+' 0 / '+items.length);
+  await pool(items, 4, async x => {
+    const prev = x.a.cpacker;
+    try{ x.a.cpacker = val; const saved = await S.store.update('A', x.a, ['cpacker']); x.a.etag = saved.etag; x.a.modifiedon = saved.modifiedon; ok++; }
+    catch(e){ x.a.cpacker = prev; ng++; }
+    LEENAI.loading.update(label+' '+(ok+ng)+' / '+items.length);
+  });
+  LEENAI.loading.hide();
+  toast('COMPASS 購買元: '+ok+' 行'+(ng ? '・失敗 '+ng+' 行' : ''), ng ? 'warn' : 'ok');
+  renderBoard();
+}
+/* 1 行の Packer セルの 🔗 から: 購買元を選ぶ (同じ表記の行すべてにも) */
+async function openCpkPick(b, a){
+  if(!S.hasCpk){ toast('COMPASS 購買元の列 (leenai_cpacker) がまだありません。⚙ 診断 →「列を作成・公開」を押してください', 'warn'); return; }
+  let list; try{ toast('COMPASS の購買元を読んでいます（読み取りのみ）…', 'info'); list = await cpkList(); }
+  catch(e){ toast('COMPASS の購買元を読めません: '+e.message.slice(0,120), 'danger'); return; }
+  const cur = cpkOf(a), same = pkRows(a.packer), sug = cpkSuggest(list, a.packer).slice(0, 8);
+  const sugIds = new Set(sug.map(x => x.id));
+  const op = o => '<option value="'+esc(o.id)+'"'+(cur && cur.id===o.id ? ' selected' : '')+'>'+esc(o.name)+(o.alt && o.alt.length ? '　（'+esc(o.alt.slice(0, 2).join(' / '))+'）' : '')+'</option>';
+  const h = '<div>Packer: <b>'+esc(a.packer || '（空）')+'</b>　<span class="muted">'+esc(bkLabel(b))+'</span></div>'
+    + '<div style="margin:8px 0;display:flex;gap:6px"><select id="cpk-sel" class="b6-sel" size="12" style="min-width:420px"><option value="">— つながない（解除） —</option>'
+    + (sug.length ? '<optgroup label="候補">'+sug.map(s => op(list.find(o => o.id===s.id))).join('')+'</optgroup>' : '')
+    + '<optgroup label="COMPASS の購買元（'+list.length+'）">'+list.filter(o => !sugIds.has(o.id)).map(op).join('')+'</optgroup></select>'
+    + '<input id="cpk-q" class="b6-in" placeholder="🔍 絞り込み" style="width:140px;height:28px"></div>'
+    + '<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="cpk-all" checked> 同じ表記「'+esc(pkKey(a.packer))+'」の行すべて（'+same.length+' 行）にも入れる</label>'
+    + '<div class="muted" style="font-size:11.5px;margin-top:6px">COMPASS の購買元 (読み取りのみ) から選びます。Packer の文字はそのまま残ります。</div>';
+  const m = modal('🔗 COMPASS 購買元 — '+esc(a.packer || ''), h, [
+    {label:'キャンセル', fn:c=>c()},
+    {label:'保存', pri:true, fn:async c=>{
+      const id = m.el.querySelector('#cpk-sel').value, o = list.find(x => x.id===id);
+      const val = o ? o.id+'|'+o.name : '';
+      const items = m.el.querySelector('#cpk-all').checked ? same : [{b:b, a:a}];
+      c(); await cpkApply(items.filter(x => str(x.a.cpacker)!==val), val, 'COMPASS 購買元を保存中…');
+    }}], true);
+  m.el.querySelector('#cpk-q').addEventListener('input', ev => {
+    const n = cpNorm(ev.target.value), s = m.el.querySelector('#cpk-sel');
+    Array.from(s.options).forEach(o => { if(o.value) o.hidden = !!n && !cpNorm(o.textContent).includes(n); });
+  });
+}
+/* 診断から: Packer の表記ごとに COMPASS 購買元を選んで一括で連結 */
+async function openCpkBulk(){
+  if(!S.hasCpk){ toast('COMPASS 購買元の列 (leenai_cpacker) がまだありません。先に「列を作成・公開」を押してください', 'warn'); return; }
+  let list; try{ LEENAI.loading.show('COMPASS の購買元を読んでいます（読み取りのみ）…'); list = await cpkList(); }
+  catch(e){ LEENAI.loading.hide(); toast('COMPASS の購買元を読めません: '+e.message.slice(0,120), 'danger'); return; }
+  LEENAI.loading.hide();
+  const G = new Map();
+  S.bk.forEach(b => { if(b.deleted) return; b.rows.forEach(a => { if(a.deleted || blank(a.packer)) return;
+    const k = pkKey(a.packer); const g = G.get(k) || {text:k, rows:[], links:new Map()}; g.rows.push({b:b, a:a});
+    const c = cpkOf(a); const lk = c ? c.id : ''; g.links.set(lk, (g.links.get(lk)||0)+1); G.set(k, g); }); });
+  const groups = Array.from(G.values()).sort((x, y) => y.rows.length - x.rows.length);
+  groups.forEach(g => {
+    const linked = Array.from(g.links.keys()).filter(Boolean);
+    g.cur = linked.length===1 ? linked[0] : '';
+    g.mixed = linked.length>1 || (linked.length===1 && g.links.has(''));
+    const s = cpkSuggest(list, g.text); g.sug = s.slice(0, 5);
+    g.pick = g.cur || (s[0] && s[0].s>=80 && !(s[1] && s[1].s===s[0].s) ? s[0].id : '');
+    g.auto = !g.cur && !!g.pick;
+  });
+  const nm = id => (list.find(o => o.id===id) || {}).name || '';
+  const opts = g => { const ids = new Set(g.sug.map(x => x.id));
+    return '<option value="">— つながない —</option>' + (g.sug.length ? '<optgroup label="候補">'+g.sug.map(x => '<option value="'+esc(x.id)+'"'+(x.id===g.pick?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</optgroup>' : '')
+      + '<optgroup label="すべて">'+list.filter(o => !ids.has(o.id)).map(o => '<option value="'+esc(o.id)+'"'+(o.id===g.pick?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</optgroup>'; };
+  const done = groups.filter(g => g.cur && !g.mixed).length;
+  let h = '<div class="muted" style="font-size:12px;margin-bottom:6px">B-06 の Packer の表記ごとに、COMPASS の購買元（読み取り — '+list.length+' 件）を選んでください。保存すると、その表記の行すべてに入ります。Packer の文字は変えません。<br>'
+    + '連結済み '+done+' / '+groups.length+' 表記。<span class="bdg o">自動</span> は名前がはっきり合ったもの（確認してください）。dray_packer マスターは使いません。</div>';
+  h += '<div style="margin-bottom:6px"><label><input type="checkbox" id="cpk-only"> まだつながっていない表記だけ表示</label></div>';
+  h += '<table class="b6-s" id="cpk-t"><tr><th>B-06 の Packer 表記</th><th>行</th><th>COMPASS 購買元</th><th></th></tr>'
+    + groups.map((g, i) => '<tr data-i="'+i+'"'+(g.cur && !g.mixed ? ' class="cpk-done"' : '')+'><td>'+esc(g.text)+'</td><td style="text-align:right">'+g.rows.length+'</td>'
+      + '<td><div class="cp-lk"><select class="b6-sel cpk-g" data-i="'+i+'" style="max-width:280px">'+opts(g)+'</select><input class="b6-in cpk-gq" data-i="'+i+'" placeholder="🔍" style="width:70px"></div></td>'
+      + '<td style="font-size:11.5px">'+(g.cur ? (g.mixed ? '<span class="bdg w">一部だけ</span> ' : '<span class="bdg o">連結済み</span> ')+esc(nm(g.cur)) : g.auto ? '<span class="bdg o">自動</span>' : g.sug.length ? '<span class="bdg w">選択</span>' : '<span class="muted">候補なし</span>')+'</td></tr>').join('')
+    + '</table>';
+  const m = modal('🔗 Packer を COMPASS 購買元に一括で連結', h, [
+    {label:'閉じる', fn:c=>c()},
+    {label:'保存', pri:true, fn:async c=>{
+      const items = [];
+      $$('.cpk-g', m.el).forEach(s => { const g = groups[+s.dataset.i], id = s.value, val = id ? id+'|'+nm(id) : '';
+        if(!id && !g.cur) return;   /* 選んでいない・もともと空 → そのまま */
+        g.rows.forEach(x => { if(str(x.a.cpacker)!==val) items.push(x); x._v = val; }); });
+      if(!items.length){ toast('変更はありません', 'info'); return; }
+      if(!confirm(items.length+' 行の COMPASS 購買元を保存します。よろしいですか？')) return;
+      c();
+      let ok = 0, ng = 0;
+      LEENAI.loading.show('COMPASS 購買元を保存中… 0 / '+items.length);
+      await pool(items, 4, async x => { const prev = x.a.cpacker;
+        try{ x.a.cpacker = x._v; const sv = await S.store.update('A', x.a, ['cpacker']); x.a.etag = sv.etag; x.a.modifiedon = sv.modifiedon; ok++; }catch(e){ x.a.cpacker = prev; ng++; }
+        LEENAI.loading.update('COMPASS 購買元を保存中… '+(ok+ng)+' / '+items.length); });
+      LEENAI.loading.hide(); toast('COMPASS 購買元: '+ok+' 行'+(ng ? '・失敗 '+ng+' 行' : ''), ng ? 'warn' : 'ok'); renderBoard();
+    }}], true);
+  m.el.addEventListener('input', ev => { const q = ev.target.closest('.cpk-gq'); if(!q) return;
+    const s = m.el.querySelector('.cpk-g[data-i="'+q.dataset.i+'"]'), n = cpNorm(q.value);
+    Array.from(s.options).forEach(o => { if(o.value) o.hidden = !!n && !cpNorm(o.textContent).includes(n); });
+    const f = Array.from(s.options).find(o => o.value && !o.hidden); if(n && f) s.value = f.value; });
+  m.el.addEventListener('change', ev => { if(ev.target.id!=='cpk-only') return;
+    $$('#cpk-t tr.cpk-done', m.el).forEach(tr => { tr.style.display = ev.target.checked ? 'none' : ''; }); });
+}
 /* 書式の列があるか (なければ読み書きの $select に含めない) */
 async function detectFmt(){
   /* 実際の読み書きと同じデータ API で 1 件読めるかで判定 (メタデータの個別取得は環境により 404 になるため) */
@@ -3328,8 +3494,8 @@ async function cpLoadItems(target, onlyRemain){
         const cr = await dvGetAll(CE.entity.EntitySetName+'?$select='+CE.entity.PrimaryIdAttribute+',_'+pc.col+'_value');
         let N2 = null; try{ N2 = await cpNames(pc.rel.target); }catch(e){}
         const mp = new Map(cr.map(r => { const id = r['_'+pc.col+'_value'], o = N2 && N2.map.get(id);
-          return [r[CE.entity.PrimaryIdAttribute], {name:(o && o.name) || str(r['_'+pc.col+'_value'+FVK]), alt:o ? o.alt : []}]; }));
-        items.forEach(x => { const o = mp.get(x.coId); x.party = o ? o.name : ''; x.partyAlt = o ? o.alt : []; });
+          return [r[CE.entity.PrimaryIdAttribute], {id:id, name:(o && o.name) || str(r['_'+pc.col+'_value'+FVK]), alt:o ? o.alt : []}]; }));
+        items.forEach(x => { const o = mp.get(x.coId); x.party = o ? o.name : ''; x.partyId = o ? o.id : null; x.partyAlt = o ? o.alt : []; });
         C.party = Object.assign({via:C.co.label}, pc);
       }
     }catch(e){}
@@ -3372,7 +3538,7 @@ function makeMemCompass(){
     party:opts.demo_buyer.list.find(x => x.id===co.parent).name, remain:[55, 120, 0][k], alloc:[1445, 380, 500][k], wt:[1500, 500, 500][k], unit:'$192', note:'', tol:'+-10%'})));
   const purItems = [['OCC','SAMPLE','LR-2610SA1',23],['OCC','SAMPLE','LR-2611SA1',69],['ONP','SAMPLE','LR-2611SA2',46],['OCC','TEST','LR-2611TE1',92],
     ['MIX','TEST','LR-2611TE2',23],['OCC','デモ再生','LR-2611DS1',46],['SOP','デモ再生','LR-2611DS2',23],['OCC','みほん商事','LR-2611MH1',10],['ONP','レイ紙材','LR-2611RE1',115]]
-    .map(([it, p, co, r]) => ({id:uuid(), name:String(pid++), item:it, co:co, coId:co, party:p, remain:r, alloc:0, wt:r, unit:'¥15.0', note:''}));
+    .map(([it, p, co, r]) => ({id:uuid(), name:String(pid++), item:it, co:co, coId:co, party:p, partyId:'PK-'+p, remain:r, alloc:0, wt:r, unit:'¥15.0', note:''}));
   const dcol = (col, label) => ({col:col, label:label});
   const dtl = {ent:'cr49f_booking_detail', set:'cr49f_booking_details',
     cols:{sale:Object.assign(dcol('cr49f_sale_contract_detail_id','販売CO明細'), {rel:{target:'demo_sale_item'}}), purch:Object.assign(dcol('cr49f_purchase_contract_detail_id','購買CO明細'), {rel:{target:'demo_pur_item'}}),
@@ -3382,6 +3548,7 @@ function makeMemCompass(){
   return {
     demo:true,
     async details(){ return dtl; },
+    async packers(){ return ['SAMPLE','TEST','デモ再生','みほん商事','レイ紙材','ナゾ紙業'].map(n => ({id:'PK-'+n, name:n, alt:[]})); },
     async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
     async options(entity){ return opts[entity]; },
     async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
@@ -3600,8 +3767,8 @@ async function dtlLoad(R, b){
   catch(e){ return {err:'明細の一覧を読めません: '+String(e.message || e.status || e).slice(0, 300)}; }
   D.ton = CFG.COMPASS_TON_PER_HON;
   const seen = new Set(); D.parties = [];
-  D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, alt:x.partyAlt || []}); } });
-  D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), hon:+a.totalhon||0,
+  D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, pid:x.partyId || null, alt:x.partyAlt || []}); } });
+  D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), hon:+a.totalhon||0, cpk:cpkOf(a),
     sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0}));
   const sc = R.lookups.find(L => L.kind==='saleco');
   D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); dtlAuto(D, r, sc ? sc.sel : ''); });
@@ -3642,6 +3809,9 @@ function kanaRomaji(s){
 }
 /* Packer → 購買元: COMPASS の購買元 (購買契約の 購買元ID の先) と名前が近いもの */
 function dtlSuppliers(D, r){
+  /* Packer 行に COMPASS 購買元がつながっていればそれ (推測しない) */
+  if(r.cpk){ const hit = D.parties.filter(p => (p.pid && p.pid===r.cpk.id) || (!p.pid && p.name===r.cpk.name)).map(p => p.name);
+    return {list:hit.length ? hit : [r.cpk.name], how:'link'}; }
   if(!r.packer) return {list:[], how:''};
   /* COMPASS の購買元だけで合わせる (dray_packer マスターは使わない — COMPASS と合っていない所が多く、後で一括整理する予定: ユーザー 2026-11-13)
      Packer の表記 (「兼子 船橋」「東京紙(川鈴)」→ 先頭の名前も)・かなのローマ字 (ふじ → FUJI) を、購買元の名前とほかの名前の列に合わせる */
@@ -3723,7 +3893,7 @@ function dtlHtml(D, coId){
     if(si && si.remain!=null && sum.S.get(si.id) > si.remain) warns.push('販売 '+si.co+' '+si.item+': 残 '+dtlNum(si.remain)+' を超えます（計 '+dtlNum(sum.S.get(si.id))+'）');
     if(pi && pi.remain!=null && sum.P.get(pi.id) > pi.remain) warns.push('購買 '+pi.party+' '+pi.co+': 残 '+dtlNum(pi.remain)+' を超えます（計 '+dtlNum(sum.P.get(pi.id))+'）');
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+'<div class="muted" style="font-size:11px">'+esc(r.grade || '—')
-      + (r.packer && !r.sup.list.length ? ' · <span title="Packer に合う購買元が見つかりません">購買元？</span>' : '')+'</div></td>'
+      + (r.sup.how==='link' ? ' · <span class="bdg o" title="Packer 行につながっている COMPASS 購買元">🔗 '+esc(r.sup.list[0])+'</span>' : r.packer && !r.sup.list.length ? ' · <span title="Packer に合う購買元が見つかりません — 表の Packer の 🔗? で連結できます">購買元？</span>' : '')+'</div></td>'
       + '<td>'+(si ? esc(si.item) : ng)+'</td><td>'+(si ? esc(si.co) : '')+'</td><td class="muted">'+(si ? esc(si.name) : '')+'</td>'
       + '<td>'+(pi ? esc(pi.party) : ng)+'</td><td>'+(pi ? esc(pi.co) : '')+'</td><td class="muted">'+(pi ? esc(pi.name) : '')+'</td>'
       + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:52px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
@@ -4374,7 +4544,7 @@ async function openDiag(){
   md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-cpgo')) compassInspect($('#dg-cpq', md.el).value, $('#dg-cpr', md.el)); });
   md.el.addEventListener('keydown', ev => { if(ev.key==='Enter' && ev.target.id==='dg-cpq') compassInspect(ev.target.value, $('#dg-cpr', md.el)); });
   /* 診断の表示は書くたびに作り直すので、ボタンは委譲で受ける */
-  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); if(ev.target.closest('#dg-qty')) createQtyColumns(); if(ev.target.closest('#dg-qfill')) fillQtyFromCarrier(); });
+  md.el.addEventListener('click', ev => { if(ev.target.closest('#dg-fmt')) createFmtColumns(); if(ev.target.closest('#dg-qty')) createQtyColumns(); if(ev.target.closest('#dg-qfill')) fillQtyFromCarrier(); if(ev.target.closest('#dg-cpk')) createCpkColumn(); if(ev.target.closest('#dg-cpkall')) openCpkBulk(); });
   const out = []; const w = s => { out.push(s); $('#dg', md.el).innerHTML = out.join(''); };
   out.length = 0; $('#dg', md.el).innerHTML = '';
   try{ const who = await dvGet('WhoAmI()'); w('<div>✅ Dataverse 接続 OK — '+esc((LEENAI.user||{}).name||'')+' ('+esc((LEENAI.user||{}).email||'')+') / UserId '+esc(who.UserId)+'</div>'); }
@@ -4401,6 +4571,8 @@ async function openDiag(){
     + (S.fmtErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.fmtErr)+'</div>' : ''))+'</div>');
   w('<div style="margin-top:6px">ブッキング大数・コンテナ (leenai_bkqty / leenai_cntr): '+(S.hasQty ? '<span class="ok">✅ 使用中</span> <button class="b6-btn sm" id="dg-qfill">船社の文字から読み込む</button>' : '<span class="ng">まだありません</span> <button class="b6-btn sm pri" id="dg-qty">2 列を作成・公開</button>'
     + (S.qtyErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.qtyErr)+'</div>' : ''))+'</div>');
+  w('<div style="margin-top:6px">COMPASS 購買元 (leenai_cpacker): '+(S.hasCpk ? '<span class="ok">✅ 使用中</span> <button class="b6-btn sm pri" id="dg-cpkall">Packer を COMPASS 購買元に一括で連結</button>' : '<span class="ng">まだありません</span> <button class="b6-btn sm pri" id="dg-cpk">列を作成・公開</button>'
+    + (S.cpkErr ? '<div class="muted" style="font-size:11.5px">起動時の確認: '+esc(S.cpkErr)+'</div>' : ''))+'</div>');
   try{
     const m = await readAttrs(CFG.LN_B05);
     const names = Object.keys(m).filter(n => /^leenai_|^cr0e2_/.test(n)).sort();
@@ -4604,6 +4776,8 @@ function initUI(){
     if(am){ const b = S.bk.get(am.closest('tr').dataset.k); if(b) toggleCutAM(b); return; }
     const bq = ev.target.closest('[data-bq]');
     if(bq){ const b = S.bk.get(bq.closest('tr').dataset.k); if(b) openQtyEdit(b); return; }
+    const ck = ev.target.closest('[data-cpk]');
+    if(ck){ const td = ck.closest('td'), b = S.bk.get(ck.closest('tr').dataset.k); const a = b && b.rows.find(x => x.id===td.dataset.aid); if(a) openCpkPick(b, a); return; }
     const mm = ev.target.closest('[data-memo]');
     if(mm){ const b = S.bk.get(mm.closest('tr').dataset.k); if(b) openBookingMemo(b); return; }
     const tg = ev.target.closest('.tg');
@@ -4733,6 +4907,7 @@ async function startTool(){
   loadMasters().then(()=>{ if(S.ready) renderBoard(); });
   try{ await detectFmt(); }catch(e){ S.hasFmt = false; }
   try{ await detectQty(); }catch(e){ setHasQty(false); }
+  try{ await detectCpk(); }catch(e){ setHasCpk(false); }
   await loadBoard();
   await restoreMemo();
 }
@@ -4754,7 +4929,7 @@ function startDemo(){
   $('#demo-theme').addEventListener('click', () => LEENAI._toggleTheme());
   S.store = buildDemoStore();
   S.store.compass = makeMemCompass();
-  setHasFmt(true); setHasQty(true);
+  setHasFmt(true); setHasQty(true); setHasCpk(true);
   $('#demo-other').addEventListener('click', () => {
     const vis = visibleBookings().filter(b=>!b.deleted);
     if(!vis.length) return;
