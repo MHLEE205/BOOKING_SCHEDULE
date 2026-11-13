@@ -3249,7 +3249,7 @@ async function cpNamesLoad(entity, hint, depth){
     /* hint の列が見つかったら、金額の列を後ろにつなぐ (COMPASS の「O.T.K|0|¥7,000」のような表示) */
     if(hint && cpNorm(lab(chosen[0])).includes(cpNorm(hint))) chosen = chosen.concat(cols.filter(c => c.type==='Money').map(c => c.col));
   }
-  const alts = ranked.map(x => x.c).filter(c => !chosen.includes(c)).slice(0, 3);
+  const alts = ranked.map(x => x.c).filter(c => !chosen.includes(c)).slice(0, 6);
   const nameOf = r => chosen.map(c => val(r, c)).join('|');
   /* 搬入港: 直接の列 → なければ 一覧の列の先 (その一覧の 搬入港、港の一覧ならその名前) */
   const lkN = await Promise.all(portLks.map(c => cpNames(c.rel.target, '', 1).catch(() => null)));
@@ -3640,14 +3640,13 @@ function kanaRomaji(s){
   const kun = up.replace(/SH([AUO])/g, 'SY$1').replace(/CH([AUO])/g, 'TY$1').replace(/J([AUO])/g, 'ZY$1').replace(/SHI/g, 'SI').replace(/CHI/g, 'TI').replace(/TSU/g, 'TU').replace(/FU/g, 'HU').replace(/JI/g, 'ZI');
   return Array.from(new Set([up, shortV(up), kun, shortV(kun)]));
 }
-/* Packer → 購買元: Packer 名・略称・COMPASS コード (dray_packer マスター) で名前が近いもの */
+/* Packer → 購買元: COMPASS の購買元 (購買契約の 購買元ID の先) と名前が近いもの */
 function dtlSuppliers(D, r){
   if(!r.packer) return {list:[], how:''};
-  /* Packer の表記 (「兼子 船橋」「東京紙(川鈴)」→ 先頭の名前も)・略称・COMPASS コード (dray_packer マスター)・かなのローマ字 (ふじ → FUJI) */
+  /* COMPASS の購買元だけで合わせる (dray_packer マスターは使わない — COMPASS と合っていない所が多く、後で一括整理する予定: ユーザー 2026-11-13)
+     Packer の表記 (「兼子 船橋」「東京紙(川鈴)」→ 先頭の名前も)・かなのローマ字 (ふじ → FUJI) を、購買元の名前とほかの名前の列に合わせる */
   const head = r.packer.split(/[\s(（・\/]/)[0];
-  const al = [r.packer, head]; let sh = null;
-  try{ sh = packerShort(r.packer); }catch(e){}
-  if(sh){ al.push(sh); (S.masters.packerCodeShort||[]).forEach(([code, s]) => { if(s===sh) al.push(code); }); }
+  const al = [r.packer, head];
   al.slice().forEach(a => al.push(...kanaRomaji(a)));
   const c = cpMatch(D.parties, Array.from(new Set(al.map(cpNorm).filter(Boolean))));
   if(!c.length || c[0].s<50) return {list:[], how:''};
