@@ -2364,13 +2364,15 @@ async function openCpkBulk(){
     g.cur = linked.length===1 ? linked[0] : '';
     g.mixed = linked.length>1 || (linked.length===1 && g.links.has(''));
     const s = cpkSuggest(list, g.text); g.sug = s.slice(0, 5);
-    g.pick = g.cur || (s[0] && s[0].s>=80 && !(s[1] && s[1].s===s[0].s) ? s[0].id : '');
+    /* 候補のいちばん上が 1 件だけ (同点なし) なら自動で選んでおく — 「兼子」→「株式会社兼子」のような 2 文字の一致も。必ず確認してもらう */
+    g.pick = g.cur || (s[0] && s[0].s>=50 && !(s[1] && s[1].s===s[0].s) ? s[0].id : '');
     g.auto = !g.cur && !!g.pick;
   });
   const nm = id => (list.find(o => o.id===id) || {}).name || '';
+  const lbl = o => esc(o.name)+(o.alt && o.alt.length ? '（'+esc(o.alt.slice(0, 2).join(' / '))+'）' : '');
   const opts = g => { const ids = new Set(g.sug.map(x => x.id));
-    return '<option value="">— つながない —</option>' + (g.sug.length ? '<optgroup label="候補">'+g.sug.map(x => '<option value="'+esc(x.id)+'"'+(x.id===g.pick?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</optgroup>' : '')
-      + '<optgroup label="すべて">'+list.filter(o => !ids.has(o.id)).map(o => '<option value="'+esc(o.id)+'"'+(o.id===g.pick?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</optgroup>'; };
+    return '<option value="">— つながない —</option>' + (g.sug.length ? '<optgroup label="候補">'+g.sug.map(x => { const o = list.find(y => y.id===x.id) || x; return '<option value="'+esc(x.id)+'"'+(x.id===g.pick?' selected':'')+'>'+lbl(o)+'</option>'; }).join('')+'</optgroup>' : '')
+      + '<optgroup label="すべて">'+list.filter(o => !ids.has(o.id)).map(o => '<option value="'+esc(o.id)+'"'+(o.id===g.pick?' selected':'')+'>'+lbl(o)+'</option>').join('')+'</optgroup>'; };
   const done = groups.filter(g => g.cur && !g.mixed).length;
   let h = '<div class="muted" style="font-size:12px;margin-bottom:6px">B-06 の Packer の表記ごとに、COMPASS の購買元（読み取り — '+list.length+' 件）を選んでください。保存すると、その表記の行すべてに入ります。Packer の文字は変えません。<br>'
     + '連結済み '+done+' / '+groups.length+' 表記。<span class="bdg o">自動</span> は名前がはっきり合ったもの（確認してください）。dray_packer マスターは使いません。</div>';
@@ -3415,7 +3417,8 @@ async function cpNamesLoad(entity, hint, depth){
     /* hint の列が見つかったら、金額の列を後ろにつなぐ (COMPASS の「O.T.K|0|¥7,000」のような表示) */
     if(hint && cpNorm(lab(chosen[0])).includes(cpNorm(hint))) chosen = chosen.concat(cols.filter(c => c.type==='Money').map(c => c.col));
   }
-  const alts = ranked.map(x => x.c).filter(c => !chosen.includes(c)).slice(0, 6);
+  /* 名前合わせに使うほかの列 — 担当者・住所・電話・備考などは使わない (担当者「大本」が別の会社に合ってしまった — 2026-11-13) */
+  const alts = ranked.map(x => x.c).filter(c => !chosen.includes(c) && !BAD.test(lab(c)+' '+c)).slice(0, 6);
   const nameOf = r => chosen.map(c => val(r, c)).join('|');
   /* 搬入港: 直接の列 → なければ 一覧の列の先 (その一覧の 搬入港、港の一覧ならその名前) */
   const lkN = await Promise.all(portLks.map(c => cpNames(c.rel.target, '', 1).catch(() => null)));
