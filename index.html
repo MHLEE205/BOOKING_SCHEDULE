@@ -707,7 +707,7 @@ const CFG = {
      2026-11-12 承認 → true (実データで試しながら修正) */
   COMPASS_WRITE: true,
   COMPASS_EXTRA_WRITE: true,    /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 2026-11-16 ユーザー承認で true */
-  COMPASS_DTL_WRITE: false,     /* 明細 (cr49f_booking_details) を作るか — false の間は ヘッダーを作った後 明細は送る内容 (JSON) を見せるだけ。確認後に true (ユーザー 2026-11-16) */
+  COMPASS_DTL_WRITE: true,      /* 明細 (cr49f_booking_details) を作るか — 2026-11-16 ABCD0000000001 の試験 JSON をユーザーと確認して true */
   COMPASS_TON_PER_HON: 23,      /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
