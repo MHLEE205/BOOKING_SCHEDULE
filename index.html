@@ -206,6 +206,28 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-form td.cp-lab .b6v{font-weight:400;font-size:11px;color:var(--text2);max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .cp-form td.cp-note{color:var(--text2)}
 .cp-form tr.cp-sec td{padding:6px;border-bottom:none}
+/* 2 回目のシンプル化 (ユーザー 2026-11-16): 上 = 送る値 (縦に 1 列) ｜ 選ぶもの、明細の下 = 販売 ｜ 購買 を横に並べる */
+.cp-top{display:grid;grid-template-columns:minmax(230px,1fr) 2fr;gap:12px;align-items:start}
+.cp-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+@media (max-width:900px){.cp-top,.cp-two{grid-template-columns:1fr}}
+.cp-card{border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.cp-card .cp-h{margin:0 0 6px}
+.cp-kv{width:100%;border-collapse:collapse}
+.cp-kv th{text-align:left;font-weight:400;color:var(--text2);font-size:11.5px;padding:3px 10px 3px 0;white-space:nowrap;vertical-align:top}
+.cp-kv td{font-weight:600;font-size:12.5px;padding:3px 0;word-break:break-all}
+.cp-kv td.no{font-weight:400;color:var(--text2)}
+.cp-form .cp-ok{color:#22a35a;font-weight:700;margin-left:4px}
+.cp-form .cp-why{font-size:11px;color:var(--text2);margin-top:2px}
+.cp-two .cp-pan{margin-top:6px}
+/* Invoice の次の番号 (ユーザー 2026-11-16) */
+.inv-help{position:fixed;z-index:60;width:560px;max-width:calc(100vw - 16px);max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px 10px;font-size:12px}
+.inv-help .t{font-weight:700;margin-bottom:4px}
+.inv-help table{width:100%;border-collapse:collapse}
+.inv-help th{font-size:11px;color:var(--text2);font-weight:400;text-align:left;padding:2px 6px;border-bottom:1px solid var(--border)}
+.inv-help td{padding:3px 6px;border-bottom:1px solid var(--border);white-space:nowrap}
+.inv-help td.n{text-align:right}
+.inv-help .go{font-weight:700;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:4px;padding:1px 8px;font:inherit;font-weight:700}
+.inv-help .dup{color:var(--danger);font-weight:700;margin-top:4px}
 .cp-more{margin-top:12px;font-size:11.5px;color:var(--text2)}
 .cp-more summary{cursor:pointer}
 .cp-more table td{font-size:11.5px;padding:2px 6px}
@@ -255,6 +277,12 @@ table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Goth
 /* Excel のようなセル選択 (クリック = 選択、もう一度・ダブルクリック・F2・Enter・文字を打つ = 入力) */
 .b6-t td.ed{cursor:cell}
 .b6-t td.csel{outline:2px solid var(--accent);outline-offset:-2px}
+/* 日付の入力欄を大きく (小さくて押しにくかった — ユーザー 2026-11-16) */
+.b6-t td input[type=date]{min-width:138px;font-size:13px;padding:4px 6px}
+/* 並びを止めている間の目印 */
+.b6-t tr.moved td{box-shadow:inset 0 0 0 999px color-mix(in srgb,#f59e0b 14%,transparent)}
+#b6-resort{display:none;margin-left:6px}
+#b6-resort.on{display:inline-flex}
 .b6-t th{font-size:12px;padding:4px 6px!important;vertical-align:middle}
 .b6-t td{padding:2px 6px!important;vertical-align:middle!important}
 .b6-t td.dt,.b6-t th.no,.b6-t td.no{font-family:inherit!important;font-size:13px!important}
@@ -372,6 +400,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <div class="b6-sum" id="b6-sum"></div>
         <button class="b6-btn sm" id="b6-zoom" hidden title="表の拡大・縮小 (Ctrl + マウスホイール) — クリックで 100% に戻す (Ctrl + 0)">🔍 100%</button>
         <span class="muted b6-sync" id="b6-sync" title="20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト"></span>
+        <button class="b6-btn sm" id="b6-resort" title="Cut・ETD を変えた行は、押すまで元の位置に置いています">↕ 並べ替える</button>
         <button class="b6-btn sm" id="f-reload" title="今すぐ読み直す">⟳</button>
         <button class="b6-btn b6-add" id="b-add">＋ ブッキング追加</button>
         <button class="b6-btn" id="b-memo" hidden>📝 メモ帳</button>
@@ -1103,7 +1132,7 @@ async function loadMasters(){
     M.packerCodeShort = items.filter(r => str(r.kind).trim()==='COMPASS' && r.name && r.short).map(r => [str(r.name).trim().toUpperCase(), str(r.short).trim()]);
   }catch(e){ errs.push('dray_packer: '+e.message); }
   for(const n of ['cy','forwarder']){
-    try{ const items = await LEENAI.master.get(n); M[n] = masterNames(items); M[n+'_n'] = items.length; }
+    try{ const items = await LEENAI.master.get(n); M[n] = masterNames(items); M[n+'_n'] = items.length; M[n+'Items'] = items || []; }
     catch(e){ errs.push(n+': '+e.message); }
   }
   /* Packer の作業場住所 (問屋住所) */
@@ -1227,7 +1256,26 @@ function visibleBookings(){
   if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
   else if(F.sort==='cut') list.sort((a,b)=> (a.cycut||'9999-99-99').localeCompare(b.cycut||'9999-99-99') || (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
+  /* Cut・ETD を書き換えた直後は 行を動かさない (急に行が飛んでいた — ユーザー 2026-11-16)。「↕ 並べ替える」で並べ直す */
+  if(S.keepOrder && S.keepOrder.sort===F.sort){
+    const ix = S.keepOrder.idx, big = 1e9;
+    list.sort((a, b) => (ix.has(a.bookkey) ? ix.get(a.bookkey) : big) - (ix.has(b.bookkey) ? ix.get(b.bookkey) : big));
+  } else if(S.keepOrder) resortNow(true);
   return list;
+}
+/* 並びを止める (いま画面に出ている順のまま) */
+function holdOrder(b){
+  if(!S.keepOrder){
+    const keys = Array.from(document.querySelectorAll('#b6-board tr.bk-first[data-k]')).map(tr => tr.dataset.k);
+    S.keepOrder = {sort:filt().sort, idx:new Map(keys.map((k, i) => [k, i])), moved:new Set()};
+  }
+  S.keepOrder.moved.add(b.bookkey);
+  const bt = $('#b6-resort'); if(bt){ bt.classList.add('on'); bt.textContent = '↕ 並べ替える（'+S.keepOrder.moved.size+' 件）'; }
+}
+function resortNow(quiet){
+  S.keepOrder = null;
+  const bt = $('#b6-resort'); if(bt) bt.classList.remove('on');
+  if(!quiet) renderBoard();
 }
 function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return (v ? ' '+v : '') + (remoteOf(lv, id, k) ? ' rfx' : ''); }
 /* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、20 秒間 紫の枠 + 名前 ══════════ */
@@ -1375,7 +1423,7 @@ function boardTable(region, list, F){
     const merged = {};
     span.forEach(k => { merged[k] = n>1 && rows.slice(1).every(a => blank(a[k])); });
     rows.forEach((a, i) => {
-      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':'', S.selBk===b.bookkey?'bsel':'', i===n-1?'bk-last':''].join(' ');
+      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':'', S.selBk===b.bookkey?'bsel':'', i===n-1?'bk-last':'', S.keepOrder && S.keepOrder.moved.has(b.bookkey)?'moved':''].join(' ');
       h += '<tr class="'+cls+'" data-k="'+esc(b.bookkey)+'" data-a="'+esc(a.id)+'">';
       if(i===0) h += '<td class="no" rowspan="'+n+'" title="クリックでこのブッキングを選択（航路を表示・Ctrl+C でコピー・Esc で解除）">'+noTxt+'</td>';
       if(i===0) h += '<td class="ops" rowspan="'+n+'"><button class="ob" data-act="bmenu" title="ブッキング操作">≡</button></td>';
@@ -2043,7 +2091,19 @@ function startEdit(td, opt){
     if(multi){ el = document.createElement('textarea'); el.rows = Math.max(2, str(cur).split('\n').length); }
     else {
       el = document.createElement('input'); el.type = 'text';
-      const dl = {packer:'dl-packer', delivery:'dl-cy', customs:'dl-forwarder', port:'dl-port'}[k];
+      let dl = {packer:'dl-packer', delivery:'dl-cy', customs:'dl-forwarder', port:'dl-port'}[k];
+      /* 通関依頼: このブッキングの POL の通関業者 (forwarder マスターの pol) を候補に — なければ全部 (ユーザー 2026-11-16) */
+      if(k==='customs'){
+        const pol = str(b.port).trim().toUpperCase(), its = (S.masters.forwarderItems || []);
+        const hit = Array.from(new Set(its.filter(r => str(r.pol).trim().toUpperCase()===pol).map(r => str(r.name).trim()).filter(Boolean)));
+        if(hit.length){
+          let d = document.getElementById('dl-fwd-pol');
+          if(!d){ d = document.createElement('datalist'); d.id = 'dl-fwd-pol'; document.body.appendChild(d); }
+          d.innerHTML = hit.map(n => '<option value="'+esc(n)+'">'+esc(pol)+'</option>').join('');
+          dl = 'dl-fwd-pol';
+        }
+        el.placeholder = hit.length ? pol+' の通関業者 ▾' : '';
+      }
       if(dl) el.setAttribute('list', dl);
     }
     el.value = str(cur);
@@ -2078,6 +2138,7 @@ function startEdit(td, opt){
         if(!confirm('⚠ このブッキングは「'+who+'」さんが作成したものです。\n\nBooking no.「'+firstLine(cur)+'」を消そうとしています。\n（B-06 のデータは Booking no. を中心に動いています）\n\n本当に消しますか？')){ renderBoard(); return; }
       }
     }
+    if(lv==='B' && (k==='cycut' || k==='etd')) holdOrder(b);
     if(lv==='B') saveBooking(b, {[k]: DATE_KEYS.includes(k) ? (v||null) : v}, k);
     else saveAsg(b, a, {[k]: v}, k);
   };
@@ -2149,12 +2210,14 @@ function openFmt(ev, td){
       + '<button class="sz'+(f.b?' on':'')+'" data-fk="b" data-v="'+(f.b?'':'1')+'" style="font-weight:800">太字</button></div>'
       + '<div class="fr"><span>セル</span>'+sw('bg', FMT.BGS, f.bg, 'bg')+'</div>'
       + '<div class="fr"><span>ブッキング全体</span>'+sw('_row', FMT.BGS, row.bg, 'bg')+'</div>'
+      + (MEMO_COLS.has(k) ? '<div class="fr"><button class="b6-btn sm" data-memo1="1">📝 このセルにメモ'+(S.memoCell && S.memoCell.has(cellMemoId(b, a, k)) ? '（あり）' : '')+'</button><span class="muted" style="font-size:11px">Shift+F2</span></div>' : '')
       + '<div class="fr ft2"><button class="b6-btn sm" data-clear="1">このセルの書式をクリア</button><span class="muted" style="font-size:11px;margin-left:auto;white-space:nowrap">👥 全員に共有</span></div>';
   };
   draw();
   m.addEventListener('click', async e => {
     e.stopPropagation();
     const bt = e.target.closest('button'); if(!bt) return;
+    if(bt.dataset.memo1){ closeMenu(); openCellMemo(b, a, k); return; }
     if(bt.dataset.clear){ const o = a||b; if(fmtOf(o)[k]) await saveFmt(b, a, k, {c:'', s:'', b:'', bg:''}); draw(); return; }
     const fk = bt.dataset.fk, v = bt.dataset.v;
     if(fk==='_row') await saveFmt(b, null, '_row', {bg:v});
@@ -2861,7 +2924,8 @@ function memoDeco(c, b, a){
   if(!MEMO_COLS.has(c.k)) return '';
   const id = cellMemoId(b, c.lv==='A' ? a : null, c.k);
   if(S.memoCell && S.memoCell.has(id)) return memoIcon(id, 'data-cmemo="1"');
-  return '<span class="bk-memo add" data-cmemo="1" title="このセルにメモを書く">📝+</span>';
+  /* 新しいメモは 右クリック →「📝 メモ」か Shift+F2 で — セルの中の 📝+ は 日付を押す時に間違えて押しやすかった (ユーザー 2026-11-16) */
+  return '';
 }
 function openCellMemo(b, a, k){
   const id = cellMemoId(b, a, k);
@@ -4111,31 +4175,35 @@ async function openCompass(b){
   if(S.store.compass.demo) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">🧪 デモ: COMPASS もメモリ上の仮のものです（実際の COMPASS には触れません）</div>';
   /* シンプル版 (ユーザー 2026-11-16「너무 조잡해」): ① 送る値はカード 1 枚 ② 選ぶものは 項目｜選択｜状態 だけ ③ 列名・⚙ などは下の「詳細」にたたむ */
   h += '<div class="cp-msg">' + li(R.blocks,'d') + li(R.warns,'w') + '</div>';
-  h += '<div class="cp-h">B-06 から送る値</div><div class="cp-sum">'
-    + R.fields.map(f => '<div title="'+esc(f.note || '')+'"><div class="k">'+esc(f.label)+'</div>'
-      + (f.send!=null ? '<div class="v">'+esc(f.b06 || f.send)+'</div>' : '<div class="v no">—'+(f.note ? ' <span style="font-size:11px">'+esc(f.note)+'</span>' : '')+'</div>')+'</div>').join('')
-    + '</div>';
-  const exNote = CFG.COMPASS_EXTRA_WRITE ? '' : '<small class="muted">今は選ぶだけ（承認後に送信）</small>';
-  h += '<div class="cp-h">COMPASS で選ぶもの</div><table class="cp-form">';
+  /* 3 回目のシンプル化 (ユーザー 2026-11-16「너무 번잡해」「병렬→직렬」): 左 = 送る値を縦 1 列 ｜ 右 = 選ぶもの (項目｜選択 ✓)。
+     B-06 の元の値は項目名のツールチップ・説明は「選んでください」の時だけ小さく */
+  h += '<div class="cp-top"><div class="cp-card"><div class="cp-h">B-06 から送る値</div><table class="cp-kv">'
+    + R.fields.map(f => '<tr title="'+esc(f.note || '')+'"><th>'+esc(f.label)+'</th>'
+      + (f.send!=null ? '<td>'+esc(f.b06 || f.send)+'</td>' : '<td class="no">—</td>')+'</tr>').join('')
+    + '</table></div><div class="cp-card"><div class="cp-h">COMPASS で選ぶもの</div><table class="cp-form">';
   R.lookups.forEach((L, i) => {
-    if(L.extra && !R.lookups[i-1].extra) h += '</table><div class="cp-h">販売・乙仲・運賃 '+exNote+'</div><table class="cp-form">';
     const op = o => '<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>';
     const candIds = new Set(L.cands.map(c => c.id));
-    const sel = L.list.length
-      ? '<div class="cp-lk"><select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'
-        + (L.cands.length ? '<optgroup label="'+esc(L.candLabel || '候補')+'">'+L.cands.map(op).join('')+'</optgroup><optgroup label="すべて">' : '')
-        + L.list.filter(o => !candIds.has(o.id)).map(op).join('') + (L.cands.length ? '</optgroup>' : '') + '</select>'
-        + (L.list.length > 12 ? '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍" autocomplete="off">' : '') + '</div>'
-      : '<span class="muted">—</span>';
     const ok = L.sel && (L.how==='auto' || L.how==='learn');
     const need = L.list.length && !L.sel && (L.extra || !blank(L.key));
-    const note = ok ? '<span class="bdg o" title="'+esc(L.note)+'">'+(L.how==='learn' ? '✓ 記憶' : '✓ 自動')+'</span>'
-      : need ? '<span class="bdg w">選択</span> '+esc(L.note) : esc(L.note);
+    /* 乙仲 (通関業者) は POL の候補だけ出す (ユーザー 2026-11-16)。候補がない時だけ全部 */
+    const onlyC = L.kind==='otsu' && L.cands.length;
+    const selO = onlyC && L.sel && !candIds.has(L.sel) ? L.list.filter(o => o.id===L.sel) : [];
+    const sel = L.list.length
+      ? '<div class="cp-lk"><select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'
+        + (onlyC ? '<optgroup label="'+esc(L.candLabel || '候補')+'">'+L.cands.map(op).join('')+'</optgroup>'+(selO.length ? '<optgroup label="前回の選択（POL 以外）">'+selO.map(op).join('')+'</optgroup>' : '')
+          : (L.cands.length ? '<optgroup label="'+esc(L.candLabel || '候補')+'">'+L.cands.map(op).join('')+'</optgroup><optgroup label="すべて">' : '')
+            + L.list.filter(o => !candIds.has(o.id)).map(op).join('') + (L.cands.length ? '</optgroup>' : ''))
+        + '</select>'
+        + (L.list.length > 30 ? '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍" autocomplete="off">' : '')
+        + '<span class="cp-note">'+(ok ? '<span class="cp-ok" title="'+esc(L.note)+'">✓</span>' : '')+'</span></div>'
+        + (need ? '<div class="cp-why">'+esc(L.note)+'</div>' : '')
+      : '<span class="muted">—</span>';
     const b6v = L.extra ? L.show : L.key;
-    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td class="cp-lab">'+esc(L.label)+(b6v ? '<div class="b6v" title="B-06: '+esc(b6v)+'">B-06: '+esc(b6v)+'</div>' : '')+'</td><td>'+sel+'</td><td class="cp-note">'+note+'</td></tr>';
+    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td class="cp-lab" title="'+esc(b6v ? 'B-06: '+b6v : '')+'">'+esc(L.label)+'</td><td>'+sel+'</td></tr>';
   });
-  if(R.am && R.am.col) h += '<tr><td class="cp-lab">AM</td><td><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> 午前カット</label></td><td class="cp-note">'+(R.am.val ? 'B-06 の Cut が AM' : '')+'</td></tr>';
-  h += '</table>';
+  if(R.am && R.am.col) h += '<tr><td class="cp-lab">AM</td><td><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> 午前カット</label></td></tr>';
+  h += '</table></div></div>';
   const scI = R.lookups.findIndex(L => L.kind==='saleco');
   const coSel = el => { const s = scI>=0 && el.querySelector('.cp-pick[data-i="'+scI+'"]'); return s ? s.value : ''; };
   h += '<div class="cp-dtlw">'+dtlHtml(R.dtl, scI>=0 ? R.lookups[scI].sel : '')+'</div>';
@@ -4215,7 +4283,8 @@ async function openCompass(b){
         + SL.list.filter(o => !ids.has(o.id)).map(op).join('') + (c.length ? '</optgroup>' : '');
       ss.value = c.length===1 ? c[0].id : '';
       const nt = ss.closest('tr').querySelector('.cp-note');
-      nt.innerHTML = c.length===1 ? '<span class="bdg o">自動</span> 自動で選択（候補が 1 件）' : '<span class="bdg w">選択</span> '+(c.length ? '候補から選んでください（'+c.length+' 件）' : '候補なし — 一覧から選んでください');
+      nt.innerHTML = c.length===1 ? '<span class="cp-ok" title="自動で選択（候補が 1 件）">✓</span>' : '';
+      const why = ss.closest('td').querySelector('.cp-why'); if(why) why.textContent = c.length===1 ? '' : c.length ? '候補から選んでください（'+c.length+' 件）' : '候補なし — 一覧から選んでください';
       ss.closest('tr').classList.toggle('cp-need', !ss.value);
     }
   });
@@ -5068,6 +5137,9 @@ function initUI(){
     if(mv && !ev.ctrlKey && !ev.metaKey && !ev.altKey){ ev.preventDefault(); const nb = cellNeighbor(td, mv); if(nb) setCellSel(nb); return; }
     if(ev.key==='Tab'){ ev.preventDefault(); const nb = cellNeighbor(td, ev.shiftKey ? 'left' : 'right'); if(nb) setCellSel(nb); return; }
     if(ev.key==='Escape'){ setCellSel(null); return; }
+    if(ev.key==='F2' && ev.shiftKey){ ev.preventDefault();   /* Excel のコメントと同じ: セルのメモ */
+      const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k), a = td.dataset.lv==='A' && b ? b.rows.find(x => x.id===td.dataset.aid) : null;
+      if(b && MEMO_COLS.has(td.dataset.f)) openCellMemo(b, a, td.dataset.f); return; }
     if(ev.key==='Enter' || ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
     if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const f = td.dataset.f, plain = f!=='approval' && f!=='qty_raw' && !DATE_KEYS.includes(f);
@@ -5076,6 +5148,7 @@ function initUI(){
     if(ev.key.length===1 && plain){ ev.preventDefault(); startEdit(td, {text:ev.key}); }
   });
   initBoardZoom();
+  $('#b6-resort').addEventListener('click', () => resortNow());
   /* 地域の順番: 表の見出しの ▲▼ */
   $('#b6-board').addEventListener('click', ev => {
     const mv = ev.target.closest('[data-rmv]'); if(!mv) return;
