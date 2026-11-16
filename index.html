@@ -706,7 +706,8 @@ const CFG = {
   /* COMPASS への実際の書き込み。false の間は「反映する」を押しても確認だけで書き込まない (DOC §4-2)
      2026-11-12 承認 → true (実データで試しながら修正) */
   COMPASS_WRITE: true,
-  COMPASS_EXTRA_WRITE: false,   /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 承認者承認後に true (それまでは画面で選ぶだけ) */
+  COMPASS_EXTRA_WRITE: true,    /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 2026-11-16 ユーザー承認で true */
+  COMPASS_DTL_WRITE: false,     /* 明細 (cr49f_booking_details) を作るか — false の間は ヘッダーを作った後 明細は送る内容 (JSON) を見せるだけ。確認後に true (ユーザー 2026-11-16) */
   COMPASS_TON_PER_HON: 23,      /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
@@ -3369,6 +3370,11 @@ const DvCompass = {
         L.cols.alloc = {label:'割当量（明細の'+wc.label+'の合計）', col:'calc'}; L.cols.remain = {label:(L.cols.wt ? L.cols.wt.label : '重量')+' − 割当量', col:'calc', calc:true};
       });
     }
+    /* 明細を作る時に使う列: ブッキング・販売契約・購買契約 を指す列 (行き先のテーブルで探す) */
+    const toT = t => t ? lks.find(x => x.rel.target===t) || null : null;
+    out.cols.bk = D.cols.find(c => c.rel && c.rel.target===M.entity.LogicalName) || null;
+    out.cols.saleCo = toT(out.sale.cols.co && out.sale.cols.co.rel && out.sale.cols.co.rel.target);
+    out.cols.purCo = toT(out.purch.cols.co && out.purch.cols.co.rel && out.purch.cols.co.rel.target);
     out.purch.shutN = out.purch.items.filter(x => x.shut).length;
     out.purch.items = out.purch.items.filter(x => !x.shut && (x.remain==null || x.remain>0));
     return this._dtl = out;
@@ -3377,6 +3383,15 @@ const DvCompass = {
     compassGuard(COMPASS.ES, body, allowed);
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
     const r = await dvFetch(COMPASS.ES+'?$select='+pid, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify(body)});
+    return (await r.json())[pid];
+  },
+  /* 明細の新規作成 — details() で見つけた明細テーブルだけ・決めた列だけ */
+  async createDetail(body, allowed){
+    const D = await this.details();
+    const bad = Object.keys(body).filter(k => !allowed.has(k));
+    if(bad.length) throw new Error('write blocked (明細の列): '+bad.join(', '));
+    const E = await cpEntMeta(D.ent), pid = E.entity.PrimaryIdAttribute;
+    const r = await dvFetch(D.set+'?$select='+pid, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify(body)});
     return (await r.json())[pid];
   },
 };
@@ -3518,7 +3533,8 @@ async function cpLoadItems(target, onlyRemain){
   const nm = {item:await cpNameOf(C.item), co:await cpNameOf(C.co), party:await cpNameOf(C.party)};
   const F = (r, c, k) => !c ? '' : c.rel ? ((nm[k] && nm[k](r['_'+c.col+'_value'])) || str(r['_'+c.col+'_value'+FVK])) : str(r[c.col+FVK] || r[c.col]);
   const N = (r, c) => c && r[c.col]!=null ? +r[c.col] : null;
-  const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item, 'item'), co:F(r, C.co, 'co'), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
+  const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item, 'item'), itemId:C.item && C.item.rel ? r['_'+C.item.col+'_value'] || null : null,
+    co:F(r, C.co, 'co'), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
     party:F(r, C.party, 'party'), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), unit:F(r, C.unit), note:F(r, C.note), tol:F(r, C.tol)}));
   /* 残の列がない時は 重量 − 割当量 */
   if(!C.remain && C.wt && C.alloc){ items.forEach(x => { if(x.wt!=null) x.remain = Math.round((x.wt - (x.alloc||0))*100)/100; }); C.remain = {label:C.wt.label+'−'+C.alloc.label, col:'calc', calc:true}; }
@@ -3612,6 +3628,7 @@ function makeMemCompass(){
     async options(entity){ return opts[entity]; },
     async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
     async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
+    async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
   };
 }
 
@@ -3936,7 +3953,7 @@ function dtlFocus(D, i){
   D.fPp = pi ? pi.party : (r.sup.list[0] || '');
 }
 function dtlHtml(D, coId){
-  let h = '<div class="cp-h">明細 <small class="muted">今は選ぶだけ（COMPASS には送りません）・1 本 = '+D.ton+' t</small></div>';
+  let h = '<div class="cp-h">明細 <small class="muted">'+(CFG.COMPASS_DTL_WRITE ? '販売・購買 が両方そろった行を作成' : '試験 — 送る内容を表示するだけ')+'・1 本 = '+D.ton+' t</small></div>';
   if(D.err) return h + '<div><span class="bdg w">⚠</span> '+esc(D.err)+'</div>';
   const nc = (c, l) => c && c.rel && !S.store.compass.demo ? ' <button class="b6-btn sm cp-nc" data-ent="'+esc(c.rel.target)+'" data-t="'+esc(l)+'" title="この一覧の名前に使う列">⚙ '+esc(l)+'</button>' : '';
   const sc = D.sale.cols, pc = D.purch.cols;
@@ -4124,6 +4141,35 @@ async function openCompass(b){
   if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
 }
 
+/* 明細 1 行 → cr49f_booking_details 1 件の中身 (ユーザー 2026-11-16 承認)。
+   ブッキング・販売CO明細・販売CO・購買CO明細・購買CO・品目 (販売側の品目 — COMPASS の画面の注記どおり)・本数・想定重量 */
+async function compassDtlBodies(R, bkId){
+  const D = R.dtl, out = {list:[], skip:[], allowed:new Set(), err:''};
+  if(!D || D.err || !D.rows || !D.rows.length) return out;
+  const c = D.cols;
+  if(!c.bk){ out.err = '明細テーブルに ブッキング を指す列が見つかりません'; return out; }
+  const setOf = async t => { if(!t) return null; if(S.store.compass.demo) return 'demo'; try{ return (await cpEntMeta(t)).entity.EntitySetName; }catch(e){ return null; } };
+  const [saleCoSet, purCoSet, itemSet] = await Promise.all([setOf(c.saleCo && c.saleCo.rel.target), setOf(c.purCo && c.purCo.rel.target), setOf(c.item && c.item.rel && c.item.rel.target)]);
+  const itemSame = c.item && c.item.rel && D.sale.cols.item && D.sale.cols.item.rel && D.sale.cols.item.rel.target===c.item.rel.target;
+  const bind = (body, col, set, id) => { if(!col || !col.rel || !set || !id) return; const k = (col.rel.nav || col.col)+'@odata.bind'; body[k] = '/'+set+'('+id+')'; out.allowed.add(k); };
+  D.rows.forEach((r, i) => {
+    const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
+    const nm = (r.packer || '追加の行 '+(i+1));
+    if(!si || !pi){ out.skip.push(nm+'（'+(!si ? '販売' : '購買')+'が未選択）'); return; }
+    if(!(r.hon > 0)){ out.skip.push(nm+'（本数が 0）'); return; }
+    const body = {};
+    bind(body, c.bk, COMPASS.ES, bkId);
+    bind(body, c.sale, D.sale.set, si.id);
+    bind(body, c.saleCo, saleCoSet, si.coId);
+    bind(body, c.purch, D.purch.set, pi.id);
+    bind(body, c.purCo, purCoSet, pi.coId);
+    if(itemSame) bind(body, c.item, itemSet, si.itemId);
+    if(c.hon){ body[c.hon.col] = r.hon; out.allowed.add(c.hon.col); }
+    if(c.wt){ body[c.wt.col] = r.wt; out.allowed.add(c.wt.col); }
+    out.list.push({label:nm+' — '+[si.item, si.co].join(' ')+' / '+[pi.party, pi.co].join(' ')+' / '+r.hon+' 本', body:body});
+  });
+  return out;
+}
 /* ③「本当に COMPASS に反映しますか？」→ ④ 送信 */
 function confirmCompass(b, R, picks){
   const body = compassBody(R, picks);
@@ -4139,7 +4185,7 @@ function confirmCompass(b, R, picks){
   const D = R.dtl;
   if(D && !D.err && D.rows && D.rows.length){
     const nm = (L, id) => { const x = L.find(y => y.id===id); return x ? esc([x.item, x.co || x.name, x.party].filter(Boolean).join(' | ')) : '<span class="ng">未選択</span>'; };
-    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">（承認後 — 今回は送りません）</span></div><table class="b6-s"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>予想重量</th></tr>'
+    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>予想重量</th></tr>'
       + D.rows.map(r => '<tr><td>'+esc(r.packer)+'</td><td>'+nm(D.sale.items, r.sale)+'</td><td>'+nm(D.purch.items, r.pur)+'</td><td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
       + '</table>';
   }
@@ -4175,6 +4221,30 @@ async function sendCompass(b, R, body, test){
   }
   await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
   toast('COMPASS に入力しました（'+bkLabel(b)+' / ID '+id+'）', 'ok');
+  await sendCompassDetails(R, id);
+}
+/* ヘッダーを作った後に 明細。COMPASS_DTL_WRITE が false の間は 送る内容を見せるだけ */
+async function sendCompassDetails(R, bkId){
+  let X;
+  try{ X = await compassDtlBodies(R, bkId); }catch(e){ X = {list:[], skip:[], err:String(e.message || e)}; }
+  if(!X.list.length && !X.skip.length && !X.err) return;
+  const skipH = X.skip.length ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> 送らなかった明細: '+esc(X.skip.join('、'))+'</div>' : '';
+  const errH = X.err ? '<div><span class="bdg d">✕</span> '+esc(X.err)+'</div>' : '';
+  if(!CFG.COMPASS_DTL_WRITE && !S.store.compass.demo){
+    modal('明細 — 試験モード（送る内容）', '<div>ヘッダーは COMPASS に作成しました。<b>明細はまだ書き込んでいません</b> — 実際に送る場合の内容です。確認して問題なければ 明細の書き込みを有効にします。</div>'+errH+skipH
+      + X.list.map(x => '<div style="margin-top:8px;font-weight:600">'+esc(x.label)+'</div><pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px;margin:2px 0">POST '+esc(R.dtl.set)+'\n'+esc(JSON.stringify(x.body, null, 2))+'</pre>').join(''),
+      [{label:'閉じる', fn:c=>c()}], true);
+    return;
+  }
+  const ok = [], ng = [];
+  for(const x of X.list){
+    try{ await S.store.compass.createDetail(x.body, X.allowed); ok.push(x.label); }
+    catch(e){ ng.push(x.label+' — '+String(e.message || e).slice(0, 200)); }
+  }
+  if(!ng.length && !X.skip.length && !X.err){ toast('明細 '+ok.length+' 件も入力しました', 'ok'); return; }
+  modal('明細の入力結果', errH+(ok.length ? '<div><span class="bdg o">✔</span> 作成 '+ok.length+' 件: '+esc(ok.join('、'))+'</div>' : '')
+    + (ng.length ? '<div style="margin-top:6px"><span class="bdg d">✕</span> 失敗 — COMPASS で手入力してください:<br>'+ng.map(esc).join('<br>')+'</div>' : '')+skipH,
+    [{label:'閉じる', fn:c=>c()}]);
 }
 function compassInfo(b){
   modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>入力日時</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
