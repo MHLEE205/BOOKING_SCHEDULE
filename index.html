@@ -3809,6 +3809,17 @@ async function compassCheck(b){
   R.allCols = Array.from(M.attrs.entries()).filter(([k, a]) => !a.of && a.label!==k).map(([k, a]) => a.label+'（'+k+' '+a.type+'）');
   R.am = {col:amCol, val:cutAM(b)};
   if(amCol && CFG.COMPASS_EXTRA_WRITE) R.allowed.add(amCol);
+  /* COMPASS の画面で保存した時に入る 最終船積日 (販売CO の契約から写す) と 更新日時 — B-06 から入れた分だけ空だった (ユーザー 2026-11-16, NXX2611-01 と比べて)。
+     ブッキングに同じ表示名の列があれば送る (列名は推測しない) */
+  const findDT = re => { for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.createOk && /^(cr49f|crcf9)_/.test(k) && re.test(a.label)) return k; } return null; };
+  const lsCol = findDT(/最終船積日/), upCol = findDT(/^更新日時$/);
+  R.auto = {};
+  if(lsCol && CFG.COMPASS_EXTRA_WRITE && C.demo!==true){
+    const SL = R.lookups.find(L => L.kind==='saleco');
+    try{ const CE = SL && SL.target && await cpEntMeta(SL.target), sc = CE && CE.cols.find(c => c.type==='DateTime' && /最終船積日/.test(c.label));
+         if(sc){ R.auto.lastShip = {col:lsCol, dateOnly:M.attrs.get(lsCol).dateOnly, set:CE.entity.EntitySetName, src:sc.col, label:M.attrs.get(lsCol).label}; R.allowed.add(lsCol); } }catch(e){}
+  }
+  if(upCol && C.demo!==true){ R.auto.upd = {col:upCol, dateOnly:M.attrs.get(upCol).dateOnly}; R.allowed.add(upCol); }
   /* COMPASS 側で必須なのに B-06 から送らない列 */
   const sent = new Set(R.fields.map(f=>f.col).concat(COMPASS.LOOKUPS.flatMap(f=>[].concat(f.col))));
   const miss = [];
@@ -4187,6 +4198,8 @@ function confirmCompass(b, R, picks){
     + '<tr><th>CY OPEN / CUT</th><td>'+esc(b.cyopen||'—')+' / '+esc(b.cycut||'—')+(cutAM(b)?' <b>AM</b>':'')+'</td></tr><tr><th>ETD / ETA</th><td>'+esc(b.etd||'—')+' / '+esc(b.eta||'—')+'</td></tr>'
     + R.lookups.map((L,i)=>'<tr><th>'+esc(L.label)+'</th><td>'+esc(pickName(i))+(L.extra && !CFG.COMPASS_EXTRA_WRITE ? ' <span class="muted" style="font-size:11px">（承認後 — 今回は送りません）</span>' : '')+'</td></tr>').join('')
     + (R.am && R.am.col ? '<tr><th>AM</th><td>'+(picks.am ? '✔ AM' : '—')+(!CFG.COMPASS_EXTRA_WRITE ? ' <span class="muted" style="font-size:11px">（承認後 — 今回は送りません）</span>' : '')+'</td></tr>' : '')
+    + (R.auto && R.auto.lastShip ? '<tr><th>'+esc(R.auto.lastShip.label)+'</th><td><span class="muted">販売CO の契約から自動</span></td></tr>' : '')
+    + (R.auto && R.auto.upd ? '<tr><th>更新日時</th><td><span class="muted">送った日時</span></td></tr>' : '')
     + '<tr><th>Packer 行・本数</th><td>'+live.length+' 行・'+hon+' 本</td></tr></table>';
   const D = R.dtl;
   if(D && !D.err && D.rows && D.rows.length){
@@ -4203,9 +4216,20 @@ function confirmCompass(b, R, picks){
     {label:'やめる', fn:c=>c()},
     {label:'反映する', pri:true, fn:async c=>{
       if(busy) return; busy = true;
-      try{ await sendCompass(b, R, body, test); c(); }
+      try{ await compassFillAuto(R, body, picks); await sendCompass(b, R, body, test); c(); }
       catch(e){ busy = false; toast(e.message.slice(0,160), 'danger'); }
     }}]);
+}
+/* 送る直前に: 最終船積日 = 選んだ 販売CO の契約の 最終船積日・更新日時 = 今 (COMPASS の画面で保存した時と同じに) */
+async function compassFillAuto(R, body, picks){
+  const A = R.auto || {};
+  const jstDate = v => String(v).includes('T') ? new Date(Date.parse(v) + 9*3600e3).toISOString().slice(0, 10) : String(v).slice(0, 10);
+  const si = R.lookups.findIndex(L => L.kind==='saleco');
+  if(A.lastShip && si>=0 && picks[si]){
+    try{ const r = await dvGet(A.lastShip.set+'('+picks[si]+')?$select='+A.lastShip.src); const v = r[A.lastShip.src];
+         if(v) body[A.lastShip.col] = compassDate(jstDate(v), A.lastShip.dateOnly); }catch(e){}
+  }
+  if(A.upd) body[A.upd.col] = A.upd.dateOnly ? todayStr() : new Date().toISOString();
 }
 async function sendCompass(b, R, body, test){
   const C = S.store.compass;
