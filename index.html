@@ -2181,6 +2181,16 @@ function startEdit(td, opt){
   }
   S.cellSel = cellKeyOf(td);
   if(opt && opt.text!=null && el.tagName!=='SELECT' && el.type!=='date') el.value = opt.text;
+  /* 入力欄はセルの今の大きさのまま (列の幅・行の高さを変えない — 押すと一度広がってから縮んでいた: ユーザー 2026-11-16)。
+     日付は狭い列に入らないので、セルの上に重ねて出す */
+  const rc = td.getBoundingClientRect(), cw = Math.round(rc.width), ch = Math.round(rc.height);
+  td.style.width = td.style.minWidth = td.style.maxWidth = cw+'px'; td.style.height = ch+'px';
+  if(el.type==='date'){
+    td.style.position = 'relative';
+    Object.assign(el.style, {position:'absolute', left:'0', top:'0', width:Math.max(cw, 140)+'px', height:ch+'px', minWidth:'0', zIndex:'5', margin:'0'});
+  } else if(el.tagName!=='SELECT'){
+    Object.assign(el.style, {width:'100%', minWidth:'0', height:Math.max(ch-6, 22)+'px', minHeight:'0', resize:'none', margin:'0'});
+  }
   td.innerHTML = ''; td.appendChild(el); td.classList.remove('saved','fail');
   el.focus();
   /* 全部選んだ状態ではなく、カーソルを末尾に (Excel の F2 と同じ) */
