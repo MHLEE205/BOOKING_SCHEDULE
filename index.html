@@ -3350,7 +3350,8 @@ const DvCompass = {
         L.cols.alloc = {label:'割当量（明細の'+wc.label+'の合計）', col:'calc'}; L.cols.remain = {label:(L.cols.wt ? L.cols.wt.label : '重量')+' − 割当量', col:'calc', calc:true};
       });
     }
-    out.purch.items = out.purch.items.filter(x => x.remain==null || x.remain>0);
+    out.purch.shutN = out.purch.items.filter(x => x.shut).length;
+    out.purch.items = out.purch.items.filter(x => !x.shut && (x.remain==null || x.remain>0));
     return this._dtl = out;
   },
   async create(body, allowed){
@@ -3514,6 +3515,29 @@ async function cpLoadItems(target, onlyRemain){
         items.forEach(x => { const o = mp.get(x.coId); x.party = o ? o.name : ''; x.partyId = o ? o.id : null; x.partyAlt = o ? o.alt : []; });
         C.party = Object.assign({via:C.co.label}, pc);
       }
+    }catch(e){}
+  }
+  /* 契約 (CO) の 契約日 (なければ作成日) と 〆 — 新しい契約順に並べる・〆 の契約を外すのに使う (ユーザー 2026-11-16) */
+  C.coAt = null; C.shut = null;
+  const shutCol = Ent => Ent.cols.find(c => c.label && /〆/.test(c.label) && (c.type==='Boolean' || c.type==='Picklist' || c.type==='State' || c.type==='Status' || c.type==='String')) || null;
+  const isShut = (r, c) => { if(!c) return false; const v = r[c.col], f = str(r[c.col+FVK]);
+    if(c.type==='Boolean') return v===true;
+    if(c.type==='String') return !!str(v).trim();
+    return v!=null && !/^(いいえ|no|false|未|なし|-|—|)$/i.test(f.trim()); };
+  const sIt = shutCol(E);
+  if(sIt){ try{ const ok = new Set((await dvGetAll(E.entity.EntitySetName+'?$select='+pid+','+sIt.col)).filter(r => isShut(r, sIt)).map(r => r[pid]));
+    items.forEach(x => { if(ok.has(x.id)) x.shut = true; }); C.shut = Object.assign({on:'明細'}, sIt); }catch(e){} }
+  if(C.co && C.co.rel){
+    try{
+      const CE = await cpEntMeta(C.co.rel.target), cid = CE.entity.PrimaryIdAttribute;
+      const dc = CE.cols.find(c => c.type==='DateTime' && /契約日|締結日|成約日/.test(c.label)) || null, sc2 = shutCol(CE);
+      const sel = [cid, dc ? dc.col : 'createdon'].concat(sc2 ? [sc2.col] : []);
+      const mp = new Map((await dvGetAll(CE.entity.EntitySetName+'?$select='+sel.join(','))).map(r => [r[cid], r]));
+      items.forEach(x => { const r = mp.get(x.coId); if(!r) return;
+        const t = Date.parse(r[dc ? dc.col : 'createdon']); x.coAt = isNaN(t) ? null : t;
+        if(isShut(r, sc2)) x.shut = true; });
+      C.coAt = dc ? {label:dc.label, col:dc.col} : {label:'契約の作成日', col:'createdon'};
+      if(sc2) C.shut = Object.assign({on:'契約'}, sc2);
     }catch(e){}
   }
   return {target:target, set:E.entity.EntitySetName, cols:C, all:E.cols.filter(c => c.label).map(c => c.label+'（'+c.col+' '+c.type+'）'), items:onlyRemain ? items.filter(x => x.remain==null || x.remain>0) : items};
@@ -3842,8 +3866,9 @@ function dtlSuppliers(D, r){
 function dtlPurCands(D, r){
   const si = D.sale.items.find(x => x.id===r.sale), sn = si ? si.item : r.grade;
   const w = [cpNorm(sn), cpNorm(r.grade)];
-  if(r.sup.list.length) return dtlRank(D.purch.items.filter(x => r.sup.list.includes(x.party)), w);
-  return D.purch.items.filter(x => dtlItemScore(x.item, w)>0).sort((p, q) => str(p.party).localeCompare(str(q.party)) || str(p.co).localeCompare(str(q.co)));
+  if(r.sup.list.length) return D.purch.items.filter(x => r.sup.list.includes(x.party)).map(x => ({x:x, s:dtlItemScore(x.item, w)})).filter(y => y.s>0)
+    .sort((p, q) => q.s-p.s || dtlNewer(p.x, q.x)).map(y => y.x);
+  return D.purch.items.filter(x => dtlItemScore(x.item, w)>0).sort((p, q) => str(p.party).localeCompare(str(q.party)) || dtlNewer(p, q));
 }
 /* 手で選んでいない所だけ自動で選び直す (候補がちょうど 1 件の時だけ) */
 function dtlAuto(D, r, coId){
@@ -3872,11 +3897,13 @@ function dtlSaleShown(D, coId){
   if(D.fS) L = L.filter(x => x.item===D.fS);
   return L;
 }
+/* 購買は新しい契約から (契約日 → なければ契約番号 LR-2503… の大きい順) — ユーザー 2026-11-16 */
+const dtlNewer = (p, q) => ((q.coAt||0) - (p.coAt||0)) || str(q.co).localeCompare(str(p.co), 'ja', {numeric:true}) || str(q.name).localeCompare(str(p.name), 'ja', {numeric:true});
 function dtlPurShown(D){
   let L = D.purch.items;
   if(D.fPi) L = L.filter(x => x.item===D.fPi);
   if(D.fPp) L = L.filter(x => x.party===D.fPp);
-  return L.slice().sort((p, q) => str(p.party).localeCompare(str(q.party), 'ja') || str(p.co).localeCompare(str(q.co)));
+  return L.slice().sort((p, q) => (D.fPp ? 0 : str(p.party).localeCompare(str(q.party), 'ja')) || dtlNewer(p, q));
 }
 /* 行を選んだ時の 購買 の絞り込み: 品目 = 販売の品目 (なければ Grade に近い購買の品目)・購買元 = Packer から見つけたもの */
 function dtlFocus(D, i){
@@ -3892,7 +3919,9 @@ function dtlHtml(D, coId){
   if(D.err) return h + '<div><span class="bdg w">⚠</span> '+esc(D.err)+'</div>';
   const nc = (c, l) => c && c.rel && !S.store.compass.demo ? ' <button class="b6-btn sm cp-nc" data-ent="'+esc(c.rel.target)+'" data-t="'+esc(l)+'" title="この一覧の名前に使う列">⚙ '+esc(l)+'</button>' : '';
   const sc = D.sale.cols, pc = D.purch.cols;
-  h += '<div class="muted" style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件）'
+  h += '<div class="muted" style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件'
+    + (pc.shut ? '・〆 '+(D.purch.shutN||0)+' 件は非表示［'+esc(pc.shut.on+' の '+pc.shut.label)+'］' : '・<span style="color:#b45309">〆 の列が見つかりません</span>')
+    + '・並び＝'+esc(pc.coAt ? pc.coAt.label : '契約番号')+' の新しい順）'
     + '・残＝'+esc(sc.remain ? sc.remain.label : '？')+' / '+esc(pc.remain ? pc.remain.label : '？')+'・予想重量 = 本数 × '+D.ton+' t（固定）</div>';
   const ncs = nc(sc.item, '品目') + nc(sc.co, '販売CO') + nc(sc.party, '販売先') + nc(pc.co, '購買CO') + nc(pc.party, '購買元');
   if(ncs) h += '<div style="margin:4px 0;font-size:11.5px">名前が番号や違う値で出る時: '+ncs+'</div>';
