@@ -179,7 +179,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .cp-dl td,.cp-it td{font-size:12px}
 .cp-dl tr.cp-dr{cursor:pointer}
 .cp-dl tr.cp-cur td,.cp-it tr.cp-cur td{background:color-mix(in srgb,var(--accent) 16%,transparent)!important}
-.cp-pan{margin-top:10px;border:1px solid var(--border);border-radius:6px;padding:0 6px 6px;max-height:300px;overflow:auto}
+.cp-pan{margin-top:8px;border:1px solid var(--border);border-radius:6px;padding:0 6px 6px;max-height:240px;overflow:auto}
 .cp-panh{position:sticky;top:0;z-index:1;background:var(--surface);padding:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .cp-panh select{max-width:200px;font-size:12px}
 .cp-it td.n{text-align:right;white-space:nowrap}
@@ -3545,8 +3545,14 @@ const DvCompass = {
     return rows.map(r=>({id:r[pid], at:r.createdon}));
   },
   /* 明細 (読み取りのみ): 明細テーブルの列と、販売・購買のアイテム一覧。列は表示名で探す (列名を推測しない) */
-  async details(){
-    if(this._dtl) return this._dtl;
+  /* 読み込み中に もう一度呼ばれても 同じ読み込みを待つ (先読みと画面を開く時が重なっても 2 回読まない) */
+  details(){
+    if(this._dtl) return Promise.resolve(this._dtl);
+    if(!this._dtlP){ this._dtlP = this._detailsLoad(); this._dtlP.catch(() => { this._dtlP = null; }); }
+    return this._dtlP;
+  },
+  forget(){ this._dtl = null; this._dtlP = null; this._inv = null; S.invIdx = null; },
+  async _detailsLoad(){
     const M = await this.meta();
     const rl = await dvGet("EntityDefinitions(LogicalName='"+M.entity.LogicalName+"')/OneToManyRelationships?$select=ReferencingEntity,ReferencingAttribute");
     const kids = Array.from(new Set((rl.value||[]).map(x => x.ReferencingEntity))).filter(e => /detail/i.test(e));
@@ -3938,8 +3944,22 @@ async function cpMapLearn(items){
 }
 
 /* ① チェック (読み取りのみ) → 送る内容 */
+/* COMPASS の一覧・明細を先に (並べて) 読んでおく — 「COMPASS に入力」を開くのが遅かった (ユーザー 2026-11-16)。
+   画面を開いた少し後と、入力画面を開く時に呼ぶ。読んだものは各キャッシュに残る */
+function compassWarm(){
+  const C = S.store && S.store.compass; if(!C || C.demo) return Promise.resolve();
+  if(S._warmP) return S._warmP;
+  S._warmP = (async () => {
+    const M = await C.meta();
+    const tg = new Set(); COMPASS.LOOKUPS.forEach(f => { const fc = [].concat(f.col).find(c => M.rels.get(c)); if(fc) tg.add(M.rels.get(fc).target); });
+    const ex = [[/乙仲/, '乙仲'], [/海上運賃/, ''], [/販売\s*CO|販売契約/i, '']].map(([re, h]) => { for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)) return cpNames(M.rels.get(k).target, h).catch(() => {}); } return null; });
+    await Promise.all([cpMapLoad().catch(() => {}), C.details ? C.details().catch(() => {}) : null].concat(Array.from(tg).map(t => C.options(t).catch(() => {})), ex));
+  })().catch(() => {}).finally(() => { S._warmP = null; });
+  return S._warmP;
+}
 async function compassCheck(b){
   const C = S.store.compass;
+  compassWarm();   /* 一覧・明細を並べて読み始める (下の順番の読み込みはキャッシュに当たる) */
   const R = {blocks:[], warns:[], infos:[], fields:[], lookups:[], allowed:new Set(), meta:null};
   if(b.deleted) R.blocks.push('削除済みのブッキングです');
   if(b.compass_status==='SENT') R.blocks.push('COMPASS 入力済みです（ID '+str(b.compass_id)+'）');
@@ -4234,25 +4254,25 @@ function dtlHtml(D, coId){
   const ncs = nc(sc.item, '品目') + nc(sc.co, '販売CO') + nc(sc.party, '販売先') + nc(pc.co, '購買CO') + nc(pc.party, '購買元');
   if(ncs) h += '<div style="margin:4px 0;font-size:11.5px">名前が番号や違う値で出る時: '+ncs+'</div>';
   if(D.sale.all) h += '<div style="font-size:11px;margin-top:4px">販売 '+esc(D.sale.set)+' の列: '+esc(D.sale.all.join('、'))+'<br>購買 '+esc(D.purch.set)+' の列: '+esc(D.purch.all.join('、'))+'</div>';
+  if(!pc.shut) h += '<div style="font-size:11px;color:#b45309;margin-top:4px">⚠ 〆 の列が見つかりません — 〆 の購買契約も出ています</div>';
   h += '</details>';
-  if(!pc.shut) h += '<div style="font-size:11px;color:#b45309">⚠ 〆 の列が見つかりません — 〆 の購買契約も出ています</div>';
   /* ① 明細の一覧 */
   const sum = {S:new Map(), P:new Map()};
   D.rows.forEach(r => { if(r.sale) sum.S.set(r.sale, (sum.S.get(r.sale)||0)+r.wt); if(r.pur) sum.P.set(r.pur, (sum.P.get(r.pur)||0)+r.wt); });
   const warns = [];
-  h += '<div style="margin-top:6px;font-weight:700;font-size:12.5px">明細の一覧 <span class="muted" style="font-weight:400;font-size:11px">行をクリックして選び、下の表の「add」で 販売・購買 を入れます</span></div>';
-  h += '<table class="b6-s cp-dl"><tr><th>B-06 Packer / Grade</th><th>品目</th><th>販売CO</th><th>ID</th><th>購買元</th><th>購買CO</th><th>ID</th><th>本数</th><th>重量</th><th></th></tr>';
+  /* シンプル版 (ユーザー 2026-11-16): ID の列をやめ、販売 = 品目+販売CO・購買 = 購買元+購買CO を 1 列ずつに */
+  h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>重量</th><th></th></tr>';
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
     if(si && si.remain!=null && sum.S.get(si.id) > si.remain) warns.push('販売 '+si.co+' '+si.item+': 残 '+dtlNum(si.remain)+' を超えます（計 '+dtlNum(sum.S.get(si.id))+'）');
     if(pi && pi.remain!=null && sum.P.get(pi.id) > pi.remain) warns.push('購買 '+pi.party+' '+pi.co+': 残 '+dtlNum(pi.remain)+' を超えます（計 '+dtlNum(sum.P.get(pi.id))+'）');
-    h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+'<div class="muted" style="font-size:11px">'+esc(r.grade || '—')
-      + (r.sup.how==='link' ? ' · <span class="bdg o" title="Packer 行につながっている COMPASS 購買元">🔗 '+esc(r.sup.list[0])+'</span>' : r.packer && !r.sup.list.length ? ' · <span title="Packer に合う購買元が見つかりません — 表の Packer の 🔗? で連結できます">購買元？</span>' : '')+'</div></td>'
-      + '<td>'+(si ? esc(si.item) : ng)+'</td><td>'+(si ? esc(si.co) : '')+'</td><td class="muted">'+(si ? esc(si.name) : '')+'</td>'
-      + '<td>'+(pi ? esc(pi.party) : ng)+'</td><td>'+(pi ? esc(pi.co) : '')+'</td><td class="muted">'+(pi ? esc(pi.name) : '')+'</td>'
-      + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:52px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
-      + '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">削除</button></td></tr>';
+    h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')
+      + (r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span></td>'
+      + '<td>'+(si ? esc(si.item)+' <span class="muted">'+esc(si.co)+'</span>' : ng)+'</td>'
+      + '<td>'+(pi ? esc(pi.party)+' <span class="muted">'+esc(pi.co)+'</span>' : ng)+'</td>'
+      + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:48px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
+      + '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td></tr>';
   });
   h += '</table><button class="b6-btn sm cp-dadd" style="margin-top:4px">＋ 明細を追加</button>';
   if(warns.length) h += '<div style="margin-top:4px">'+warns.map(w => '<div><span class="bdg w">⚠</span> '+esc(w)+'</div>').join('')+'</div>';
@@ -4262,22 +4282,22 @@ function dtlHtml(D, coId){
   const sAll = coId ? D.sale.items.filter(x => x.coId===coId) : D.sale.items;
   const sL = dtlSaleShown(D, coId);
   h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
-    + ' <span class="muted" style="font-size:11px">'+(coId ? '選んだ 販売CO のアイテム' : '販売CO を選ぶとその契約だけ出ます（今は残のあるもの全部）')+' → '+who+'</span></div>'
-    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売先</th><th>販売CO</th><th>S.unit</th><th>販売重量</th><th>割当量</th><th>残</th><th>Tolerance</th><th>備考</th></tr>'
-    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+'><td><button class="b6-btn sm cp-sadd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
-      + '<td class="n">'+dtlNum(x.wt)+'</td><td class="n">'+dtlNum(x.alloc)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td><td>'+esc(x.tol || '')+'</td><td>'+esc(x.note)+'</td></tr>').join('')
-    + (sL.length ? '' : '<tr><td colspan="10" class="muted">該当なし</td></tr>') + '</table>'
+    + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
+    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売CO</th><th>S.unit</th><th>残</th></tr>'
+    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td><button class="b6-btn sm cp-sadd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
+      + '<td class="n"><b>'+dtlNum(x.remain)+'</b></td></tr>').join('')
+    + (sL.length ? '' : '<tr><td colspan="5" class="muted">該当なし</td></tr>') + '</table>'
     + (sL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目で絞り込んでください）</div>' : '') + '</div>';
   /* ③ 購買アイテム */
   const pL = dtlPurShown(D);
   const pOk = dtlPurAllowed(D, cur);
   const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
   h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
-    + ' <span class="muted" style="font-size:11px">残のある購買（月は問わない）→ '+who+'</span></div>'
-    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>購買重量</th><th>割当量</th><th>残</th></tr>'
-    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+'><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
-      + '<td class="n">'+esc(x.unit)+'</td><td class="n">'+dtlNum(x.wt)+'</td><td class="n">'+dtlNum(x.alloc)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td></tr>').join('')
-    + (pL.length ? '' : '<tr><td colspan="9" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
+    + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
+    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th></tr>'
+    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
+      + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td></tr>').join('')
+    + (pL.length ? '' : '<tr><td colspan="7" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
     + (pL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目・購買元で絞り込んでください）</div>' : '') + '</div>';
   return h;
 }
@@ -4295,6 +4315,10 @@ async function openCompass(b){
   let R;
   try{ R = await compassCheck(b); }
   catch(e){ modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">確認に失敗</span> '+esc(e.message.slice(0,300))+'</div><div class="muted" style="margin-top:6px">COMPASS を読む権限がない場合もこの表示になります。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+  openCompassUI(b, R);
+}
+/* 入力画面 (確認画面の「← 戻る」でも これを開き直す — 選んだもの・明細は R に残っている) */
+function openCompassUI(b, R){
   const li = (arr, cls) => arr.map(x=>'<div style="margin:2px 0"><span class="bdg '+cls+'">'+(cls==='d'?'✕':cls==='w'?'⚠':'i')+'</span> '+esc(x)+'</div>').join('');
   let h = (CFG.COMPASS_WRITE || S.store.compass.demo) ? '' : '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">試験モード: 最後の「反映する」まで進めますが、COMPASS には書き込みません</div>';
   if(S.store.compass.demo) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">🧪 デモ: COMPASS もメモリ上の仮のものです（実際の COMPASS には触れません）</div>';
@@ -4350,6 +4374,9 @@ async function openCompass(b){
       /* 手で選んだ (自動と違う) 対応を覚える */
       cpMapLearn(R.lookups.map((L, i) => ({L:L, id:picks[i]})).filter(x => x.id && x.id!==x.L.auto && !blank(x.L.key))
         .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})));
+      /* 「← 戻る」で同じ選択のまま開き直せるように R に残す */
+      R.lookups.forEach((L, i) => { if(i in picks && picks[i]!==L.sel){ L.sel = picks[i]; L.how = picks[i] && picks[i]===L.auto ? L.how : ''; } });
+      if(R.am) R.am.val = picks.am;
       c(); confirmCompass(b, R, picks);
     }}], true);
   /* ── 名前の列 (⚙) と 明細の操作 ── */
@@ -4472,6 +4499,7 @@ function confirmCompass(b, R, picks){
   let busy = false;
   modal('⚠ COMPASS への反映の確認', h, [
     {label:'やめる', fn:c=>c()},
+    {label:'← 戻って直す', fn:c=>{ if(busy) return; c(); openCompassUI(b, R); }},
     {label:'反映する', pri:true, fn:async c=>{
       if(busy) return; busy = true;
       try{ await compassFillAuto(R, body, picks); await sendCompass(b, R, body, test); c(); }
@@ -4510,6 +4538,8 @@ async function sendCompass(b, R, body, test){
   await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
   toast('COMPASS に入力しました（'+bkLabel(b)+' / ID '+id+'）', 'ok');
   await sendCompassDetails(R, id);
+  /* 割当量・Invoice の一覧が変わったので 次は読み直す */
+  if(C.forget) C.forget();
 }
 /* ヘッダーを作った後に 明細。COMPASS_DTL_WRITE が false の間は 送る内容を見せるだけ */
 async function sendCompassDetails(R, bkId){
@@ -5399,6 +5429,8 @@ async function startTool(){
   if(S.hasCpk) cpkLoadNames();
   await loadBoard();
   await restoreMemo();
+  /* COMPASS の一覧・明細を裏で先読み (権限がなければ何もしない) */
+  setTimeout(() => compassWarm(), 4000);
 }
 
 /* デモモード (?demo=1): 共通ファイルのログインを通さず、メモリ上の合成データで動かす */
