@@ -3443,7 +3443,9 @@ async function cpNamesLoad(entity, hint, depth){
     && !/yomi|traversedpath|_base$/i.test(c.col)).slice(0, 40);
   const portCol = cols.find(c => c.type==='String' && /搬入港|港|POL/i.test(c.label));
   const portLks = !portCol && !depth ? E.cols.filter(c => c.rel && /^[a-z0-9]+_/.test(c.col) && /港|POL|乙仲|業者|取扱|customs/i.test(c.label+' '+c.rel.target)).slice(0, 3) : [];
-  const sel = E.entity.EntitySetName+'?$select='+[pid].concat(cols.map(c => c.col), portLks.map(c => '_'+c.col+'_value')).join(',');
+  /* 一覧の列 (例: 船社別単価 の 出発港・到着港・船社 が一覧を指す時) も f に名前で入れる — 運賃の絞り込み用 (ISHIKARI→KWANGYANG で候補が出なかった — 2026-11-16) */
+  const fLks = !depth ? E.cols.filter(c => c.rel && /^[a-z0-9]+_/.test(c.col) && !portLks.includes(c) && /港|船社|船会社|carrier|region/i.test(c.label+' '+c.rel.target)).slice(0, 4) : [];
+  const sel = E.entity.EntitySetName+'?$select='+[pid].concat(cols.map(c => c.col), portLks.concat(fLks).map(c => '_'+c.col+'_value')).join(',');
   let rows; try{ rows = await dvGetAll(sel+'&$filter=statecode eq 0'); }catch(e){ if(e.status!==400) throw e; rows = await dvGetAll(sel); }
   const FVK = '@OData.Community.Display.V1.FormattedValue';
   const val = (r, c) => str(r[c+FVK]!=null ? r[c+FVK] : r[c]).trim();
@@ -3482,7 +3484,11 @@ async function cpNamesLoad(entity, hint, depth){
     return '';
   };
   /* f: 列の表示名 → 値 (運賃の 船社・出発港・到着港 で絞るのに使う)。日付は yyyy-mm-dd */
-  const fOf = r => { const o = {}; cols.forEach(c => { o[c.label] = c.type==='DateTime' ? str(r[c.col]).slice(0, 10) : val(r, c.col); }); return o; };
+  const fN = await Promise.all(fLks.map(c => cpNames(c.rel.target, '', 1).catch(() => null)));
+  const fOf = r => { const o = {}; cols.forEach(c => { o[c.label] = c.type==='DateTime' ? str(r[c.col]).slice(0, 10) : val(r, c.col); });
+    fLks.forEach((c, i) => { if(o[c.label]) return; const id = r['_'+c.col+'_value'], x = fN[i] && fN[i].map.get(id);
+      o[c.label] = (x && x.name) || val(r, '_'+c.col+'_value'); });
+    return o; };
   const map = new Map(rows.map(r => [r[pid], {id:r[pid], name:nameOf(r) || str(r[pn]), alt:alts.map(c => val(r, c)).filter(Boolean), port:portOf(r), f:fOf(r)}]));
   const cands = cols.map(c => ({col:c.col, label:lab(c.col), type:c.type, samples:Array.from(new Set(rows.map(r => val(r, c.col)).filter(Boolean))).slice(0, 4)}))
     .filter(c => c.samples.length);
@@ -3793,9 +3799,15 @@ async function compassCheck(b){
         const pc = f.k==='otsu' && pol ? (() => { const al = cpAliases('port', pol); return o.list.filter(x => x.port && al.includes(cpNorm(x.port))); })()
           : f.k==='freight' ? freightCands(o.list, pol, pod, car, b.cycut || b.etd || todayStr()) : [];
         if(f.k==='otsu'){ L.cands = pc; L.candLabel = pol+' の乙仲'; if(o.portLabel) L.nameCol = (L.nameCol||'')+' · 港＝'+o.portLabel; }
-        if(f.k==='freight'){ L.cands = pc; L.candLabel = [pol, pod, car].join(' → ')+' の運賃'; }
+        if(f.k==='freight'){
+          /* 表示は 港→港 船社 | 金額 | 期限。候補が上、ほかは 出発港 → 到着港 の順 */
+          const lab = x => Object.assign({}, x, {name:freightLabel(x)});
+          L.list = o.list.map(lab).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+          L.cands = pc.map(lab);
+          L.candLabel = pc.length && pc[0].carMiss ? pol+' → '+pod+' の運賃（船社 '+car+' は見つからず — 船社違い）' : [pol, pod, car].join(' → ')+' の運賃';
+        }
         if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
-        else if(pc.length===1){ L.sel = pc[0].id; L.how = 'auto'; L.note = '自動で選択（'+L.candLabel+'が 1 件）'; }
+        else if(pc.length===1 && !pc[0].carMiss){ L.sel = pc[0].id; L.how = 'auto'; L.note = '自動で選択（'+L.candLabel+'が 1 件）'; }
         else if(pc.length) L.note = L.candLabel+'から選んでください（'+pc.length+' 件）';
         else L.note = blank(f.key) ? '選んでください' : '選んでください — 次から「'+f.show+'」で自動'+(f.k==='otsu' ? '（搬入港 '+pol+' の乙仲が一覧にありません）' : '');
       }
@@ -3839,11 +3851,20 @@ async function compassCheck(b){
 function freightCands(list, pol, pod, car, ref){
   const P = cpAliases('port', pol), D = cpAliases('pod', pod), C = cpAliases('carrier', car);
   const near = (v, al) => { const n = cpNorm(v); return !!n && al.some(a => n===a || (a.length>=3 && n.startsWith(a)) || (n.length>=3 && a.startsWith(n))); };
-  const g = (x, re) => { const k = Object.keys(x.f || {}).find(k => re.test(k)); return k ? x.f[k] : ''; };
-  return list.filter(x => near(g(x, /出発港/), P) && near(g(x, /到着港/), D) && (!car || near(g(x, /^船社/), C)))
-    .filter(x => { const d = g(x, /見積期限|期限/); return !d || !ref || d >= ref; })
+  /* 船社は 2 文字の略 (KM → KMTC) も前方一致で */
+  const nearC = v => { const n = cpNorm(v); return !!n && C.some(a => n===a || (a.length>=2 && n.startsWith(a)) || (n.length>=2 && a.startsWith(n))); };
+  const g = freightF;
+  const valid = x => { const d = g(x, /見積期限|期限/); return !d || !ref || d >= ref; };
+  const byPort = list.filter(x => near(g(x, /出発港/), P) && near(g(x, /到着港/), D)).filter(valid)
     .sort((a, b) => str(g(b, /見積期限|期限/)).localeCompare(str(g(a, /見積期限|期限/))));
+  const byCar = car ? byPort.filter(x => nearC(g(x, /^船(社|会社)/))) : byPort;
+  /* 船社まで合うものがなければ 港だけ合うもの (船社違いも出して選べるように) */
+  return byCar.length ? byCar : byPort.map(x => Object.assign({}, x, {carMiss:true}));
 }
+const freightF = (x, re) => { const k = Object.keys(x.f || {}).find(k => re.test(k)); return k ? x.f[k] : ''; };
+/* 運賃の一覧の表示: 「ISHIKARI→KWANGYANG KMTC | $0|¥0|¥0 | 〜2026-12-31」— 金額だけだと見分けられない (0|0|0 が並んだ — 2026-11-16) */
+const freightLabel = x => { const g = freightF, rt = [g(x, /出発港/), g(x, /到着港/)].filter(Boolean).join('→'), d = g(x, /見積期限|期限/);
+  return [rt + (g(x, /^船(社|会社)/) ? ' '+g(x, /^船(社|会社)/) : ''), x.name, d ? '〜'+d : ''].filter(s => str(s).trim()).join(' | '); };
 /* 販売CO の候補: 選んだ販売先の契約 (親の列があれば)・Invoice の年月 (2611) を含むもの */
 function salecoCands(L, buyerId){
   const byP = L.list.filter(o => !L.hasParent || !buyerId || o.parent===buyerId);
