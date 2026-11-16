@@ -3385,6 +3385,11 @@ const DvCompass = {
     const r = await dvFetch(COMPASS.ES+'?$select='+pid, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify(body)});
     return (await r.json())[pid];
   },
+  async exists(id){
+    const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
+    try{ await dvGet(COMPASS.ES+'('+id+')?$select='+pid); return true; }
+    catch(e){ if(e.status===404) return false; throw e; }
+  },
   /* 明細の新規作成 — details() で見つけた明細テーブルだけ・決めた列だけ */
   async createDetail(body, allowed){
     const D = await this.details();
@@ -3628,6 +3633,7 @@ function makeMemCompass(){
     async options(entity){ return opts[entity]; },
     async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
     async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
+    async exists(id){ return recs.some(r => r.id===id); },
     async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
   };
 }
@@ -4248,7 +4254,20 @@ async function sendCompassDetails(R, bkId){
 }
 function compassInfo(b){
   modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>入力日時</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
-    + '<div class="muted" style="margin-top:6px;font-size:12px">修正・取消は COMPASS で行ってください。</div>', [{label:'閉じる', fn:c=>c()}]);
+    + '<div class="muted" style="margin-top:6px;font-size:12px">修正・取消は COMPASS で行ってください。<br>COMPASS で削除した時は「もう一度入力」で入力し直せます（COMPASS に残っていないことを確かめてから）。</div>',
+    [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力（COMPASS で削除済み）', fn:c=>{ c(); compassResend(b); }}]);
+}
+/* 再入力 (ユーザー 2026-11-16): COMPASS 側で消したことを確かめてから、B-06 の「COMPASS済」を外して入力画面を開く。
+   COMPASS に同じ Booking no. か前の ID がまだあれば止める (B-06 からは COMPASS を消さない) */
+async function compassResend(b){
+  const C = S.store.compass;
+  try{
+    const dup = await C.findByBookingNo(firstLine(b.bkgno));
+    const still = b.compass_id && C.exists ? await C.exists(b.compass_id) : false;
+    if(dup.length || still){ modal('COMPASS にまだ残っています', '<div><span class="bdg d">✕</span> COMPASS に '+(dup.length ? '同じ Booking no.（'+esc(firstLine(b.bkgno))+'）' : '前回の ID（'+esc(b.compass_id)+'）')+' のブッキングがあります。</div><div class="muted" style="margin-top:6px">先に COMPASS で削除してから、もう一度押してください。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+  }catch(e){ toast('COMPASS を確認できません: '+String(e.message || e).slice(0, 140), 'danger'); return; }
+  await saveBooking(b, {compass_id:'', compass_status:'', compass_at:new Date().toISOString()}, 'bkgno');
+  openCompass(b);
 }
 
 /* ══════════ IMPORT (④ 取込 — SheetJS, ブラウザ内のみ) ══════════ */
