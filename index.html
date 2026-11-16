@@ -192,6 +192,23 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-note{font-size:12px}
+/* COMPASS 入力の画面 (シンプル版 — ユーザー 2026-11-16「もっとシンプルに」) */
+.cp-msg{font-size:12px;margin:0 0 6px;display:flex;flex-direction:column;gap:2px}
+.cp-h{font-size:12.5px;font-weight:700;margin:14px 0 6px;color:var(--text2)}
+.cp-h small{font-weight:400;font-size:11px;margin-left:6px}
+.cp-sum{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.cp-sum .k{font-size:11px;color:var(--text2)}
+.cp-sum .v{font-size:13px;font-weight:600;word-break:break-all}
+.cp-sum .v.no{font-weight:400;color:var(--text2)}
+.cp-form{width:100%;border-collapse:collapse}
+.cp-form td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:12.5px}
+.cp-form td.cp-lab{width:110px;font-weight:600;white-space:nowrap}
+.cp-form td.cp-lab .b6v{font-weight:400;font-size:11px;color:var(--text2);max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.cp-form td.cp-note{color:var(--text2)}
+.cp-form tr.cp-sec td{padding:6px;border-bottom:none}
+.cp-more{margin-top:12px;font-size:11.5px;color:var(--text2)}
+.cp-more summary{cursor:pointer}
+.cp-more table td{font-size:11.5px;padding:2px 6px}
 .bk-mtxt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin-top:2px;padding:1px 5px;font-size:10.5px;line-height:1.3;color:var(--text2);background:color-mix(in srgb,var(--warn) 13%,transparent);border-left:2px solid var(--warn);border-radius:0 3px 3px 0;cursor:pointer;max-width:220px;font-weight:400;font-family:inherit}
 .bk-mtxt:hover{color:var(--text);background:color-mix(in srgb,var(--warn) 24%,transparent)}
 .bk-mtxt .im{margin-left:3px;color:var(--text3)}
@@ -3774,7 +3791,7 @@ async function compassCheck(b){
     if((a.required==='ApplicationRequired' || a.required==='SystemRequired') && a.createOk && !a.of && !sent.has(k)
        && k!==M.entity.PrimaryIdAttribute && !COMPASS.AUTO_COLS.includes(k)) miss.push(a.label+'（'+k+'）');
   });
-  if(miss.length) R.warns.push('COMPASS で必須なのに B-06 から送らない項目: '+miss.join('、'));
+  if(miss.length) R.infos.push(   /* 画面をすっきり — 詳細にだけ出す (ヘッダーはこのままで作成できている) */'COMPASS で必須なのに B-06 から送らない項目: '+miss.join('、'));
   const calc = []; M.attrs.forEach((a,k) => { if(a.source===1 || a.source===2) calc.push(a.label); });
   if(calc.length) R.infos.push('COMPASS 側で自動計算される列: '+calc.join('、'));
   const live = b.rows.filter(a=>!a.deleted), hon = live.reduce((t,a)=>t+(+a.totalhon||0),0);
@@ -3915,17 +3932,19 @@ function dtlFocus(D, i){
   D.fPp = pi ? pi.party : (r.sup.list[0] || '');
 }
 function dtlHtml(D, coId){
-  let h = '<h4 style="margin:14px 0 4px">📦 明細 <span class="muted" style="font-weight:400;font-size:11.5px">今は選ぶだけ — COMPASS には送りません</span></h4>';
+  let h = '<div class="cp-h">明細 <small class="muted">今は選ぶだけ（COMPASS には送りません）・1 本 = '+D.ton+' t</small></div>';
   if(D.err) return h + '<div><span class="bdg w">⚠</span> '+esc(D.err)+'</div>';
   const nc = (c, l) => c && c.rel && !S.store.compass.demo ? ' <button class="b6-btn sm cp-nc" data-ent="'+esc(c.rel.target)+'" data-t="'+esc(l)+'" title="この一覧の名前に使う列">⚙ '+esc(l)+'</button>' : '';
   const sc = D.sale.cols, pc = D.purch.cols;
-  h += '<div class="muted" style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件'
+  h += '<details class="cp-more" style="margin:0 0 6px"><summary>明細の詳細（COMPASS のテーブル・列）</summary><div style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件'
     + (pc.shut ? '・〆 '+(D.purch.shutN||0)+' 件は非表示［'+esc(pc.shut.on+' の '+pc.shut.label)+'］' : '・<span style="color:#b45309">〆 の列が見つかりません</span>')
     + '・並び＝'+esc(pc.coAt ? pc.coAt.label : '契約番号')+' の新しい順）'
     + '・残＝'+esc(sc.remain ? sc.remain.label : '？')+' / '+esc(pc.remain ? pc.remain.label : '？')+'・予想重量 = 本数 × '+D.ton+' t（固定）</div>';
   const ncs = nc(sc.item, '品目') + nc(sc.co, '販売CO') + nc(sc.party, '販売先') + nc(pc.co, '購買CO') + nc(pc.party, '購買元');
   if(ncs) h += '<div style="margin:4px 0;font-size:11.5px">名前が番号や違う値で出る時: '+ncs+'</div>';
-  if(D.sale.all) h += '<details style="font-size:11px" class="muted"><summary>販売・購買アイテムの列（確認用）</summary>販売 '+esc(D.sale.set)+': '+esc(D.sale.all.join('、'))+'<br>購買 '+esc(D.purch.set)+': '+esc(D.purch.all.join('、'))+'</details>';
+  if(D.sale.all) h += '<div style="font-size:11px;margin-top:4px">販売 '+esc(D.sale.set)+' の列: '+esc(D.sale.all.join('、'))+'<br>購買 '+esc(D.purch.set)+' の列: '+esc(D.purch.all.join('、'))+'</div>';
+  h += '</details>';
+  if(!pc.shut) h += '<div style="font-size:11px;color:#b45309">⚠ 〆 の列が見つかりません — 〆 の購買契約も出ています</div>';
   /* ① 明細の一覧 */
   const sum = {S:new Map(), P:new Map()};
   D.rows.forEach(r => { if(r.sale) sum.S.set(r.sale, (sum.S.get(r.sale)||0)+r.wt); if(r.pur) sum.P.set(r.pur, (sum.P.get(r.pur)||0)+r.wt); });
@@ -3987,30 +4006,46 @@ async function openCompass(b){
   const li = (arr, cls) => arr.map(x=>'<div style="margin:2px 0"><span class="bdg '+cls+'">'+(cls==='d'?'✕':cls==='w'?'⚠':'i')+'</span> '+esc(x)+'</div>').join('');
   let h = (CFG.COMPASS_WRITE || S.store.compass.demo) ? '' : '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">試験モード: 最後の「反映する」まで進めますが、COMPASS には書き込みません</div>';
   if(S.store.compass.demo) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">🧪 デモ: COMPASS もメモリ上の仮のものです（実際の COMPASS には触れません）</div>';
-  h += li(R.blocks,'d') + li(R.warns,'w') + li(R.infos,'i');
-  h += '<table class="b6-s" style="margin-top:8px"><tr><th>項目</th><th>B-06 の値</th><th>COMPASS に送る値</th><th>メモ</th></tr>';
-  R.fields.forEach(f => { h += '<tr><td>'+esc(f.label)+'<div class="muted" style="font-size:11px">'+esc(f.col)+'</div></td><td>'+esc(f.b06)+'</td><td>'+(f.send!=null?'<b>'+esc(f.send)+'</b>':'<span class="muted">—</span>')+'</td><td>'+esc(f.note)+'</td></tr>'; });
-  const exNote = CFG.COMPASS_EXTRA_WRITE ? '' : '（承認後に送信 — 今は選ぶだけ）';
+  /* シンプル版 (ユーザー 2026-11-16「너무 조잡해」): ① 送る値はカード 1 枚 ② 選ぶものは 項目｜選択｜状態 だけ ③ 列名・⚙ などは下の「詳細」にたたむ */
+  h += '<div class="cp-msg">' + li(R.blocks,'d') + li(R.warns,'w') + '</div>';
+  h += '<div class="cp-h">B-06 から送る値</div><div class="cp-sum">'
+    + R.fields.map(f => '<div title="'+esc(f.note || '')+'"><div class="k">'+esc(f.label)+'</div>'
+      + (f.send!=null ? '<div class="v">'+esc(f.b06 || f.send)+'</div>' : '<div class="v no">—'+(f.note ? ' <span style="font-size:11px">'+esc(f.note)+'</span>' : '')+'</div>')+'</div>').join('')
+    + '</div>';
+  const exNote = CFG.COMPASS_EXTRA_WRITE ? '' : '<small class="muted">今は選ぶだけ（承認後に送信）</small>';
+  h += '<div class="cp-h">COMPASS で選ぶもの</div><table class="cp-form">';
   R.lookups.forEach((L, i) => {
-    if(L.extra && !R.lookups[i-1].extra) h += '<tr class="cp-sec"><td colspan="4">販売・乙仲・運賃 '+exNote+'</td></tr>';
+    if(L.extra && !R.lookups[i-1].extra) h += '</table><div class="cp-h">販売・乙仲・運賃 '+exNote+'</div><table class="cp-form">';
     const op = o => '<option value="'+esc(o.id)+'"'+(o.id===L.sel?' selected':'')+'>'+esc(o.name)+'</option>';
     const candIds = new Set(L.cands.map(c => c.id));
     const sel = L.list.length
       ? '<div class="cp-lk"><select class="b6-sel cp-pick" data-i="'+i+'"><option value="">— 送らない —</option>'
         + (L.cands.length ? '<optgroup label="'+esc(L.candLabel || '候補')+'">'+L.cands.map(op).join('')+'</optgroup><optgroup label="すべて">' : '')
         + L.list.filter(o => !candIds.has(o.id)).map(op).join('') + (L.cands.length ? '</optgroup>' : '') + '</select>'
-        + '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍 絞り込み" autocomplete="off"></div>'
+        + (L.list.length > 12 ? '<input class="b6-in cp-q" data-i="'+i+'" placeholder="🔍" autocomplete="off">' : '') + '</div>'
       : '<span class="muted">—</span>';
-    const badge = L.how==='learn' ? '<span class="bdg o">記憶</span> ' : L.how==='auto' ? '<span class="bdg o">自動</span> ' : L.list.length && !blank(L.key) ? '<span class="bdg w">選択</span> ' : '';
+    const ok = L.sel && (L.how==='auto' || L.how==='learn');
     const need = L.list.length && !L.sel && (L.extra || !blank(L.key));
-    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td>'+esc(L.label)+'<div class="muted" style="font-size:11px">'+esc(L.col)+(L.nameCol ? '<br>名前＝'+esc(L.nameCol)+' <button class="b6-btn sm cp-nc" data-ent="'+esc(L.target)+'" data-t="'+esc(L.label)+'" title="この一覧の名前に使う列を選ぶ">⚙</button>' : '')+'</div></td><td>'+esc(L.extra ? L.show : L.key)+'</td><td>'+sel+'</td><td class="cp-note">'+(L.extra && !L.how && L.list.length ? '<span class="bdg w">選択</span> ' : badge)+esc(L.note)+'</td></tr>';
+    const note = ok ? '<span class="bdg o" title="'+esc(L.note)+'">'+(L.how==='learn' ? '✓ 記憶' : '✓ 自動')+'</span>'
+      : need ? '<span class="bdg w">選択</span> '+esc(L.note) : esc(L.note);
+    const b6v = L.extra ? L.show : L.key;
+    h += '<tr'+(need ? ' class="cp-need"' : '')+'><td class="cp-lab">'+esc(L.label)+(b6v ? '<div class="b6v" title="B-06: '+esc(b6v)+'">B-06: '+esc(b6v)+'</div>' : '')+'</td><td>'+sel+'</td><td class="cp-note">'+note+'</td></tr>';
   });
-  if(R.am) h += '<tr><td>AM<div class="muted" style="font-size:11px">'+esc(R.am.col || '（見つかりません）')+'</div></td><td>Cut '+(R.am.val ? '<b>AM</b>' : '—')+'</td><td>'+(R.am.col ? '<label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> AM（午前カット）</label>' : '<span class="muted">—</span>')+'</td><td class="cp-note">'+(R.am.col ? 'B-06 の Cut の AM から' : 'COMPASS に「AM」の列が見つかりません')+'</td></tr>';
-  h += '</table><div class="muted" style="font-size:11.5px;margin-top:6px">POL・POD・船社・販売先・乙仲・海上運賃区分を手で選ぶと、その対応を覚えて次から自動で選びます（チームで共有）。販売CO は選んだ販売先と Invoice の年月で絞り込みます。</div>';
-  if(R.allCols) h += '<details style="margin-top:4px;font-size:11px" class="muted"><summary>COMPASS ブッキングの列（'+R.allCols.length+'）— 見つからない列の確認用</summary>'+esc(R.allCols.join('、'))+'</details>';
+  if(R.am && R.am.col) h += '<tr><td class="cp-lab">AM</td><td><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" id="cp-am"'+(R.am.val?' checked':'')+'> 午前カット</label></td><td class="cp-note">'+(R.am.val ? 'B-06 の Cut が AM' : '')+'</td></tr>';
+  h += '</table>';
   const scI = R.lookups.findIndex(L => L.kind==='saleco');
   const coSel = el => { const s = scI>=0 && el.querySelector('.cp-pick[data-i="'+scI+'"]'); return s ? s.value : ''; };
   h += '<div class="cp-dtlw">'+dtlHtml(R.dtl, scI>=0 ? R.lookups[scI].sel : '')+'</div>';
+  /* 詳細 (確認用) — ふだんは閉じておく */
+  h += '<details class="cp-more"><summary>詳細（COMPASS の列名・名前の列 ⚙・お知らせ）</summary>'
+    + (R.infos.length ? '<div style="margin:6px 0">'+li(R.infos,'i')+'</div>' : '')
+    + '<table class="b6-s" style="margin-top:6px">'
+    + R.fields.map(f => '<tr><td>'+esc(f.label)+'</td><td>'+esc(f.col)+'</td><td>'+(f.send!=null ? esc(f.send) : '—')+'</td></tr>').join('')
+    + R.lookups.map(L => '<tr><td>'+esc(L.label)+'</td><td>'+esc(L.col)+'</td><td>'+(L.nameCol ? '名前＝'+esc(L.nameCol)+' <button class="b6-btn sm cp-nc" data-ent="'+esc(L.target)+'" data-t="'+esc(L.label)+'" title="この一覧の名前に使う列を選ぶ">⚙</button>' : '')+'</td></tr>').join('')
+    + (R.am ? '<tr><td>AM</td><td>'+esc(R.am.col || '（見つかりません）')+'</td><td></td></tr>' : '')
+    + '</table><div style="margin-top:6px">POL・POD・船社・販売先・乙仲・海上運賃区分を手で選ぶと、その対応を覚えて次から自動で選びます（チームで共有）。販売CO は選んだ販売先と Invoice の年月で絞り込みます。</div>'
+    + (R.allCols ? '<div style="margin-top:4px">COMPASS ブッキングの列（'+R.allCols.length+'）: '+esc(R.allCols.join('、'))+'</div>' : '')
+    + '</details>';
   const m = modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), h, [
     {label:'キャンセル', fn:c=>c()},
     {label:'送信内容を確認 →', pri:true, fn:c=>{
