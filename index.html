@@ -2069,6 +2069,77 @@ function cellNeighbor(td, dir){
   });
   return best;
 }
+/* ══════════ Invoice の次の番号 (ユーザー 2026-11-16) ══════════
+   Invoice「NXX2611-21」= N + 販売先コード XX + 契約の年月 2611 + 連番。販売契約「LRS-2611XX2」の末尾 2 が連番の帯:
+   1 → 01〜19、2 → 21〜、3 → 31〜 (末尾 0 の契約はない)。最後の番号は COMPASS (その販売CO のブッキング) と B-06 の両方から */
+const invNorm = s => PARSE.nfkcSame(firstLine(s)).toUpperCase().replace(/\s+/g, '');
+function invParse(s){ const m = invNorm(s).match(/^N([A-Z]+)(\d{4})-(\d{2,3})$/); return m ? {code:m[1], yymm:m[2], seq:+m[3], pre:'N'+m[1]+m[2]} : null; }
+function coParse(s){ const m = invNorm(s).match(/^[A-Z]+-(\d{4})([A-Z]+?)(\d+)$/); return m ? {yymm:m[1], code:m[2], k:+m[3]} : null; }
+const invK = seq => seq < 20 ? 1 : Math.floor(seq/10);
+const invStart = k => k===1 ? 1 : k*10 + 1;
+const invFmt = (pre, n) => pre+'-'+String(n).padStart(2, '0');
+/* 販売契約ごとの 最後の番号・次の番号 */
+function invRowsFor(X, code, b){
+  const others = Array.from(S.bk.values()).filter(x => !x.deleted && x!==b && !blank(x.invoiceno));
+  return X.contracts.map(c => ({c:c, p:coParse(c.name)})).filter(y => y.p && y.p.code===code).map(({c, p}) => {
+    const pre = 'N'+code+p.yymm, seqs = [];
+    X.inv.forEach(x => { const q = invParse(x.no); if(q && q.pre===pre && (x.co===c.id || invK(q.seq)===p.k)) seqs.push({seq:q.seq, src:'COMPASS'}); });
+    others.forEach(x => { const q = invParse(x.invoiceno); if(q && q.pre===pre && invK(q.seq)===p.k) seqs.push({seq:q.seq, src:'B-06'}); });
+    seqs.sort((x, y) => y.seq - x.seq);
+    const last = seqs[0] || null, next = last ? last.seq + 1 : invStart(p.k);
+    return {c:c, p:p, pre:pre, last:last, next:invFmt(pre, next), over:invK(next)!==p.k, remain:X.remain ? X.remain.get(c.id) : undefined};
+  }).sort((x, y) => y.p.yymm.localeCompare(x.p.yymm) || x.p.k - y.p.k);
+}
+/* 同じ Invoice no. がもうあるか (COMPASS・B-06 のほかのブッキング) */
+function invDup(v, b){
+  const n = invNorm(v); if(!n) return [];
+  const out = [];
+  if(S.invIdx) S.invIdx.inv.forEach(x => { if(invNorm(x.no)===n) out.push('COMPASS'); });
+  S.bk.forEach(x => { if(x!==b && !x.deleted && invNorm(x.invoiceno)===n) out.push('B-06 '+(firstLine(x.bkgno) || '（Booking no. なし）')); });
+  return Array.from(new Set(out));
+}
+function invHelpHtml(X, err, val, b){
+  const t = invNorm(val), m = t.match(/^N([A-Z]+)(\d{0,4})/);
+  let h = '<div class="t">Invoice の次の番号</div>';
+  const dup = invDup(val, b);
+  if(dup.length) h += '<div class="dup">⚠ '+esc(t)+' はもう使われています（'+esc(dup.join('・'))+'）</div>';
+  if(!m) return h + '<div class="muted">販売先コードを入れてください（例: NXX）— その販売契約ごとに 最後の番号と次の番号を出します</div>';
+  if(err) return h + '<div class="muted">COMPASS を読めません: '+esc(err)+'</div>';
+  if(!X) return h + '<div class="muted">COMPASS の販売契約を読み込み中…</div>';
+  let rows = invRowsFor(X, m[1], b);
+  if(m[2]) rows = rows.filter(r => r.p.yymm.startsWith(m[2]));
+  const hidden = rows.filter(r => r.remain!=null && r.remain <= 0).length;
+  rows = rows.filter(r => !(r.remain!=null && r.remain <= 0)).slice(0, 12);
+  if(!rows.length) return h + '<div class="muted">「'+esc(m[1])+'」の販売契約が見つかりません'+(hidden ? '（残 0 の契約 '+hidden+' 件は非表示）' : '')+'</div>';
+  h += '<table><tr><th>販売契約</th><th>販売先</th><th class="n">残</th><th>最終船積日</th><th>最後の Invoice</th><th>次</th></tr>'
+    + rows.map(r => '<tr><td><b>'+esc(r.c.name)+'</b></td><td>'+esc(r.c.buyer || '')+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : dtlNum(r.remain)+' t')+'</td><td>'+esc(r.c.last || '—')+'</td>'
+      + '<td>'+(r.last ? esc(invFmt(r.pre, r.last.seq))+' <span class="muted" style="font-size:10.5px">'+r.last.src+'</span>' : '<span class="muted">まだなし</span>')+'</td>'
+      + '<td>'+(r.over ? '<span class="dup" title="この契約の番号の帯を超えます">'+esc(r.next)+' ⚠</span>' : '<button class="go" data-inv="'+esc(r.next)+'">'+esc(r.next)+'</button>')+'</td></tr>').join('')
+    + '</table>' + (hidden ? '<div class="muted" style="margin-top:4px;font-size:11px">残 0 の契約 '+hidden+' 件は非表示</div>' : '')
+    + '<div class="muted" style="margin-top:4px;font-size:11px">番号を押すと入ります・最後の番号は COMPASS と B-06 の両方から</div>';
+  return h;
+}
+/* Invoice no. のセルを編集している間、すぐ下に出す */
+function invHelpOpen(el, td, b, pick){
+  const C = S.store.compass; if(!C || !C.invoiceIndex) return;
+  const box = document.createElement('div'); box.className = 'inv-help'; document.body.appendChild(box);
+  let X = S.invIdx && Date.now() - S.invIdx.at < 180e3 ? S.invIdx : null, err = '';
+  const place = () => { const r = td.getBoundingClientRect();
+    box.style.left = Math.max(8, Math.min(r.left, innerWidth - box.offsetWidth - 8))+'px';
+    const below = r.bottom + 4; box.style.top = (below + box.offsetHeight > innerHeight - 8 ? Math.max(8, r.top - box.offsetHeight - 4) : below)+'px'; };
+  const draw = () => { if(!box.isConnected) return; box.innerHTML = invHelpHtml(X, err, el.value, b); place(); };
+  const withRemain = () => { if(!X || X.remain || X.remainP || !C.details) return;
+    X.remainP = C.details().then(D => { const rm = new Map(); D.sale.items.forEach(x => { if(x.remain!=null) rm.set(x.coId, (rm.get(x.coId) || 0) + Math.max(0, x.remain)); }); X.remain = rm; draw(); })
+      .catch(() => { X.remain = new Map(); draw(); }); };
+  draw();
+  if(X) withRemain();
+  else C.invoiceIndex().then(v => { X = S.invIdx = v; withRemain(); draw(); }).catch(e => { err = String(e.message || e).slice(0, 160); draw(); });
+  el.addEventListener('input', draw);
+  /* mousedown で選ぶ (入力欄の blur = 確定 を起こさない) */
+  box.addEventListener('mousedown', ev => { ev.preventDefault(); const g = ev.target.closest('[data-inv]'); if(g) pick(g.dataset.inv); });
+  const bw = $('#b6-board'); bw.addEventListener('scroll', place);
+  el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
+}
 /* ── セル編集 ── opt.text: 打った文字で上書きして始める */
 function startEdit(td, opt){
   const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
@@ -2119,7 +2190,13 @@ function startEdit(td, opt){
   const commitMove = dir => { const nb = cellNeighbor(td, dir); if(nb) S.cellSel = cellKeyOf(nb); finish(true); };
   const finish = (commit) => {
     if(done) return; done = true;
+    if(el._closeHelp) el._closeHelp();
     let v = el.value;
+    /* Invoice no. がもう使われている時は確かめる */
+    if(commit && k==='invoiceno' && lv==='B' && !blank(v) && invNorm(v)!==invNorm(cur)){
+      const dup = invDup(v, b);
+      if(dup.length && !confirm('Invoice no.「'+firstLine(v)+'」はもう使われています（'+dup.join('・')+'）。\nこのまま保存しますか？')){ endEditing(); renderBoard(); return; }
+    }
     endEditing();
     if(!commit){ renderBoard(); return; }
     if(k==='approval'){
@@ -2143,6 +2220,7 @@ function startEdit(td, opt){
     else saveAsg(b, a, {[k]: v}, k);
   };
   el.addEventListener('blur', () => finish(true));
+  if(k==='invoiceno' && lv==='B') invHelpOpen(el, td, b, v => { el.value = v; finish(true); });
   el.addEventListener('change', () => { if(el.tagName==='SELECT') finish(true); });
   el.addEventListener('keydown', ev => {
     if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
@@ -3497,6 +3575,26 @@ const DvCompass = {
     try{ await dvGet(COMPASS.ES+'('+id+')?$select='+pid); return true; }
     catch(e){ if(e.status===404) return false; throw e; }
   },
+  /* Invoice の次の番号用 (読み取りのみ・3 分キャッシュ): 販売契約 (番号・販売先・最終船積日) と COMPASS ブッキングの Invoice No.・販売CO */
+  async invoiceIndex(){
+    if(this._inv && Date.now() - this._inv.at < 180e3) return this._inv;
+    const M = await this.meta();
+    let scCol = null; for(const [k, a] of M.attrs){ if(a.type==='Lookup' && /販売\s*CO|販売契約/i.test(a.label) && M.rels.get(k)){ scCol = k; break; } }
+    if(!scCol) throw new Error('COMPASS ブッキングに 販売CO の列が見つかりません');
+    const tgt = M.rels.get(scCol).target;
+    const CE = await cpEntMeta(tgt), cid = CE.entity.PrimaryIdAttribute;
+    const N = await cpNames(tgt);
+    const lsc = CE.cols.find(c => c.type==='DateTime' && /最終船積日/.test(c.label)), pc = CE.cols.find(c => c.rel && /販売先/.test(c.label));
+    const [crows, bks] = await Promise.all([
+      dvGetAll(CE.entity.EntitySetName+'?$select='+[cid].concat(lsc ? [lsc.col] : [], pc ? ['_'+pc.col+'_value'] : []).join(',')),
+      dvGetAll(COMPASS.ES+'?$select=cr49f_invoice_no,_'+scCol+'_value')]);
+    let BN = null; if(pc){ try{ BN = await cpNames(pc.rel.target); }catch(e){} }
+    const jst = v => !v ? '' : String(v).includes('T') ? new Date(Date.parse(v) + 9*3600e3).toISOString().slice(0, 10) : String(v).slice(0, 10);
+    const contracts = crows.map(r => { const o = N.map.get(r[cid]);
+      return {id:r[cid], name:o ? o.name : '', last:lsc ? jst(r[lsc.col]) : '', buyer:pc && BN ? ((BN.map.get(r['_'+pc.col+'_value']) || {}).name || '') : ''}; });
+    const inv = bks.map(r => ({no:str(r.cr49f_invoice_no).trim(), co:r['_'+scCol+'_value'] || null})).filter(x => x.no);
+    return this._inv = {at:Date.now(), contracts:contracts, inv:inv};
+  },
   /* 明細の新規作成 — details() で見つけた明細テーブルだけ・決めた列だけ */
   async createDetail(body, allowed){
     const D = await this.details();
@@ -3747,6 +3845,8 @@ function makeMemCompass(){
     async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
     async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
     async exists(id){ return recs.some(r => r.id===id); },
+    async invoiceIndex(){ return {at:Date.now(), contracts:opts.demo_saleco.list.map(o => ({id:o.id, name:o.name, buyer:(opts.demo_buyer.list.find(x => x.id===o.parent) || {}).name || '', last:''})),
+      inv:recs.map(r => ({no:str(r.body.cr49f_invoice_no).trim(), co:null})).filter(x => x.no)}; },
     async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
   };
 }
@@ -3895,7 +3995,7 @@ async function compassCheck(b){
       const o = await C.options(tgt, par && par.target, f.k==='otsu' ? '乙仲' : '');
       L.nav = rel ? rel.nav : null; L.set = o.set; L.list = o.list; L.target = tgt; L.hasParent = !!o.parentAttr; L.nameCol = o.nameCol;
       if(f.k==='saleco'){
-        L.month = invMon; L.parentIdx = exIdx.buyer;
+        L.month = invMon; L.inv = inv; L.parentIdx = exIdx.buyer;
         const c = salecoCands(L, par ? par.sel : '');
         L.cands = c.slice(0, 15);
         if(c.length===1){ L.sel = c[0].id; L.how = 'auto'; L.note = '自動で選択（候補が 1 件）'; }
@@ -3974,6 +4074,10 @@ const freightLabel = x => { const g = freightF, rt = [g(x, /出発港/), g(x, /�
   return [rt + (g(x, /^船(社|会社)/) ? ' '+g(x, /^船(社|会社)/) : ''), x.name, d ? '〜'+d : ''].filter(s => str(s).trim()).join(' | '); };
 /* 販売CO の候補: 選んだ販売先の契約 (親の列があれば)・Invoice の年月 (2611) を含むもの */
 function salecoCands(L, buyerId){
+  /* Invoice no. から販売契約が決まる時はそれだけ (NXX2611-21 → LRS-2611XX2) — ユーザー 2026-11-16 */
+  const iv = invParse(L.inv || '');
+  if(iv){ const hit = L.list.filter(o => { const p = coParse(o.name); return p && p.code===iv.code && p.yymm===iv.yymm && p.k===invK(iv.seq); });
+    if(hit.length) return hit.map(o => ({id:o.id, name:o.name})); }
   const byP = L.list.filter(o => !L.hasParent || !buyerId || o.parent===buyerId);
   const byM = L.month ? byP.filter(o => cpNorm(o.name).includes(L.month)) : byP;
   return (byM.length ? byM : byP).map(o => ({id:o.id, name:o.name}));
