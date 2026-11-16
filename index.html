@@ -3287,7 +3287,9 @@ function carrierKey(raw){
   const m = s.match(/[A-Za-z][A-Za-z\s\-]*/);
   return m ? m[0].replace(/[\s\-]+$/,'').trim() : s;
 }
-function compassDate(v, dateOnly){ return dateOnly ? v : v+'T00:00:00+09:00'; }
+/* 日付だけの列でない時は 日本時間の正午 で送る (= UTC でも同じ日)。0 時 (+09:00) で送ると UTC では前の日になり、
+   COMPASS の画面に 1 日前 (11/27 → 11/26) と出た — ユーザー 2026-11-16 */
+function compassDate(v, dateOnly){ return dateOnly ? v : v+'T12:00:00+09:00'; }
 
 /* ── COMPASS 読み書き (Dataverse) ── */
 const DvCompass = {
@@ -3916,8 +3918,10 @@ function dtlSaleShown(D, coId){
 }
 /* 購買は新しい契約から (契約日 → なければ契約番号 LR-2503… の大きい順) — ユーザー 2026-11-16 */
 const dtlNewer = (p, q) => ((q.coAt||0) - (p.coAt||0)) || str(q.co).localeCompare(str(p.co), 'ja', {numeric:true}) || str(q.name).localeCompare(str(p.name), 'ja', {numeric:true});
+/* 選んだ行の Packer に COMPASS 購買元が分かっていれば、その購買元の購買契約しか入れられない (A 社の行に B 社 の契約は不可 — ユーザー 2026-11-16) */
+const dtlPurAllowed = (D, r) => !r || !r.sup.list.length ? D.purch.items : D.purch.items.filter(x => r.sup.list.includes(x.party));
 function dtlPurShown(D){
-  let L = D.purch.items;
+  let L = dtlPurAllowed(D, D.rows[D.cur]);
   if(D.fPi) L = L.filter(x => x.item===D.fPi);
   if(D.fPp) L = L.filter(x => x.party===D.fPp);
   return L.slice().sort((p, q) => (D.fPp ? 0 : str(p.party).localeCompare(str(q.party), 'ja')) || dtlNewer(p, q));
@@ -3979,7 +3983,8 @@ function dtlHtml(D, coId){
     + (sL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目で絞り込んでください）</div>' : '') + '</div>';
   /* ③ 購買アイテム */
   const pL = dtlPurShown(D);
-  const pParties = dtlUniq((D.fPi ? D.purch.items.filter(x => x.item===D.fPi) : D.purch.items).map(x => x.party));
+  const pOk = dtlPurAllowed(D, cur);
+  const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
   h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
     + ' <span class="muted" style="font-size:11px">残のある購買（月は問わない）→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>購買重量</th><th>割当量</th><th>残</th></tr>'
@@ -4072,7 +4077,8 @@ async function openCompass(b){
     const sa = t.closest('.cp-sadd'), r = D.rows[D.cur];
     if(sa && r){ r.sale = sa.dataset.id; r.howS = 'man'; if(r.howP!=='man') dtlAuto(D, r, coSel(m.el)); dtlFocus(D, D.cur); dtlPaint(); return; }
     const pa = t.closest('.cp-padd');
-    if(pa && r){ r.pur = pa.dataset.id; r.howP = 'man'; dtlPaint(); return; }
+    if(pa && r){ if(!dtlPurAllowed(D, r).some(x => x.id===pa.dataset.id)){ toast('この行の購買元（'+r.sup.list.join('・')+'）の購買契約だけ入れられます', 'warn'); return; }
+      r.pur = pa.dataset.id; r.howP = 'man'; dtlPaint(); return; }
     if(t.closest('.cp-fsall')){ D.fS = ''; dtlPaint(); return; }
     const tr = t.closest('tr.cp-dr');
     if(tr && !t.closest('input,button,select')){ dtlFocus(D, +tr.dataset.r); dtlPaint(); }
