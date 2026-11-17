@@ -329,6 +329,35 @@ table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Goth
 .st .tg.done{color:var(--ok);font-weight:700}
 .st .tg.na{color:var(--text3)}
 .st .tg.none{color:var(--text3);opacity:.5}
+/* チェックのセル (ドレ配車・P/O申込・P/O配布・ドレーFAX・搬入表送付): セル全体を押すと 空 → ✔ → 不要 → 空 — 2026-11-17 */
+.b6-t td.stcell{cursor:pointer;user-select:none}
+.b6-t td.stcell.s-done{background:color-mix(in srgb,var(--ok) 13%,transparent)}
+.b6-t td.stcell.s-na{background:color-mix(in srgb,var(--text3) 9%,transparent)}
+.b6-t td.stcell:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.ck{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:46px}
+.ck .bx{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:1.5px solid var(--text3);border-radius:4px;opacity:.55;font-size:11px;line-height:1;box-sizing:border-box}
+.ck .bx.done{background:var(--ok);border-color:var(--ok);color:#fff;opacity:1;font-weight:700}
+.ck .bx.na{width:auto;height:auto;border:0;opacity:1;font-size:10.5px;color:var(--text3);background:var(--surface3);border-radius:8px;padding:1px 7px}
+td.stcell:hover .ck .bx.none{opacity:.9;border-color:var(--accent)}
+.ck .mm{font-size:11px;color:var(--text2);white-space:pre-wrap;user-select:text}
+.ck .pe{position:absolute;right:1px;top:1px;opacity:0;border:none;background:var(--read);border-radius:3px;color:var(--text3);cursor:pointer;padding:0 3px;font-size:11px}
+td.stcell:hover .ck .pe{opacity:1}
+.ck .pe:hover{color:var(--accent)}
+.cu-ph{color:var(--text3);opacity:.35;font-size:11px}
+td[data-f="customs"]:hover .cu-ph{opacity:.9;color:var(--accent)}
+/* 通関依頼の選択リスト */
+.cpick{position:fixed;z-index:1000;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:6px;font-size:13px;max-width:340px;box-sizing:border-box}
+.cpick .cq{width:100%;box-sizing:border-box;border:1px solid var(--accent);border-radius:5px;padding:5px 8px;font:inherit;background:var(--read);color:var(--text);outline:none}
+.cpick .gh{font-size:11px;color:var(--text3);padding:6px 8px 2px;font-weight:700}
+.cpick .cl{max-height:280px;overflow:auto;margin-top:2px}
+.cpick .ci{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;cursor:pointer;text-align:left;white-space:nowrap}
+.cpick .ci.on{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.cpick .ci .n{flex:1;overflow:hidden;text-overflow:ellipsis}
+.cpick .ci .c{font-size:11px;color:var(--text3)}
+.cpick .ci.cur .n{font-weight:700}
+.cpick .ci.cur .n::before{content:'✔ ';color:var(--ok)}
+.cpick .ci.sub .n{color:var(--text2)}
+.cpick .ft{font-size:10.5px;color:var(--text3);padding:4px 8px 0;border-top:1px solid var(--border);margin-top:4px}
 .st .mm{font-size:11px;color:var(--text2);white-space:pre-wrap}
 .st .pe{opacity:0;border:none;background:none;color:var(--text3);cursor:pointer;padding:0;font-size:11px;margin-left:auto}
 td:hover .st .pe{opacity:1}
@@ -731,7 +760,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.19', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.20', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1386,10 +1415,18 @@ function cellHtml(col, b, a){
              : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
     return '<div class="pkc">'+h+'</div>';
   }
+  if(col.st && col.k==='customs'){
+    /* 通関依頼 = 乙仲の名前。押すと選択リスト */
+    const o = statusOf(v), nm = o.memo.trim();
+    if(!nm && o.st==='none') return '<span class="cu-ph">選ぶ ▾</span>';
+    return (o.st==='done' ? '<span style="color:var(--ok);font-weight:700">✔ </span>' : o.st==='na' ? '<span class="muted">- </span>' : '')+esc(nm);
+  }
   if(col.st){
-    const o = statusOf(v);
-    const sym = o.st==='done' ? '✔' : o.st==='na' ? '-' : '·';
-    return '<div class="st"><span class="tg '+o.st+'" title="クリックで ✔ → - → 空">'+sym+'</span><span class="mm">'+esc(o.st==='memo'?o.memo:o.memo.replace(/^\s+/,''))+'</span></div>';
+    /* チェック: 空 = □ / ✔ = 緑 / - = 不要。文字は下に (✎ で入力) */
+    const o = statusOf(v), mm = o.st==='memo' ? o.memo : o.memo.replace(/^\s+/,'');
+    const bx = o.st==='done' ? '<span class="bx done">✔</span>' : o.st==='na' ? '<span class="bx na">不要</span>' : '<span class="bx none"></span>';
+    return '<div class="ck" title="押すと 空 → ✔ → 不要 → 空 / ✎ か 文字を打つと メモ">'+bx+(mm.trim() ? '<span class="mm">'+esc(mm)+'</span>' : '')
+      +'<button class="pe" data-stx="1" tabindex="-1" title="文字を入力">✎</button></div>';
   }
   return esc(v);
 }
@@ -1463,7 +1500,7 @@ function boardTable(region, list, F){
           if(i>0) return;
           h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+cselCls('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
         } else {
-          h += '<td class="ed'+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+cselCls('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+remoteTag('A',a.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td class="ed'+(c.st && c.k!=='customs' ? ' stcell s-'+statusOf(a[c.k]).st : '')+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+cselCls('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+remoteTag('A',a.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         }
       });
       h += '</tr>';
@@ -2231,13 +2268,8 @@ function startEdit(td, opt){
     el = document.createElement('input'); el.type = 'text'; el.inputMode = 'numeric'; el.autocomplete = 'off';
     el.value = cur ? cur.replace(/-/g, '/') : ''; el.placeholder = '11/20'; el.title = '11/20・1120・2026/11/20 で入力 / 空で消す / 📅 でカレンダー';
   } else if(k==='customs' && customsCands(b).length){
-    /* 通関依頼: POL の 乙仲 候補から選ぶ (よく使う順) — ユーザー 2026-11-17 */
-    const cs = customsCands(b), v0 = str(cur).trim(), pol = str(b.port).trim().toUpperCase();
-    el = document.createElement('select');
-    el.innerHTML = '<option value="">（空）</option><optgroup label="'+esc(pol)+' の乙仲（よく使う順）">'
-      + cs.map(c => '<option value="'+esc(c.name)+'">'+esc(c.name)+(c.n ? '（'+c.n+'）' : '')+'</option>').join('')+'</optgroup>'
-      + (v0 && !cs.some(c => c.name===v0) ? '<option value="'+esc(v0)+'">今の値: '+esc(v0)+'</option>' : '');
-    el.value = v0;
+    /* 通関依頼: POL の 乙仲 候補から選ぶ (よく使う順)。見やすい選択リスト — ユーザー 2026-11-17 */
+    openCustomsPick(td, b, a, cur, opt); return;
   } else {
     if(k==='customs') otsuLoad();
     const multi = /\n/.test(str(cur)) || ['bkgno','invoiceno','pod','carrier','vessel','memo','grade','qty_raw'].includes(k) || STATUS_KEYS.includes(k) && k!=='customs';
@@ -2261,6 +2293,9 @@ function startEdit(td, opt){
     }
     el.value = str(cur);
   }
+  /* チェックのセルは 文字 (メモ) だけを入力 — ✔ / 不要 はそのまま残す */
+  const isCk = STATUS_KEYS.includes(k) && k!=='customs' && lv==='A';
+  if(isCk){ el.value = statusOf(cur).memo.replace(/^\s+/, ''); el.placeholder = 'メモ'; }
   S.cellSel = cellKeyOf(td);
   if(opt && opt.text!=null && el.tagName!=='SELECT') el.value = opt.text;
   /* 入力欄はセルの上に重ねる (セルの中身は見えないまま残す) — 表の 行の高さ・列の幅 が一切変わらない。
@@ -2316,6 +2351,8 @@ function startEdit(td, opt){
       saveBooking(b, {approval:v, approval_raw:o.raw}, 'approval'); return;
     }
     if(k==='port') v = v.trim().toUpperCase();
+    if(isCk){ const o = statusOf(cur), pre = o.st==='done' ? '✔' : o.st==='na' ? '-' : '', t = v.trim();
+      v = t ? (pre ? pre+' '+t : t) : pre; }
     if(DATE_KEYS.includes(k)){
       const d = parseDateIn(v, cur);
       if(d===undefined){ toast('日付を読めません:「'+v+'」— 11/20・1120・2026/11/20 のように入力してください', 'warn'); renderBoard(); return; }
@@ -2344,6 +2381,75 @@ function startEdit(td, opt){
     else if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing && (el.tagName!=='TEXTAREA' || ev.ctrlKey)){ ev.preventDefault(); commitMove('down'); }
     else if(ev.key==='Enter' && el.tagName==='TEXTAREA' && !ev.shiftKey && !ev.isComposing && !ev.altKey){ ev.preventDefault(); commitMove('down'); }
   });
+}
+/* 通関依頼の選択リスト: 検索 (打つと絞り込み) / ↑↓ Enter / 押すとすぐ保存 / 候補にない名前も Enter で入力 */
+function openCustomsPick(td, b, a, cur, opt){
+  const cs = customsCands(b), o0 = statusOf(cur), v0 = o0.memo.trim(), pol = str(b.port).trim().toUpperCase();
+  const pre = o0.st==='done' ? '✔' : o0.st==='na' ? '-' : '';
+  S.cellSel = cellKeyOf(td);
+  const pop = document.createElement('div'); pop.className = 'cpick';
+  pop.innerHTML = '<input class="cq" autocomplete="off" placeholder="検索・候補にない名前は打って Enter"><div class="cl"></div>'
+    + '<div class="ft">↑↓ で選ぶ・Enter で決定・Esc でやめる</div>';
+  document.body.appendChild(pop);
+  const q = pop.querySelector('.cq'), cl = pop.querySelector('.cl');
+  const nk = s => str(s).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+  let items = [], act = 0, done = false;
+  const draw = () => {
+    const t = nk(q.value);
+    const list = cs.filter(c => !t || nk(c.name).includes(t));
+    items = [];
+    let h = '';
+    if(v0 && !cs.some(c => c.name===v0) && (!t || nk(v0).includes(t))){
+      h += '<div class="gh">今の値（候補にない）</div>'; items.push({name:v0}); h += row(items.length-1, v0, '', true);
+    }
+    if(list.length){ h += '<div class="gh">'+esc(pol)+' の乙仲 — よく使う順</div>';
+      list.forEach(c => { items.push({name:c.name}); h += row(items.length-1, c.name, c.n ? c.n+'回' : '', c.name===v0); }); }
+    if(t && !cs.some(c => nk(c.name)===t) && nk(v0)!==t){ items.push({name:q.value.trim()}); h += row(items.length-1, '「'+q.value.trim()+'」を入力', '', false, true); }
+    if(v0 || pre){ items.push({name:'', clear:true}); h += row(items.length-1, '空にする', '', false, true); }
+    if(!items.length) h = '<div class="gh">候補がありません</div>';
+    cl.innerHTML = h;
+    if(act >= items.length) act = Math.max(0, items.length-1);
+    hl();
+  };
+  const row = (i, label, cnt, isCur, sub) => '<div class="ci'+(isCur ? ' cur' : '')+(sub ? ' sub' : '')+'" data-i="'+i+'"><span class="n">'+esc(label)+'</span>'+(cnt ? '<span class="c">'+esc(cnt)+'</span>' : '')+'</div>';
+  const hl = () => { cl.querySelectorAll('.ci').forEach(x => x.classList.toggle('on', +x.dataset.i===act));
+    const e = cl.querySelector('.ci.on'); if(e) e.scrollIntoView({block:'nearest'}); };
+  const place = () => {
+    const rc = td.getBoundingClientRect(), w = Math.max(rc.width, 220);
+    pop.style.minWidth = w+'px';
+    let left = Math.min(rc.left, window.innerWidth - pop.offsetWidth - 8), top = rc.bottom + 2;
+    if(top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, rc.top - pop.offsetHeight - 2);
+    pop.style.left = Math.max(8, left)+'px'; pop.style.top = top+'px';
+  };
+  const close = () => { if(done) return; done = true; pop.remove();
+    document.removeEventListener('mousedown', outside, true); window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', cancel); };
+  const cancel = () => { if(done) return; close(); endEditing(); renderBoard(); };
+  const choose = (it, move) => {
+    if(done || !it) return; close(); endEditing();
+    if(move){ const nb = cellNeighbor(td, move); if(nb) S.cellSel = cellKeyOf(nb); }
+    const v = it.clear ? '' : (it.name ? (pre ? pre+' '+it.name : it.name) : pre);
+    if(str(cur)===v){ renderBoard(); return; }
+    saveAsg(b, a, {customs:v}, 'customs');
+  };
+  const outside = ev => { if(!pop.contains(ev.target)) cancel(); };
+  const onScroll = ev => { if(!pop.contains(ev.target)) cancel(); };
+  cl.addEventListener('mousedown', ev => { ev.preventDefault(); const r = ev.target.closest('.ci'); if(r) choose(items[+r.dataset.i]); });
+  cl.addEventListener('mousemove', ev => { const r = ev.target.closest('.ci'); if(r && +r.dataset.i!==act){ act = +r.dataset.i; hl(); } });
+  q.addEventListener('input', () => { act = 0; draw(); place(); });
+  q.addEventListener('keydown', ev => {
+    if(ev.isComposing) return;
+    if(ev.key==='ArrowDown'){ ev.preventDefault(); if(items.length){ act = (act+1) % items.length; hl(); } }
+    else if(ev.key==='ArrowUp'){ ev.preventDefault(); if(items.length){ act = (act-1+items.length) % items.length; hl(); } }
+    else if(ev.key==='Enter'){ ev.preventDefault(); choose(items[act], 'down'); }
+    else if(ev.key==='Tab'){ ev.preventDefault(); choose(items[act], ev.shiftKey ? 'left' : 'right'); }
+    else if(ev.key==='Escape'){ ev.preventDefault(); cancel(); }
+  });
+  if(opt && opt.text) q.value = opt.text;
+  draw();
+  const ci = items.findIndex(x => !x.clear && x.name===v0); if(ci >= 0 && !q.value){ act = ci; hl(); }
+  place();
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); window.addEventListener('scroll', onScroll, true); window.addEventListener('resize', cancel); }, 0);
+  q.focus();
 }
 function toggleStatus(td){
   const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b || b.deleted) return;
@@ -5471,7 +5577,14 @@ function initUI(){
     if(mm){ const b = S.bk.get(mm.closest('tr').dataset.k); if(b) openBookingMemo(b); return; }
     const tg = ev.target.closest('.tg');
     if(tg){ toggleStatus(tg.closest('td')); return; }
+    /* チェックのセル: ✎ = 文字 / セルのどこを押しても ✔ 切替 */
+    const sx = ev.target.closest('[data-stx]');
+    if(sx){ const t2 = sx.closest('td'); setCellSel(t2); startEdit(t2); return; }
+    const sc = ev.target.closest('td.stcell');
+    if(sc && !sc.querySelector('input,textarea,select')){ setCellSel(sc); toggleStatus(sc); return; }
     const td = ev.target.closest('td.ed');
+    /* 通関依頼は 1 回押すとすぐ選択リスト */
+    if(td && td.dataset.f==='customs' && !td.querySelector('input,textarea,select') && !S.editing){ setCellSel(td); startEdit(td); return; }
     if(td && !td.querySelector('input,textarea,select')){
       /* 1 回目 = 選択、選んであるセルをもう一度 = 入力 */
       if(td.classList.contains('csel')) startEdit(td); else setCellSel(td);
@@ -5479,7 +5592,7 @@ function initUI(){
   });
   $('#b6-board').addEventListener('dblclick', ev => {
     const td = ev.target.closest('td.ed');
-    if(td && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
+    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
   });
   /* 表の外を押したら選択を外す (選んだまま ほかで文字を打って書き換わらないように) */
   document.addEventListener('mousedown', ev => { if(S.cellSel && !S.editing && !ev.target.closest('#b6-board')) setCellSel(null); });
@@ -5495,7 +5608,7 @@ function initUI(){
     if(ev.key==='Tab'){ ev.preventDefault(); const nb = cellNeighbor(td, ev.shiftKey ? 'left' : 'right'); if(nb) setCellSel(nb); return; }
     if(ev.key==='Escape'){ setCellSel(null); return; }
     /* 状態のセル (ドレ配車・P/O申込 …): Space で ✔ → - → 空 */
-    if(ev.key===' ' && td.querySelector('.tg')){ ev.preventDefault(); toggleStatus(td); return; }
+    if(ev.key===' ' && td.classList.contains('stcell')){ ev.preventDefault(); toggleStatus(td); return; }
     if(ev.key==='F2' && ev.shiftKey){ ev.preventDefault();   /* Excel のコメントと同じ: セルのメモ */
       const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k), a = td.dataset.lv==='A' && b ? b.rows.find(x => x.id===td.dataset.aid) : null;
       if(b && MEMO_COLS.has(td.dataset.f)) openCellMemo(b, a, td.dataset.f); return; }
