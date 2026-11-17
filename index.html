@@ -775,7 +775,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.21', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.22', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3949,8 +3949,14 @@ const DvCompass = {
     out.cols.bk = D.cols.find(c => c.rel && c.rel.target===M.entity.LogicalName) || null;
     out.cols.saleCo = toT(out.sale.cols.co && out.sale.cols.co.rel && out.sale.cols.co.rel.target);
     out.cols.purCo = toT(out.purch.cols.co && out.purch.cols.co.rel && out.purch.cols.co.rel.target);
+    /* 〆 の契約 = 明細 (アイテム) が全部 〆 の契約。販売CO の一覧・Invoice の候補から外すのに使う (ユーザー 2026-11-17) */
+    const shutCos = L => { const m = new Map(); L.items.forEach(x => { if(!x.coId) return; const o = m.get(x.coId) || {n:0, s:0}; o.n++; if(x.shut) o.s++; m.set(x.coId, o); });
+      return new Set(Array.from(m).filter(([, o]) => o.s===o.n).map(([k]) => k)); };
+    out.sale.shutCo = shutCos(out.sale); out.purch.shutCo = shutCos(out.purch);
     out.purch.shutN = out.purch.items.filter(x => x.shut).length;
     out.purch.items = out.purch.items.filter(x => !x.shut && (x.remain==null || x.remain>0));
+    out.sale.shutN = out.sale.items.filter(x => x.shut).length;
+    out.sale.items = out.sale.items.filter(x => !x.shut);
     return this._dtl = out;
   },
   async create(body, allowed){
@@ -3979,7 +3985,9 @@ const DvCompass = {
       dvGetAll(COMPASS.ES+'?$select=cr49f_invoice_no,_'+scCol+'_value')]);
     let BN = null; if(pc){ try{ BN = await cpNames(pc.rel.target); }catch(e){} }
     const jst = v => !v ? '' : String(v).includes('T') ? new Date(Date.parse(v) + 9*3600e3).toISOString().slice(0, 10) : String(v).slice(0, 10);
-    const contracts = crows.map(r => { const o = N.map.get(r[cid]);
+    /* 〆 の販売契約は候補に出さない (使った Invoice No. は番号を決めるのに全部使う) */
+    let shut = null; try{ const D = await this.details(); shut = D.sale.shutCo; }catch(e){}
+    const contracts = crows.filter(r => !(shut && shut.has(r[cid]))).map(r => { const o = N.map.get(r[cid]);
       return {id:r[cid], name:o ? o.name : '', last:lsc ? jst(r[lsc.col]) : '', buyer:pc && BN ? ((BN.map.get(r['_'+pc.col+'_value']) || {}).name || '') : ''}; });
     const inv = bks.map(r => ({no:str(r.cr49f_invoice_no).trim(), co:r['_'+scCol+'_value'] || null})).filter(x => x.no);
     return this._inv = {at:Date.now(), contracts:contracts, inv:inv};
@@ -4166,7 +4174,9 @@ async function cpLoadItems(target, onlyRemain){
   }
   /* 契約 (CO) の 契約日 (なければ作成日) と 〆 — 新しい契約順に並べる・〆 の契約を外すのに使う (ユーザー 2026-11-16) */
   C.coAt = null; C.shut = null;
-  const shutCol = Ent => Ent.cols.find(c => c.label && /〆/.test(c.label) && (c.type==='Boolean' || c.type==='Picklist' || c.type==='State' || c.type==='Status' || c.type==='String')) || null;
+  /* 〆 の列: 表示名に 〆 / または はい・いいえ の列で 名前が *_closing・表示名が 締め・クロージング・closing (CLEARANCE_COMPASS は cr49f_closing を使う — 2026-11-17) */
+  const shutCol = Ent => Ent.cols.find(c => c.label && /〆/.test(c.label) && (c.type==='Boolean' || c.type==='Picklist' || c.type==='State' || c.type==='Status' || c.type==='String'))
+    || Ent.cols.find(c => c.type==='Boolean' && (/_closing$/i.test(c.col) || /締め|クロージング|closing|closed/i.test(str(c.label)))) || null;
   const isShut = (r, c) => { if(!c) return false; const v = r[c.col], f = str(r[c.col+FVK]);
     if(c.type==='Boolean') return v===true;
     if(c.type==='String') return !!str(v).trim();
@@ -4406,6 +4416,9 @@ async function compassCheck(b){
       const o = await C.options(tgt, par && par.target, f.k==='otsu' ? '乙仲' : '');
       L.nav = rel ? rel.nav : null; L.set = o.set; L.list = o.list; L.target = tgt; L.hasParent = !!o.parentAttr; L.nameCol = o.nameCol;
       if(f.k==='saleco'){
+        /* 〆 の販売契約は出さない (明細が全部 〆 の契約) — ユーザー 2026-11-17 */
+        try{ const D0 = await C.details(), sh = D0 && D0.sale && D0.sale.shutCo;
+          if(sh && sh.size){ const n0 = L.list.length; L.list = L.list.filter(x => !sh.has(x.id)); L.shutN = n0 - L.list.length; } }catch(e){}
         L.month = invMon; L.inv = inv; L.parentIdx = exIdx.buyer;
         const c = salecoCands(L, par ? par.sel : '');
         L.cands = c.slice(0, 15);
@@ -4620,7 +4633,7 @@ function dtlHtml(D, coId, coName){
   if(D.err) return h + '<div><span class="bdg w">⚠</span> '+esc(D.err)+'</div>';
   const nc = (c, l) => c && c.rel && !S.store.compass.demo ? ' <button class="b6-btn sm cp-nc" data-ent="'+esc(c.rel.target)+'" data-t="'+esc(l)+'" title="この一覧の名前に使う列">⚙ '+esc(l)+'</button>' : '';
   const sc = D.sale.cols, pc = D.purch.cols;
-  h += '<details class="cp-more" style="margin:0 0 6px"><summary>明細の詳細（COMPASS のテーブル・列）</summary><div style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件'
+  h += '<details class="cp-more" style="margin:0 0 6px"><summary>明細の詳細（COMPASS のテーブル・列）</summary><div style="font-size:11px">COMPASS: '+esc(D.set)+' — 販売 '+esc(D.sale.set)+'（'+D.sale.items.length+' 件'+(sc.shut ? '・〆 '+(D.sale.shutN||0)+' 件は非表示' : '・<span style="color:#b45309">〆 の列が見つかりません</span>')+'）・購買 '+esc(D.purch.set)+'（残あり '+D.purch.items.length+' 件'
     + (pc.shut ? '・〆 '+(D.purch.shutN||0)+' 件は非表示［'+esc(pc.shut.on+' の '+pc.shut.label)+'］' : '・<span style="color:#b45309">〆 の列が見つかりません</span>')
     + '・並び＝'+esc(pc.coAt ? pc.coAt.label : '契約番号')+' の新しい順）'
     + '・残＝'+esc(sc.remain ? sc.remain.label : '？')+' / '+esc(pc.remain ? pc.remain.label : '？')+'・予想重量 = 本数 × '+D.ton+' t（固定）</div>';
