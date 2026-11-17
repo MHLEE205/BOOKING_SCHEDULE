@@ -324,7 +324,7 @@ table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Goth
 .ob{border:none;background:none;color:var(--text3);cursor:pointer;padding:0 3px;font-size:12px}
 .ob:hover{color:var(--accent)}
 .st{display:flex;gap:4px;align-items:flex-start;min-width:46px}
-.st .tg{cursor:pointer;min-width:18px;text-align:center;border-radius:4px;user-select:none}
+.st .tg{cursor:pointer;min-width:30px;min-height:22px;line-height:22px;text-align:center;border-radius:4px;user-select:none}
 .st .tg:hover{background:var(--surface3)}
 .st .tg.done{color:var(--ok);font-weight:700}
 .st .tg.na{color:var(--text3)}
@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.16', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.17', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -829,6 +829,27 @@ function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMo
 function addDays(s, n){ const p=s.split('-'); const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]+n)); return d.toISOString().slice(0,10); }
 function addYears(s, n){ return (+s.slice(0,4)+n)+s.slice(4); }
 function dayDiff(a, b){ return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400000); }
+/* 日付の入力 (Excel のように): 11/20・11-20・11.20・1120・2026/11/20・26/11/20・20 (日だけ = 基準日の月)。年なしは 基準日 (今の値 か 今日) に一番近い年。
+   空 = 消す (null)。読めなければ undefined — ユーザー 2026-11-17「날짜 기입란이 스무스하지 않아」 */
+function parseDateIn(raw, ref){
+  const t = str(raw).normalize('NFKC').trim().replace(/[年月]/g, '/').replace(/日/g, '');
+  if(!t) return null;
+  const R = /^\d{4}-\d{2}-\d{2}$/.test(str(ref)) ? ref : todayStr();
+  const ok = (y, m, d) => { const x = new Date(y, m-1, d); return x.getFullYear()===y && x.getMonth()===m-1 && x.getDate()===d ? y+'-'+pad2(m)+'-'+pad2(d) : undefined; };
+  let m;
+  if((m = t.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/))) return ok(+m[1], +m[2], +m[3]);
+  if((m = t.match(/^(\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/))) return ok(2000 + +m[1], +m[2], +m[3]);
+  if((m = t.match(/^(\d{8})$/))) return ok(+t.slice(0,4), +t.slice(4,6), +t.slice(6,8));
+  let mo, d;
+  if((m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})$/))){ mo = +m[1]; d = +m[2]; }
+  else if((m = t.match(/^(\d{3,4})$/))){ mo = +t.slice(0, t.length-2); d = +t.slice(-2); }
+  else if((m = t.match(/^(\d{1,2})$/))){ mo = +R.slice(5,7); d = +m[1]; }
+  else return undefined;
+  const ry = +R.slice(0,4), base = Date.parse(R);
+  const cs = [ry-1, ry, ry+1].map(y => ok(y, mo, d)).filter(Boolean);
+  if(!cs.length) return undefined;
+  return cs.sort((x, y) => Math.abs(Date.parse(x)-base) - Math.abs(Date.parse(y)-base))[0];
+}
 function fmtMD(s){ if(!s) return ''; const y=+s.slice(0,4), m=+s.slice(5,7), d=+s.slice(8,10); return (y!==new Date().getFullYear()? (y%100)+'/' : '')+m+'/'+d; }
 function fmtDT(iso){ if(!iso) return ''; const d=new Date(iso); return d.getFullYear()+'/'+pad2(d.getMonth()+1)+'/'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes()); }
 function monthRange(ym){ const y=+ym.slice(0,4), m=+ym.slice(5,7); const last=new Date(y,m,0).getDate(); return {from:ym+'-01', to:ym+'-'+pad2(last), days:last}; }
@@ -2001,7 +2022,10 @@ async function saveBooking(b, patch, cellKey){
   const fk = cellKey || Object.keys(patch)[0];
   setFx('B', b.id, fk, 'saving'); renderBoard();
   try{
-    const saved = await S.store.update('B', b, fields);
+    /* 同じブッキングの保存は 1 つずつ (Cut → Tab → ETD と続けて入れると 412 になっていた — 2026-11-17) */
+    const job = (b._q || Promise.resolve()).catch(() => {}).then(() => S.store.update('B', b, fields));
+    b._q = job;
+    const saved = await job;
     b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
     setFx('B', b.id, fk, 'saved');
     if('bkgno' in patch && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
@@ -2032,7 +2056,10 @@ async function saveAsg(b, a, patch, cellKey){
   const fk = cellKey || Object.keys(patch)[0];
   setFx('A', a.id, fk, 'saving'); renderBoard();
   try{
-    const saved = await S.store.update('A', a, fields);
+    /* 同じ行の保存は 1 つずつ (続けて押すと 前の保存の etag のまま送って 412 になっていた — 2026-11-17) */
+    const job = (a._q || Promise.resolve()).catch(() => {}).then(() => S.store.update('A', a, fields));
+    a._q = job;
+    const saved = await job;
     a.etag = saved.etag; a.modifiedon = saved.modifiedon; a.modifiedby = saved.modifiedby;
     setFx('A', a.id, fk, 'saved');
     renderBoard(); return true;
@@ -2199,7 +2226,9 @@ function startEdit(td, opt){
     el.innerHTML = APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'"'+(o.code===(b.approval||'NONE')?' selected':'')+'>'+o.label+'</option>').join('')
       + (b.approval==='OTHER' ? '<option value="OTHER" selected>'+esc(b.approval_raw)+'（原文）</option>' : '');
   } else if(DATE_KEYS.includes(k)){
-    el = document.createElement('input'); el.type = 'date'; el.value = cur || '';
+    /* 文字で入力 (11/20・1120 …)。カレンダーは 📅 — type=date は 年 の欄から打つことになり打ちにくかった */
+    el = document.createElement('input'); el.type = 'text'; el.inputMode = 'numeric'; el.autocomplete = 'off';
+    el.value = cur ? cur.replace(/-/g, '/') : ''; el.placeholder = '11/20'; el.title = '11/20・1120・2026/11/20 で入力 / 空で消す / 📅 でカレンダー';
   } else if(k==='customs' && customsCands(b).length){
     /* 通関依頼: POL の 乙仲 候補から選ぶ (よく使う順) — ユーザー 2026-11-17 */
     const cs = customsCands(b), v0 = str(cur).trim(), pol = str(b.port).trim().toUpperCase();
@@ -2232,22 +2261,38 @@ function startEdit(td, opt){
     el.value = str(cur);
   }
   S.cellSel = cellKeyOf(td);
-  if(opt && opt.text!=null && el.tagName!=='SELECT' && el.type!=='date') el.value = opt.text;
+  if(opt && opt.text!=null && el.tagName!=='SELECT') el.value = opt.text;
   /* 入力欄はセルの今の大きさのまま (列の幅・行の高さを変えない — 押すと一度広がってから縮んでいた: ユーザー 2026-11-16)。
      日付は狭い列に入らないので、セルの上に重ねて出す */
   const rc = td.getBoundingClientRect(), cw = Math.round(rc.width), ch = Math.round(rc.height);
   td.style.width = td.style.minWidth = td.style.maxWidth = cw+'px';
-  if(el.type==='date'){
+  if(DATE_KEYS.includes(k)){
     td.style.position = 'relative';
-    Object.assign(el.style, {position:'absolute', left:'0', top:'0', width:Math.max(cw, 140)+'px', height:ch+'px', minWidth:'0', zIndex:'5', margin:'0'});
+    Object.assign(el.style, {width:'100%', minWidth:'0', height:Math.max(ch-6, 30)+'px', margin:'0', paddingRight:'20px', textAlign:'center'});
   } else if(el.tagName!=='SELECT'){
     /* 高さは 2 行分 (40px) で固定 — 押した後に小さくならないように (ユーザー 2026-11-16「너비가 아니라 높이」) */
     Object.assign(el.style, {width:'100%', minWidth:'0', height:Math.max(ch-6, 40)+'px', minHeight:'40px', resize:'none', margin:'0'});
   }
   td.innerHTML = ''; td.appendChild(el); td.classList.remove('saved','fail');
+  let picking = false;   /* カレンダーを開いている間は blur で確定しない */
+  if(DATE_KEYS.includes(k)){
+    const cal = document.createElement('input'); cal.type = 'date'; cal.tabIndex = -1;
+    Object.assign(cal.style, {position:'absolute', right:'0', bottom:'0', width:'1px', height:'1px', opacity:'0', pointerEvents:'none'});
+    const bt = document.createElement('button'); bt.type = 'button'; bt.textContent = '📅'; bt.tabIndex = -1; bt.title = 'カレンダー';
+    Object.assign(bt.style, {position:'absolute', right:'2px', top:'50%', transform:'translateY(-50%)', border:'0', background:'none', padding:'0', fontSize:'12px', cursor:'pointer', zIndex:'6', lineHeight:'1'});
+    /* 押しても入力欄の blur (= 確定) を起こさない */
+    bt.addEventListener('mousedown', ev => { ev.preventDefault(); ev.stopPropagation();
+      const v = parseDateIn(el.value, cur); cal.value = v || cur || todayStr(); picking = true;
+      /* カレンダーを閉じて ほかを押したら いつもどおり確定 */
+      setTimeout(() => document.addEventListener('mousedown', function f(e2){ if(e2.target===bt) return; document.removeEventListener('mousedown', f, true); picking = false; if(document.activeElement!==el) finish(true); }, true), 0);
+      try{ cal.showPicker(); }catch(e){ cal.style.pointerEvents = 'auto'; cal.focus(); cal.click(); } });
+    bt.addEventListener('click', ev => ev.stopPropagation());
+    cal.addEventListener('change', () => { picking = false; if(cal.value){ el.value = cal.value.replace(/-/g, '/'); finish(true); } });
+    td.appendChild(cal); td.appendChild(bt);
+  }
   el.focus();
   /* 全部選んだ状態ではなく、カーソルを末尾に (Excel の F2 と同じ) */
-  if(el.setSelectionRange && el.tagName!=='SELECT' && el.type!=='date'){ const n = el.value.length; try{ el.setSelectionRange(n, n); }catch(e){} }
+  if(el.setSelectionRange && el.tagName!=='SELECT'){ const n = el.value.length; try{ el.setSelectionRange(n, n); }catch(e){} }
   let done = false;
   /* 確定して となりのセルへ (選択だけ移す) */
   const commitMove = dir => { const nb = cellNeighbor(td, dir); if(nb) S.cellSel = cellKeyOf(nb); finish(true); };
@@ -2269,6 +2314,11 @@ function startEdit(td, opt){
       saveBooking(b, {approval:v, approval_raw:o.raw}, 'approval'); return;
     }
     if(k==='port') v = v.trim().toUpperCase();
+    if(DATE_KEYS.includes(k)){
+      const d = parseDateIn(v, cur);
+      if(d===undefined){ toast('日付を読めません:「'+v+'」— 11/20・1120・2026/11/20 のように入力してください', 'warn'); renderBoard(); return; }
+      v = d || '';
+    }
     if(str(cur)===str(v) || (cur==null && v==='')){ renderBoard(); return; }
     /* 他の人が作ったブッキングの Booking no. を消す時は一度確認 (2026-11-12) */
     if(k==='bkgno' && lv==='B' && !blank(cur) && blank(v)){
@@ -2283,7 +2333,7 @@ function startEdit(td, opt){
     if(lv==='B') saveBooking(b, {[k]: DATE_KEYS.includes(k) ? (v||null) : v}, k);
     else saveAsg(b, a, {[k]: v}, k);
   };
-  el.addEventListener('blur', () => finish(true));
+  el.addEventListener('blur', () => { if(!picking) finish(true); });
   if(k==='invoiceno' && lv==='B') invHelpOpen(el, td, b, v => { el.value = v; finish(true); });
   el.addEventListener('change', () => { if(el.tagName==='SELECT') finish(true); });
   el.addEventListener('keydown', ev => {
@@ -5442,6 +5492,8 @@ function initUI(){
     if(mv && !ev.ctrlKey && !ev.metaKey && !ev.altKey){ ev.preventDefault(); const nb = cellNeighbor(td, mv); if(nb) setCellSel(nb); return; }
     if(ev.key==='Tab'){ ev.preventDefault(); const nb = cellNeighbor(td, ev.shiftKey ? 'left' : 'right'); if(nb) setCellSel(nb); return; }
     if(ev.key==='Escape'){ setCellSel(null); return; }
+    /* 状態のセル (ドレ配車・P/O申込 …): Space で ✔ → - → 空 */
+    if(ev.key===' ' && td.querySelector('.tg')){ ev.preventDefault(); toggleStatus(td); return; }
     if(ev.key==='F2' && ev.shiftKey){ ev.preventDefault();   /* Excel のコメントと同じ: セルのメモ */
       const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k), a = td.dataset.lv==='A' && b ? b.rows.find(x => x.id===td.dataset.aid) : null;
       if(b && MEMO_COLS.has(td.dataset.f)) openCellMemo(b, a, td.dataset.f); return; }
@@ -5450,7 +5502,7 @@ function initUI(){
       if(b && a && !b.deleted && !a.deleted) openQty(b, a); return; }
     if(ev.key==='Enter' || ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
     if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    const f = td.dataset.f, plain = f!=='approval' && !DATE_KEYS.includes(f);
+    const f = td.dataset.f, plain = f!=='approval';
     /* 日本語入力 (IME) — 空の入力欄を開いて そのまま変換が入るように */
     if(ev.key==='Process' || ev.keyCode===229){ if(plain) startEdit(td, {text:''}); return; }
     if(ev.key.length===1 && plain){ ev.preventDefault(); startEdit(td, {text:ev.key}); }
