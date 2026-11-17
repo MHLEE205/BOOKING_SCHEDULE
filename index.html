@@ -385,7 +385,11 @@ td:hover .st .pe{opacity:1}
 .ap-OK{color:var(--ok);font-weight:700}
 .ap-NONE{color:var(--text3)}
 .ap-REJECTED,.ap-CANCEL{color:var(--danger);font-weight:700}
-.ap-WAIT_ADD,.ap-WAIT_CHANGE,.ap-NOAPPROVAL,.ap-OTHER{color:var(--warn);font-weight:700}
+.ap-WAIT_ADD,.ap-WAIT_CHANGE,.ap-NOAPPROVAL,.ap-BKG_UNREQ,.ap-OTHER{color:var(--warn);font-weight:700}
+/* 承認されていないブッキングの 承認 セルは黄色 (中身のあるブッキングだけ) — ユーザー 2026-11-17 */
+.b6-t td.ap-y{background:color-mix(in srgb,#facc15 34%,transparent)}
+.b6-t td.ap-y:hover{background:color-mix(in srgb,#facc15 48%,transparent)}
+.b6-t td[data-f="approval"]{cursor:pointer}
 .muted{color:var(--text3)}
 .b6-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
 .b6-modal{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;width:100%;max-width:760px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -756,7 +760,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.26', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.27', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -793,7 +797,7 @@ const APPROVAL_OPTIONS = [
   {code:'NONE',        label:'未承認',     raw:''},
   {code:'REJECTED',    label:'Rejected',   raw:'Rejected'},
   {code:'CANCEL',      label:'キャンセル', raw:'キャンセル'},
-  {code:'NOAPPROVAL',  label:'承認無し',   raw:'承認無し'},
+  {code:'BKG_UNREQ',   label:'BKG依頼未',  raw:'BKG依頼未'},   /* 承認無し は一覧から外した (ユーザー 2026-11-17)。前の 承認無し は原文のまま表示 */
   {code:'WAIT_ADD',    label:'追加待',     raw:'追加待'},
   {code:'WAIT_CHANGE', label:'変更待',     raw:'変更待'},
 ];
@@ -898,9 +902,11 @@ function approvalOf(raw){
   const o = APPROVAL_OPTIONS.find(x => x.raw && x.raw===s);
   return o ? o.code : 'OTHER';
 }
+/* 黄色にする: 承認済 でない・ブッキングに中身がある (空の行まで黄色にしない) */
+function apYellow(b){ return !b.deleted && b.approval!=='OK' && ['bkgno','invoiceno','pod','carrier','vessel','etd','cycut'].some(k => !blank(b[k])); }
 function approvalLabel(b){
   if(b.approval==='OTHER') return str(b.approval_raw);
-  const o = APPROVAL_OPTIONS.find(x => x.code===(b.approval||'NONE')); return o ? o.label : str(b.approval);
+  const o = APPROVAL_OPTIONS.find(x => x.code===(b.approval||'NONE')); return o ? o.label : (str(b.approval_raw) || str(b.approval));
 }
 /* (c) 状態セル: 原文を保存し画面でだけ解釈 */
 function statusOf(raw){
@@ -1593,7 +1599,7 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' ? ' cp-sent' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' ? ' cp-sent' : '')+(c.k==='approval' && apYellow(b) ? ' ap-y' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
           h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+cselCls('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
@@ -2357,11 +2363,8 @@ function startEdit(td, opt){
   S.editing = {lv:lv, id: lv==='B'?b.id:a.id, k:k};
   const cur = lv==='B' ? b[k] : a[k];
   let el;
-  if(k==='approval'){
-    el = document.createElement('select');
-    el.innerHTML = APPROVAL_OPTIONS.map(o=>'<option value="'+o.code+'"'+(o.code===(b.approval||'NONE')?' selected':'')+'>'+o.label+'</option>').join('')
-      + (b.approval==='OTHER' ? '<option value="OTHER" selected>'+esc(b.approval_raw)+'（原文）</option>' : '');
-  } else if(DATE_KEYS.includes(k)){
+  if(k==='approval'){ openApprovalPick(td, b, opt); return; }
+  if(DATE_KEYS.includes(k)){
     /* 文字で入力 (11/20・1120 …)。カレンダーは 📅 — type=date は 年 の欄から打つことになり打ちにくかった */
     el = document.createElement('input'); el.type = 'text'; el.inputMode = 'numeric'; el.autocomplete = 'off';
     el.value = cur ? cur.replace(/-/g, '/') : ''; el.placeholder = '11/20'; el.title = '11/20・1120・2026/11/20 で入力 / 空で消す / 📅 でカレンダー';
@@ -2480,18 +2483,21 @@ function startEdit(td, opt){
     else if(ev.key==='Enter' && el.tagName==='TEXTAREA' && !ev.shiftKey && !ev.isComposing && !ev.altKey){ ev.preventDefault(); commitMove('down'); }
   });
 }
-/* 通関依頼の選択リスト: 検索 (打つと絞り込み) / ↑↓ Enter / 押すとすぐ保存 / 候補にない名前も Enter で入力 */
-function openCustomsPick(td, b, a, cur, opt){
-  const cs = customsCands(b), o0 = statusOf(cur), v0 = o0.memo.trim(), pol = str(b.port).trim().toUpperCase();
-  const pre = o0.st==='done' ? '✔' : o0.st==='na' ? '-' : '';
+/* セルの選択リスト (通関依頼・承認): 検索 (打つと絞り込み) / ↑↓ Enter / 押すとすぐ保存 / 候補にない文字も Enter で入力
+   cfg: {cands:[{name, cnt}], v0 (今の値), title (候補の見出し), clearLabel, canClear, onChoose(name, isClear), opt} */
+function openListPick(td, cfg){
+  const cs = cfg.cands, v0 = cfg.v0 || '';
   S.cellSel = cellKeyOf(td);
   const pop = document.createElement('div'); pop.className = 'cpick';
-  pop.innerHTML = '<input class="cq" autocomplete="off" placeholder="検索・候補にない名前は打って Enter"><div class="cl"></div>'
+  pop.innerHTML = '<input class="cq" autocomplete="off" placeholder="検索・候補にない文字は打って Enter"><div class="cl"></div>'
     + '<div class="ft">↑↓ で選ぶ・Enter で決定・Esc でやめる</div>';
   document.body.appendChild(pop);
   const q = pop.querySelector('.cq'), cl = pop.querySelector('.cl');
   const nk = s => str(s).normalize('NFKC').toLowerCase().replace(/\s+/g, '');
   let items = [], act = 0, done = false;
+  const row = (i, label, cnt, isCur, sub) => '<div class="ci'+(isCur ? ' cur' : '')+(sub ? ' sub' : '')+'" data-i="'+i+'"><span class="n">'+esc(label)+'</span>'+(cnt ? '<span class="c">'+esc(cnt)+'</span>' : '')+'</div>';
+  const hl = () => { cl.querySelectorAll('.ci').forEach(x => x.classList.toggle('on', +x.dataset.i===act));
+    const e = cl.querySelector('.ci.on'); if(e) e.scrollIntoView({block:'nearest'}); };
   const draw = () => {
     const t = nk(q.value);
     const list = cs.filter(c => !t || nk(c.name).includes(t));
@@ -2500,20 +2506,17 @@ function openCustomsPick(td, b, a, cur, opt){
     if(v0 && !cs.some(c => c.name===v0) && (!t || nk(v0).includes(t))){
       h += '<div class="gh">今の値（候補にない）</div>'; items.push({name:v0}); h += row(items.length-1, v0, '', true);
     }
-    if(list.length){ h += '<div class="gh">'+esc(pol)+' の乙仲 — よく使う順</div>';
-      list.forEach(c => { items.push({name:c.name}); h += row(items.length-1, c.name, c.n ? c.n+'回' : '', c.name===v0); }); }
+    if(list.length){ if(cfg.title) h += '<div class="gh">'+esc(cfg.title)+'</div>';
+      list.forEach(c => { items.push({name:c.name}); h += row(items.length-1, c.name, c.cnt || '', c.name===v0); }); }
     if(t && !cs.some(c => nk(c.name)===t) && nk(v0)!==t){ items.push({name:q.value.trim()}); h += row(items.length-1, '「'+q.value.trim()+'」を入力', '', false, true); }
-    if(v0 || pre){ items.push({name:'', clear:true}); h += row(items.length-1, '空にする', '', false, true); }
+    if(cfg.canClear){ items.push({name:'', clear:true}); h += row(items.length-1, cfg.clearLabel || '空にする', '', false, true); }
     if(!items.length) h = '<div class="gh">候補がありません</div>';
     cl.innerHTML = h;
     if(act >= items.length) act = Math.max(0, items.length-1);
     hl();
   };
-  const row = (i, label, cnt, isCur, sub) => '<div class="ci'+(isCur ? ' cur' : '')+(sub ? ' sub' : '')+'" data-i="'+i+'"><span class="n">'+esc(label)+'</span>'+(cnt ? '<span class="c">'+esc(cnt)+'</span>' : '')+'</div>';
-  const hl = () => { cl.querySelectorAll('.ci').forEach(x => x.classList.toggle('on', +x.dataset.i===act));
-    const e = cl.querySelector('.ci.on'); if(e) e.scrollIntoView({block:'nearest'}); };
   const place = () => {
-    const rc = td.getBoundingClientRect(), w = Math.max(rc.width, 220);
+    const rc = td.getBoundingClientRect(), w = Math.max(rc.width, 200);
     pop.style.minWidth = w+'px';
     let left = Math.min(rc.left, window.innerWidth - pop.offsetWidth - 8), top = rc.bottom + 2;
     if(top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, rc.top - pop.offsetHeight - 2);
@@ -2525,9 +2528,7 @@ function openCustomsPick(td, b, a, cur, opt){
   const choose = (it, move) => {
     if(done || !it) return; close(); endEditing();
     if(move){ const nb = cellNeighbor(td, move); if(nb) S.cellSel = cellKeyOf(nb); }
-    const v = it.clear ? '' : (it.name ? (pre ? pre+' '+it.name : it.name) : pre);
-    if(str(cur)===v){ renderBoard(); return; }
-    saveAsg(b, a, {customs:v}, 'customs');
+    cfg.onChoose(it.clear ? '' : it.name, !!it.clear);
   };
   const outside = ev => { if(!pop.contains(ev.target)) cancel(); };
   const onScroll = ev => { if(!pop.contains(ev.target)) cancel(); };
@@ -2542,12 +2543,34 @@ function openCustomsPick(td, b, a, cur, opt){
     else if(ev.key==='Tab'){ ev.preventDefault(); choose(items[act], ev.shiftKey ? 'left' : 'right'); }
     else if(ev.key==='Escape'){ ev.preventDefault(); cancel(); }
   });
-  if(opt && opt.text) q.value = opt.text;
+  if(cfg.opt && cfg.opt.text) q.value = cfg.opt.text;
   draw();
   const ci = items.findIndex(x => !x.clear && x.name===v0); if(ci >= 0 && !q.value){ act = ci; hl(); }
   place();
   setTimeout(() => { document.addEventListener('mousedown', outside, true); window.addEventListener('scroll', onScroll, true); window.addEventListener('resize', cancel); }, 0);
   q.focus();
+}
+/* 通関依頼: POL の乙仲 (よく使う順)。✔ / - の印はそのまま残す */
+function openCustomsPick(td, b, a, cur, opt){
+  const o0 = statusOf(cur), v0 = o0.memo.trim(), pol = str(b.port).trim().toUpperCase();
+  const pre = o0.st==='done' ? '✔' : o0.st==='na' ? '-' : '';
+  openListPick(td, {cands:customsCands(b).map(c => ({name:c.name, cnt:c.n ? c.n+'回' : ''})), v0:v0, title:pol+' の乙仲 — よく使う順',
+    canClear:!!(v0 || pre), opt:opt,
+    onChoose:(name, clr) => { const v = clr ? '' : (name ? (pre ? pre+' '+name : name) : pre);
+      if(str(cur)===v){ renderBoard(); return; } saveAsg(b, a, {customs:v}, 'customs'); }});
+}
+/* 承認: 一覧から選ぶ・一覧にない文字も入力できる (原文 approval_raw に入る) — ユーザー 2026-11-17 */
+function openApprovalPick(td, b, opt){
+  const cands = APPROVAL_OPTIONS.filter(o => o.code!=='NONE').map(o => ({name:o.label}));
+  const v0 = b.approval==='NONE' || !b.approval ? '' : approvalLabel(b);
+  openListPick(td, {cands:cands, v0:v0, title:'承認', canClear:!!v0, clearLabel:'空にする（未承認）', opt:opt,
+    onChoose:(name, clr) => {
+      let p;
+      if(clr || !name) p = {approval:'NONE', approval_raw:''};
+      else { const o = APPROVAL_OPTIONS.find(x => x.label===name);
+        p = o ? {approval:o.code, approval_raw:o.raw} : {approval:approvalOf(name), approval_raw:name}; }
+      if(p.approval===(b.approval||'NONE') && str(p.approval_raw)===str(b.approval_raw)){ renderBoard(); return; }
+      saveBooking(b, p, 'approval'); }});
 }
 function toggleStatus(td){
   const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b || b.deleted) return;
@@ -5629,7 +5652,7 @@ function initUI(){
     if(sc && !sc.querySelector('input,textarea,select')){ setCellSel(sc); toggleStatus(sc); return; }
     const td = ev.target.closest('td.ed');
     /* 通関依頼は 1 回押すとすぐ選択リスト */
-    if(td && td.dataset.f==='customs' && !td.querySelector('input,textarea,select') && !S.editing){ setCellSel(td); startEdit(td); return; }
+    if(td && (td.dataset.f==='customs' || td.dataset.f==='approval') && !td.querySelector('input,textarea,select') && !S.editing){ setCellSel(td); startEdit(td); return; }
     if(td && !td.querySelector('input,textarea,select')){
       /* 1 回目 = 選択、選んであるセルをもう一度 = 入力 */
       if(td.classList.contains('csel')) startEdit(td); else setCellSel(td);
@@ -5637,7 +5660,7 @@ function initUI(){
   });
   $('#b6-board').addEventListener('dblclick', ev => {
     const td = ev.target.closest('td.ed');
-    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
+    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && td.dataset.f!=='approval' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
   });
   /* 表の外を押したら選択を外す (選んだまま ほかで文字を打って書き換わらないように) */
   document.addEventListener('mousedown', ev => { if(S.cellSel && !S.editing && !ev.target.closest('#b6-board')) setCellSel(null); });
@@ -5662,7 +5685,7 @@ function initUI(){
       if(b && a && !b.deleted && !a.deleted) openQty(b, a); return; }
     if(ev.key==='Enter' || ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
     if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    const f = td.dataset.f, plain = f!=='approval';
+    const f = td.dataset.f, plain = true;
     /* 日本語入力 (IME) — 空の入力欄を開いて そのまま変換が入るように */
     if(ev.key==='Process' || ev.keyCode===229){ if(plain) startEdit(td, {text:''}); return; }
     if(ev.key.length===1 && plain){ ev.preventDefault(); startEdit(td, {text:ev.key}); }
