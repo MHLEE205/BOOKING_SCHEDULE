@@ -53,6 +53,21 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 /* 件数の表示は出さない (2026-11-12 ユーザー: 숫자 지워줘) — 0 件の港を隠す判定にはそのまま使う */
 .b6-filter .n,.b6-rhd .n,#b6-sum{display:none!important}
 .b6-rhd:not(:first-child){margin-top:10px;border-top:1px solid var(--border)}
+/* 割り当て (CLEARANCE_COMPASS) — ETD・ETA の上のリンクと 右半分のパネル */
+.b6-rhd{min-height:24px}
+.b6-rhd .alk{position:absolute;bottom:3px;text-align:center;font-size:12.5px;font-weight:700;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:3px;white-space:nowrap;user-select:none}
+.b6-rhd .alk:hover{color:#f76b15}
+.b6-rhd .alk.on{color:#f76b15}
+#b6-alloc{position:fixed;right:0;bottom:0;z-index:900;background:var(--surface);border-left:2px solid var(--accent);box-shadow:-8px 0 24px rgba(0,0,0,.16);display:none;flex-direction:column}
+#b6-alloc.on{display:flex}
+#b6-alloc .ah{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);background:var(--surface2);font-size:12.5px}
+#b6-alloc .ah b{color:var(--accent);margin-right:auto}
+#b6-alloc .ah button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:4px;font-size:12px;line-height:18px;padding:0 7px;cursor:pointer}
+#b6-alloc .ah button:hover{color:var(--accent);border-color:var(--accent)}
+#b6-alloc .ah .zm{color:var(--text3);font-size:11px;min-width:34px;text-align:center}
+#b6-alloc iframe{flex:1;border:0;width:100%;background:var(--surface)}
+#b6-alloc .rz{position:absolute;left:-5px;top:0;bottom:0;width:9px;cursor:ew-resize}
+#b6-alloc.drag iframe{pointer-events:none}
 /* セル書式 (右クリック) — 色は明暗どちらのテーマでも読める濃さ */
 .fc-red{color:#e5484d!important}.fc-blue{color:#3b82f6!important}.fc-green{color:#22a35a!important}.fc-orange{color:#e8890c!important}.fc-purple{color:#9b6cf6!important}
 .b6-t td.fs-S{font-size:10.5px}.b6-t td.fs-L{font-size:14px}.b6-t td.fs-XL{font-size:17px}
@@ -760,7 +775,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.20', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.21', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1451,13 +1466,114 @@ function renderBoard(){
     pts.sort((x, y) => (g.r.ports.indexOf(x)<0?99:g.r.ports.indexOf(x)) - (g.r.ports.indexOf(y)<0?99:g.r.ports.indexOf(y)));
     if(S.region==='ALL') h += '<div class="b6-rhd" data-rg="'+g.r.code+'">'+pts.map(p => '<span class="rhp">'+esc(p)+'</span>').join('')+'<span class="rht">'+esc(g.r.tab)+'</span><span class="n">'+g.list.filter(b=>!b.deleted).length+' 件</span>'
       + (groups.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(gi===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(gi===groups.length-1?' disabled':'')+'>▼</button></span>' : '')
-      + '</div>';
+      + ALLOC_LINK + '</div>';
+    else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
     h += boardTable(g.r.code, g.list, F);
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
   S.renderPending = false;
+  allocLinkPlace();
 }
+/* ══════════ 割り当て (CLEARANCE_COMPASS の「割り当て」タブ) を右半分に — 販売契約の残を見ながら販売先を考える (ユーザー 2026-11-17)
+   同じサイト (mhlee205.github.io) なので iframe の中に B-06 のログイン (トークン) を貸して、ログイン画面なしで「割り当て」を開く ══════════ */
+const ALLOC_URL = 'https://mhlee205.github.io/CLEARANCE_COMPASS/';
+const ALLOC_LINK = '<span class="alk" data-alloc="1" title="割り当て表 (販売・購買の残) を右に表示">割り当て</span>';
+const allocPref = (k, v) => { try{ if(v===undefined) return localStorage.getItem('b6_alloc_'+k); localStorage.setItem('b6_alloc_'+k, v); }catch(e){ return null; } };
+function allocLinkPlace(){
+  const wrap = $('#b6-board'); if(!wrap) return;
+  const on = !!($('#b6-alloc') && $('#b6-alloc').classList.contains('on'));
+  $$('#b6-board .b6-rhd').forEach(hd => {
+    const lk = hd.querySelector('.alk'); if(!lk) return;
+    let tb = hd.nextElementSibling; while(tb && tb.tagName!=='TABLE') tb = tb.querySelector ? (tb.querySelector('table') || tb.nextElementSibling) : null;
+    const e1 = tb && tb.querySelector('th[data-f="etd"]'), e2 = tb && tb.querySelector('th[data-f="eta"]');
+    if(!e1){ lk.style.display = 'none'; return; }
+    /* 画面上の位置で合わせる (表だけ拡大・縮小している時も合う) */
+    const hr = hd.getBoundingClientRect(), r1 = e1.getBoundingClientRect(), r2 = (e2 || e1).getBoundingClientRect();
+    const x = Math.round(r1.left - hr.left), w = Math.round(r2.right - r1.left);
+    Object.assign(lk.style, {left:x+'px', width:w+'px', display:(x + w < 0 || x > hd.clientWidth) ? 'none' : ''});
+    lk.classList.toggle('on', on);
+  });
+}
+function allocWidth(){
+  const sv = +allocPref('w'), W = window.innerWidth;
+  let w = sv;
+  if(!w){ const pk = $('#b6-board th[data-f="packer"]'); w = pk ? W - pk.getBoundingClientRect().left : W/2; }
+  return Math.round(Math.min(Math.max(w, 360), W - 160));
+}
+function allocLayout(){
+  const p = $('#b6-alloc'); if(!p) return;
+  const wrap = $('#b6-board'), top = wrap ? Math.max(0, wrap.getBoundingClientRect().top) : 120;
+  p.style.top = top+'px'; p.style.width = allocWidth()+'px';
+}
+function allocZoom(d){
+  let z = +(allocPref('z') || 0.8); if(d) z = Math.round(Math.min(1.2, Math.max(0.5, z + d))*100)/100;
+  allocPref('z', String(z));
+  const p = $('#b6-alloc'); if(p) p.querySelector('.zm').textContent = Math.round(z*100)+'%';
+  allocBoot(true);
+  return z;
+}
+/* iframe の中を「割り当て」だけの画面にする。読み込み途中なら少し待ってもう一度 */
+function allocBoot(zoomOnly){
+  const p = $('#b6-alloc'), fr = p && p.querySelector('iframe'); if(!fr) return false;
+  let w; try{ w = fr.contentWindow; if(!w || !w.document) return false; }catch(e){ return false; }
+  const d = w.document, z = +(allocPref('z') || 0.8);
+  if(d.documentElement) d.documentElement.style.zoom = z;
+  if(zoomOnly) return true;
+  if(!w.LEENAI || typeof w.switchTab!=='function' || !d.getElementById('app')) return false;
+  if(window.LEENAI && LEENAI.auth && typeof LEENAI.auth.token==='function'){
+    try{
+      w.LEENAI.auth.token = k => LEENAI.auth.token(k);
+      Object.defineProperty(w.LEENAI.auth, 'status', {configurable:true, get:() => LEENAI.auth.status});
+      Object.defineProperty(w.LEENAI, 'user', {configurable:true, get:() => LEENAI.user});
+    }catch(e){ console.warn('割り当て: ログインを渡せません', e); }
+  }
+  const sp = d.getElementById('ln-splash'); if(sp) sp.style.display = 'none';
+  d.getElementById('app').style.display = '';
+  if(!d.getElementById('b6-al-css')){
+    const s = d.createElement('style'); s.id = 'b6-al-css';
+    s.textContent = '.tab-bar,#ln-header,.ln-footer{display:none!important} #content-alloc .main{max-width:none!important;padding:6px 8px!important} body{overflow:auto}';
+    d.head.appendChild(s);
+  }
+  if(!w._allocLoaded) w.switchTab('alloc');
+  return true;
+}
+function allocOpen(){
+  let p = $('#b6-alloc');
+  if(!p){
+    p = document.createElement('div'); p.id = 'b6-alloc';
+    p.innerHTML = '<div class="rz" title="ドラッグで幅を変える (ダブルクリックで元に戻す)"></div>'
+      + '<div class="ah"><b>割り当て</b><button data-az="-0.1" title="小さく">−</button><span class="zm"></span><button data-az="0.1" title="大きく">＋</button>'
+      + '<button data-ar="1" title="読み直す">↻</button><button data-ao="1" title="CLEARANCE_COMPASS を新しいタブで開く">↗</button><button data-ax="1" title="閉じる">✕</button></div>'
+      + '<iframe title="割り当て"></iframe>';
+    document.body.appendChild(p);
+    const fr = p.querySelector('iframe');
+    let tries = 0;
+    const kick = () => { tries = 0; const t = setInterval(() => { if(allocBoot() || ++tries > 100) clearInterval(t); }, 200); };
+    fr.addEventListener('load', kick);
+    fr.src = ALLOC_URL;
+    p.querySelector('.ah').addEventListener('click', ev => {
+      const b = ev.target.closest('button'); if(!b) return;
+      if(b.dataset.az) allocZoom(+b.dataset.az);
+      else if(b.dataset.ar){ try{ fr.contentWindow.location.reload(); }catch(e){ fr.src = ALLOC_URL; } }
+      else if(b.dataset.ao) window.open(ALLOC_URL, '_blank');
+      else if(b.dataset.ax) allocClose();
+    });
+    /* 左の端をドラッグで幅を変える */
+    const rz = p.querySelector('.rz');
+    rz.addEventListener('pointerdown', ev => {
+      ev.preventDefault(); rz.setPointerCapture(ev.pointerId); p.classList.add('drag');
+      const mv = e => { const w = Math.min(Math.max(window.innerWidth - e.clientX, 360), window.innerWidth - 160); p.style.width = w+'px'; };
+      const up = e => { rz.removeEventListener('pointermove', mv); rz.removeEventListener('pointerup', up); p.classList.remove('drag'); allocPref('w', String(parseInt(p.style.width))); };
+      rz.addEventListener('pointermove', mv); rz.addEventListener('pointerup', up);
+    });
+    rz.addEventListener('dblclick', () => { try{ localStorage.removeItem('b6_alloc_w'); }catch(e){} allocLayout(); });
+    window.addEventListener('resize', () => { if(p.classList.contains('on')) allocLayout(); });
+  }
+  p.classList.add('on'); allocLayout(); allocZoom(0); allocLinkPlace();
+}
+function allocClose(){ const p = $('#b6-alloc'); if(p) p.classList.remove('on'); allocLinkPlace(); }
+function allocToggle(){ const p = $('#b6-alloc'); if(p && p.classList.contains('on')) allocClose(); else allocOpen(); }
 /* 地域の並び順 (人ごとに記憶) — 港の行で地域をドラッグ・表の見出しの ▲▼ で変更 (2026-11-12) */
 function regionsOrdered(){
   const o = S.regionOrder || [];
@@ -5625,6 +5741,10 @@ function initUI(){
   initBoardZoom();
   $('#b6-resort').addEventListener('click', () => resortNow());
   /* 地域の順番: 表の見出しの ▲▼ */
+  /* 割り当て: ETD・ETA の上のリンク */
+  $('#b6-board').addEventListener('click', ev => { if(ev.target.closest('[data-alloc]')){ ev.stopPropagation(); allocToggle(); } }, true);
+  $('#b6-board').addEventListener('scroll', () => allocLinkPlace(), {passive:true});
+  window.addEventListener('resize', () => allocLinkPlace());
   $('#b6-board').addEventListener('click', ev => {
     const mv = ev.target.closest('[data-rmv]'); if(!mv) return;
     ev.stopPropagation(); moveRegion(mv.closest('[data-rg]').dataset.rg, +mv.dataset.rmv);
@@ -5722,6 +5842,7 @@ function setBoardZoom(z, quiet){
   const bt = $('#b6-zoom');
   if(bt){ bt.hidden = z===1; bt.textContent = '🔍 '+Math.round(z*100)+'%'; }
   if(!quiet) IDB.set('boardZoom', z);
+  allocLinkPlace();
 }
 function initBoardZoom(){
   const el = $('#b6-board');
