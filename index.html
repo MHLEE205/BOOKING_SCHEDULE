@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.9', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.10', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2159,7 +2159,7 @@ function startEdit(td, opt){
   if(b.deleted) { toast('削除済みのブッキングです。復元してから編集してください', 'warn'); return; }
   let a = null;
   if(lv==='A'){ a = b.rows.find(x=>x.id===td.dataset.aid); if(!a) return; if(a.deleted){ toast('削除済みの行です', 'warn'); return; } }
-  if(k==='qty_raw'){ openQty(b, a); return; }
+  /* QTY もセルで直接入力 (保存の時に解析)。スロットで直す画面は 選んだセルで Ctrl+Enter — ユーザー 2026-11-17 */
   S.editing = {lv:lv, id: lv==='B'?b.id:a.id, k:k};
   const cur = lv==='B' ? b[k] : a[k];
   let el;
@@ -2170,7 +2170,7 @@ function startEdit(td, opt){
   } else if(DATE_KEYS.includes(k)){
     el = document.createElement('input'); el.type = 'date'; el.value = cur || '';
   } else {
-    const multi = /\n/.test(str(cur)) || ['bkgno','invoiceno','pod','carrier','vessel','memo','grade'].includes(k) || STATUS_KEYS.includes(k) && k!=='customs';
+    const multi = /\n/.test(str(cur)) || ['bkgno','invoiceno','pod','carrier','vessel','memo','grade','qty_raw'].includes(k) || STATUS_KEYS.includes(k) && k!=='customs';
     if(multi){ el = document.createElement('textarea'); el.rows = Math.max(2, str(cur).split('\n').length); }
     else {
       el = document.createElement('input'); el.type = 'text';
@@ -2239,6 +2239,7 @@ function startEdit(td, opt){
       }
     }
     if(lv==='B' && (k==='cycut' || k==='etd')) holdOrder(b);
+    if(k==='qty_raw'){ const p = applyParse(a, v, b); delete p._r; saveAsg(b, a, p, 'qty_raw'); return; }
     if(lv==='B') saveBooking(b, {[k]: DATE_KEYS.includes(k) ? (v||null) : v}, k);
     else saveAsg(b, a, {[k]: v}, k);
   };
@@ -5332,9 +5333,12 @@ function initUI(){
     if(ev.key==='F2' && ev.shiftKey){ ev.preventDefault();   /* Excel のコメントと同じ: セルのメモ */
       const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k), a = td.dataset.lv==='A' && b ? b.rows.find(x => x.id===td.dataset.aid) : null;
       if(b && MEMO_COLS.has(td.dataset.f)) openCellMemo(b, a, td.dataset.f); return; }
+    if(ev.key==='Enter' && (ev.ctrlKey || ev.metaKey) && td.dataset.f==='qty_raw'){ ev.preventDefault();   /* スロットで直す画面 */
+      const b = S.bk.get(td.closest('tr').dataset.k), a = b && b.rows.find(x => x.id===td.dataset.aid);
+      if(b && a && !b.deleted && !a.deleted) openQty(b, a); return; }
     if(ev.key==='Enter' || ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
     if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    const f = td.dataset.f, plain = f!=='approval' && f!=='qty_raw' && !DATE_KEYS.includes(f);
+    const f = td.dataset.f, plain = f!=='approval' && !DATE_KEYS.includes(f);
     /* 日本語入力 (IME) — 空の入力欄を開いて そのまま変換が入るように */
     if(ev.key==='Process' || ev.keyCode===229){ if(plain) startEdit(td, {text:''}); return; }
     if(ev.key.length===1 && plain){ ev.preventDefault(); startEdit(td, {text:ev.key}); }
