@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.8', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.9', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3727,7 +3727,14 @@ async function cpNamesLoad(entity, hint, depth){
   }
   /* 名前合わせに使うほかの列 — 担当者・住所・電話・備考などは使わない (担当者の名前が別の会社に合ってしまった — 2026-11-13) */
   const alts = ranked.map(x => x.c).filter(c => !chosen.includes(c) && !BAD.test(lab(c)+' '+c)).slice(0, 6);
-  const nameOf = r => chosen.map(c => val(r, c)).join('|');
+  /* 乙仲: 通関料 と 手数料 を両方、何の金額か分かるように (COMPASS の画面は 手数料 だけ・B-06 は 通関料 だけで見分けにくかった — 2026-11-17)
+     例 ABC|4|通関 ¥0,000|手数料 ¥0,000 */
+  const isOtsu = hint==='乙仲' || entity==='crcf9_customs';
+  const feeCols = isOtsu ? [/通関料/, /手数料/].map(re => cols.find(c => DTL_NUM.has(c.type) && re.test(c.label))).filter(Boolean) : [];
+  const yen = v => v==null || v==='' || isNaN(+v) ? '' : '¥'+(+v).toLocaleString('ja-JP', {maximumFractionDigits:0});
+  const nameOf = !feeCols.length ? r => chosen.map(c => val(r, c)).join('|')
+    : r => chosen.filter(c => !(DTL_NUM.has(typ(c)) && /料|費/.test(lab(c)))).map(c => val(r, c))
+        .concat(feeCols.map(c => { const y = yen(r[c.col]); return y ? c.label.replace(/^通関料$/, '通関')+' '+y : ''; })).filter(Boolean).join('|');
   /* 搬入港: 直接の列 → なければ 一覧の列の先 (その一覧の 搬入港、港の一覧ならその名前) */
   const lkN = await Promise.all(portLks.map(c => cpNames(c.rel.target, '', 1).catch(() => null)));
   const portOf = r => {
