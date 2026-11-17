@@ -408,10 +408,6 @@ table.b6-s{border-collapse:collapse;font-size:12px;width:100%}
 .prog i{display:block;height:100%;background:var(--accent-btn);width:0;transition:width .2s}
 details.rp{margin:4px 0}
 details.rp summary{cursor:pointer;font-size:12.5px}
-.pk-cell{font-family:var(--mono);font-size:11.5px}
-.pk-cell .h{font-weight:700;color:var(--text)}
-.pk-chip{display:inline-block;background:var(--surface3);border-radius:3px;padding:0 4px;margin:1px;font-size:10.5px;color:var(--text2)}
-.pk-wk td{background:color-mix(in srgb,var(--text3) 6%,transparent)}
 .b6-demo{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn);font-weight:700;font-size:12px;padding:4px 14px;text-align:center}
 .b6-menu{position:fixed;z-index:9500;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);padding:4px;min-width:180px;font-size:12.5px}
 .b6-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:6px 10px;border-radius:5px;cursor:pointer;font:inherit}
@@ -427,7 +423,6 @@ details.rp summary{cursor:pointer;font-size:12.5px}
   <div class="b6-main">
     <div class="b6-tabs" id="b6-tabs">
       <button class="b6-tab on" data-tab="board"><span class="ic">📋</span>スケジュール表</button>
-      <button class="b6-tab" data-tab="packer"><span class="ic">👤</span>Packer日程</button>
       <button class="b6-tab" data-tab="b05"><span class="ic">⇄</span>B-05連携確認</button>
       <button class="b6-tab" data-tab="io"><span class="ic">📥</span>取込 / <span class="ic">📤</span>出力</button>
     </div>
@@ -457,20 +452,6 @@ details.rp summary{cursor:pointer;font-size:12.5px}
       <div class="b6-split">
         <div class="b6-wrap" id="b6-board"></div>
         <aside class="b6-memo" id="b6-memo" hidden></aside>
-      </div>
-    </section>
-
-    <!-- ② Packer日程 -->
-    <section class="b6-pane" id="pane-packer">
-      <div class="b6-bar">
-        <label>月 <input type="month" class="b6-in" id="pk-month"></label>
-        <label>地域 <select class="b6-sel" id="pk-region"></select></label>
-        <button class="b6-btn" id="pk-load">表示</button>
-        <span class="muted">読み取り専用。期間スロット（〜）は開始日に表示し日別合計に含めません。略称にできない Packer 表記は ⚠ 付きで原文表示。</span>
-      </div>
-      <div id="pk-body" style="display:flex;gap:10px;flex:1;min-height:0">
-        <div class="b6-wrap" id="pk-grid" style="flex:3"></div>
-        <div class="b6-wrap" id="pk-undated" style="flex:1;min-width:220px;padding:8px"></div>
       </div>
     </section>
 
@@ -775,7 +756,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.25', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.26', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3622,70 +3603,6 @@ function openQty(b, a){
   drawPrev(); drawSlots();
 }
 
-/* ══════════ PACKER (② Packer日程 — 読み取り専用) ══════════ */
-async function loadPackerTab(){
-  const ym = $('#pk-month').value; if(!ym) return;
-  const reg = $('#pk-region').value;
-  const R = monthRange(ym);
-  LEENAI.loading.show('Packer日程を読込中…');
-  try{
-    const as = await S.store.asgByDate(R.from, R.to);
-    const keys = Array.from(new Set(as.map(a=>a.bookkey)));
-    const bks = new Map((await S.store.bookingsByKeys(keys)).map(b=>[b.bookkey,b]));
-    const cells = {}, cols = new Map();   /* colKey → {label, mapped} */
-    as.forEach(a => {
-      const b = bks.get(a.bookkey); if(!b) return;
-      if(reg && b.region!==reg) return;
-      const sh = packerShort(a.packer);
-      const ck = sh ? sh : (blank(a.packer) ? '（Packer 空）' : '⚠ '+str(a.packer).replace(/\s+/g,' '));
-      if(!cols.has(ck)) cols.set(ck, {label:ck, mapped:!!sh});
-      (a.slots||[]).forEach(s => {
-        if(!s.d) return;
-        if(s.d2){ if(s.d>=R.from && s.d<=R.to){ const c = cells[s.d+'|'+ck] || (cells[s.d+'|'+ck]={sum:0, chips:[]}); c.chips.push('〜'+fmtMD(s.d2)+(s.n!=null?'('+s.n+')':'')+' '+bkLabel(b)); } return; }
-        if(s.d<R.from || s.d>R.to) return;
-        const c = cells[s.d+'|'+ck] || (cells[s.d+'|'+ck]={sum:0, chips:[]});
-        if(s.n!=null) c.sum += +s.n;
-        c.chips.push(bkLabel(b)+(s.n!=null?'('+s.n+')':''));
-      });
-    });
-    const colList = Array.from(cols.values()).sort((x,y)=> (y.mapped-x.mapped) || x.label.localeCompare(y.label,'ja'));
-    if(!colList.length){ $('#pk-grid').innerHTML = '<div class="b6-empty">この月・地域に日付のあるスロットはありません</div>'; }
-    else {
-      const wd = ['日','月','火','水','木','金','土'];
-      let h = '<table class="b6-t"><thead><tr><th>日付</th>'+colList.map(c=>'<th>'+esc(c.label)+'</th>').join('')+'<th>計</th></tr></thead><tbody>';
-      for(let d=1; d<=R.days; d++){
-        const ds = ym+'-'+pad2(d), w = new Date(ds+'T00:00:00').getDay();
-        let tot = 0;
-        h += '<tr class="'+((w===0||w===6)?'pk-wk':'')+'"><td class="dt">'+d+' ('+wd[w]+')</td>';
-        colList.forEach(c => {
-          const x = cells[ds+'|'+c.label];
-          if(!x){ h += '<td></td>'; return; }
-          tot += x.sum;
-          h += '<td class="pk-cell">'+(x.sum?'<span class="h">'+x.sum+'</span> ':'')+x.chips.map(t=>'<span class="pk-chip">'+esc(t)+'</span>').join('')+'</td>';
-        });
-        h += '<td class="pk-cell"><span class="h">'+(tot||'')+'</span></td></tr>';
-      }
-      h += '</tbody></table>';
-      $('#pk-grid').innerHTML = h;
-    }
-    /* 日付未確定 (count・other — 読込済みのスケジュール表データから) */
-    const und = {};
-    S.bk.forEach(b => {
-      if(b.deleted || (reg && b.region!==reg)) return;
-      b.rows.forEach(a => {
-        if(a.deleted || (a.slots||[]).some(s=>s.d)) return;
-        if(blank(a.packer) && blank(a.qty_raw)) return;
-        const ck = packerShort(a.packer) || (blank(a.packer)?'（Packer 空）':'⚠ '+a.packer);
-        (und[ck] = und[ck]||[]).push(bkLabel(b)+' : '+(str(a.qty_raw)||'—'));
-      });
-    });
-    const uk = Object.keys(und).sort();
-    $('#pk-undated').innerHTML = '<b>日付未確定</b><div class="muted" style="font-size:11px;margin-bottom:6px">本数のみ・解析不可の行（スケジュール表の読込範囲から）</div>'
-      + (uk.length ? uk.map(k=>'<div style="margin-bottom:6px"><div style="font-weight:700;font-size:12px">'+esc(k)+' <span class="muted">'+und[k].length+'</span></div>'+und[k].map(t=>'<div style="font-size:11.5px;white-space:pre-wrap">・'+esc(t)+'</div>').join('')+'</div>').join('') : '<div class="muted">なし</div>');
-  }catch(e){ toast('Packer日程の読込に失敗: '+e.message.slice(0,120), 'danger'); }
-  finally{ LEENAI.loading.hide(); }
-}
-
 /* ══════════ B05CHECK (③ — 読み取り専用。B-05 への書き込みは一切しない) ══════════ */
 async function loadB05Tab(){
   const ym = $('#b5-month').value; if(!ym) return;
@@ -5618,15 +5535,13 @@ function initUI(){
   document.body.appendChild(dl);
   const t = todayStr();
   $('#f-from').value = addDays(t, -14); $('#f-to').value = addDays(t, 60);
-  $('#pk-month').value = t.slice(0,7); $('#b5-month').value = t.slice(0,7);
-  $('#pk-region').innerHTML = '<option value="">すべて</option>'+REGIONS.map(r=>'<option value="'+r.code+'"'+(r.code==='KANTO'?' selected':'')+'>'+r.tab+'</option>').join('');
+  $('#b5-month').value = t.slice(0,7);
   /* タブ */
   $('#b6-tabs').addEventListener('click', ev => {
     const b = ev.target.closest('.b6-tab'); if(!b) return;
     $$('.b6-tab').forEach(x=>x.classList.toggle('on', x===b));
     $$('.b6-pane').forEach(p=>p.classList.toggle('on', p.id==='pane-'+b.dataset.tab));
     IDB.set('tab', b.dataset.tab);
-    if(b.dataset.tab==='packer' && !$('#pk-grid').innerHTML) loadPackerTab();
     if(b.dataset.tab==='b05' && !S.b05) loadB05Tab();
   });
   /* 地図の下の検索欄 (Enter・候補を選ぶ) */
@@ -5808,8 +5723,7 @@ function initUI(){
     const td = ev.target.closest('td.ed'); if(!td || td.querySelector('input,textarea,select')) return;
     ev.preventDefault(); openFmt(ev, td);
   });
-  /* Packer日程・B-05 */
-  $('#pk-load').addEventListener('click', loadPackerTab);
+  /* B-05 */
   $('#b5-load').addEventListener('click', loadB05Tab);
   $('#b5-filter').addEventListener('change', renderB05);
   $('#b5-map').addEventListener('click', b05MapReport);
