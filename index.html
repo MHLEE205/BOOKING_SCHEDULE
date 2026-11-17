@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.10', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.11', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2152,6 +2152,35 @@ function invHelpOpen(el, td, b, pick){
   const bw = $('#b6-board'); bw.addEventListener('scroll', place);
   el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
 }
+/* 通関依頼の候補: POL の 乙仲 (COMPASS の 乙仲 一覧で 搬入港 = POL — COMPASS 入力の 乙仲 候補と同じ)。
+   COMPASS を読めない時は forwarder マスターの pol。並びは B-06 でその POL に使った回数の多い順 (ユーザー 2026-11-17) */
+function otsuLoad(){
+  if(S.otsuList || S._otsuP) return S._otsuP || Promise.resolve(S.otsuList);
+  S._otsuP = (async () => {
+    const C = S.store && S.store.compass; if(!C || C.demo) return null;
+    const M = await C.meta();
+    for(const [k, a] of M.attrs){
+      if((a.type==='Lookup' || a.type==='Customer') && /乙仲/.test(a.label) && M.rels.get(k)){
+        const N = await cpNames(M.rels.get(k).target, '乙仲');
+        return S.otsuList = Array.from(N.map.values()).map(o => ({name:str(o.name).split('|')[0].trim(), port:o.port})).filter(o => o.name);
+      }
+    }
+    return null;
+  })().catch(() => null).finally(() => { S._otsuP = null; });
+  return S._otsuP;
+}
+function customsCands(b){
+  const pol = str(b.port).trim().toUpperCase(); if(!pol) return [];
+  let names = [];
+  if(S.otsuList){ const al = cpAliases('port', pol); names = S.otsuList.filter(o => o.port && al.includes(cpNorm(o.port))).map(o => o.name); }
+  if(!names.length) names = (S.masters.forwarderItems || []).filter(r => r.active!==false && str(r.pol).trim().toUpperCase()===pol).map(r => str(r.name).trim());
+  names = Array.from(new Set(names.filter(Boolean)));
+  if(!names.length) return [];
+  const cnt = new Map();
+  S.bk.forEach(x => { if(x.deleted || str(x.port).trim().toUpperCase()!==pol) return;
+    (x.rows || []).forEach(a => { const v = str(a.customs).trim(); if(!a.deleted && v) cnt.set(v, (cnt.get(v)||0)+1); }); });
+  return names.map(n => ({name:n, n:cnt.get(n) || 0})).sort((p, q) => q.n-p.n || p.name.localeCompare(q.name, 'ja'));
+}
 /* ── セル編集 ── opt.text: 打った文字で上書きして始める */
 function startEdit(td, opt){
   const tr = td.closest('tr'), b = S.bk.get(tr.dataset.k); if(!b) return;
@@ -2169,7 +2198,16 @@ function startEdit(td, opt){
       + (b.approval==='OTHER' ? '<option value="OTHER" selected>'+esc(b.approval_raw)+'（原文）</option>' : '');
   } else if(DATE_KEYS.includes(k)){
     el = document.createElement('input'); el.type = 'date'; el.value = cur || '';
+  } else if(k==='customs' && customsCands(b).length){
+    /* 通関依頼: POL の 乙仲 候補から選ぶ (よく使う順) — ユーザー 2026-11-17 */
+    const cs = customsCands(b), v0 = str(cur).trim(), pol = str(b.port).trim().toUpperCase();
+    el = document.createElement('select');
+    el.innerHTML = '<option value="">（空）</option><optgroup label="'+esc(pol)+' の乙仲（よく使う順）">'
+      + cs.map(c => '<option value="'+esc(c.name)+'">'+esc(c.name)+(c.n ? '（'+c.n+'）' : '')+'</option>').join('')+'</optgroup>'
+      + (v0 && !cs.some(c => c.name===v0) ? '<option value="'+esc(v0)+'">今の値: '+esc(v0)+'</option>' : '');
+    el.value = v0;
   } else {
+    if(k==='customs') otsuLoad();
     const multi = /\n/.test(str(cur)) || ['bkgno','invoiceno','pod','carrier','vessel','memo','grade','qty_raw'].includes(k) || STATUS_KEYS.includes(k) && k!=='customs';
     if(multi){ el = document.createElement('textarea'); el.rows = Math.max(2, str(cur).split('\n').length); }
     else {
@@ -3982,7 +4020,7 @@ function compassWarm(){
     const M = await C.meta();
     const tg = new Set(); COMPASS.LOOKUPS.forEach(f => { const fc = [].concat(f.col).find(c => M.rels.get(c)); if(fc) tg.add(M.rels.get(fc).target); });
     const ex = [[/乙仲/, '乙仲'], [/海上運賃/, ''], [/販売\s*CO|販売契約/i, '']].map(([re, h]) => { for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)) return cpNames(M.rels.get(k).target, h).catch(() => {}); } return null; });
-    await Promise.all([cpMapLoad().catch(() => {}), C.details ? C.details().catch(() => {}) : null].concat(Array.from(tg).map(t => C.options(t).catch(() => {})), ex));
+    await Promise.all([cpMapLoad().catch(() => {}), otsuLoad(), C.details ? C.details().catch(() => {}) : null].concat(Array.from(tg).map(t => C.options(t).catch(() => {})), ex));
   })().catch(() => {}).finally(() => { S._warmP = null; });
   return S._warmP;
 }
