@@ -775,7 +775,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.22', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.23', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4611,7 +4611,7 @@ function dtlSaleShown(D, coId){
 }
 /* 購買は新しい契約から (契約日 → なければ契約番号 LR-2503… の大きい順) — ユーザー 2026-11-16 */
 const dtlNewer = (p, q) => ((q.coAt||0) - (p.coAt||0)) || str(q.co).localeCompare(str(p.co), 'ja', {numeric:true}) || str(q.name).localeCompare(str(p.name), 'ja', {numeric:true});
-/* 選んだ行の Packer に COMPASS 購買元が分かっていれば、その購買元の購買契約しか入れられない (A 社の行に B 社 の契約は不可 — ユーザー 2026-11-16) */
+/* 選んだ行の Packer に COMPASS 購買元が分かっていれば、その購買元の購買契約しか入れられない (A 社の行に B 社の契約は不可 — ユーザー 2026-11-16) */
 const dtlPurAllowed = (D, r) => !r || !r.sup.list.length ? D.purch.items : D.purch.items.filter(x => r.sup.list.includes(x.party));
 function dtlPurShown(D){
   let L = dtlPurAllowed(D, D.rows[D.cur]);
