@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.12', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.13', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1347,7 +1347,8 @@ function cellHtml(col, b, a){
     let h = esc(v);
     if(a.parse==='partial'||a.parse==='other') h += ' <span class="bdg w">要確認</span>';
     else if(a.parse==='manual') h += ' <span class="bdg i">手動</span>';
-    if(honOf(a)) h += ' <span class="bdg m">計'+esc(honOf(a))+'</span>';
+    if(honGuess(a)) h += ' <span class="bdg m" title="日付だけなので 1 本と仮定">計1?</span>';
+    else if(honOf(a)) h += ' <span class="bdg m">計'+esc(honOf(a))+'</span>';
     return h || '<span class="muted">—</span>';
   }
   if(k==='packer' && !blank(v)){
@@ -3283,8 +3284,17 @@ function qtyTotalLoose(raw){
   const c = t.match(/^\s*(\d+)\s*(本|[CcＣｃ](?![A-Za-z]))/);
   return c ? +c[1] : null;
 }
-/* Packer 行の本数: 保存した 計 → なければ 原文から読む */
-const honOf = a => a.totalhon!=null && a.totalhon!=='' ? +a.totalhon : (qtyTotalLoose(a.qty_raw) || 0);
+/* 日付だけ (例「11/2 8:00〜」) は 1 本の可能性が高い — 1 本と仮定 (表示は「計1?」・保存はしない) — ユーザー 2026-11-17
+   日付が 1 つ・ほかに数字がない時だけ (時刻・曜日・「〜」は無視) */
+function qtyGuessOne(raw){
+  const t = PARSE.nfkcSame(str(raw)); if(!t.trim()) return false;
+  const ds = t.match(/\d{1,2}\/\d{1,2}/g) || []; if(ds.length!==1) return false;
+  const rest = t.replace(/\d{1,2}\/\d{1,2}/g, ' ').replace(/\d{1,2}:\d{2}\s*(am|pm)?/gi, ' ').replace(/\d{1,2}\s*時(\d{1,2}\s*分)?/g, ' ');
+  return !/\d/.test(rest);
+}
+const honGuess = a => (a.totalhon==null || a.totalhon==='') && !qtyTotalLoose(a.qty_raw) && qtyGuessOne(a.qty_raw);
+/* Packer 行の本数: 保存した 計 → なければ 原文から読む → 日付だけなら 1 */
+const honOf = a => a.totalhon!=null && a.totalhon!=='' ? +a.totalhon : (qtyTotalLoose(a.qty_raw) || (qtyGuessOne(a.qty_raw) ? 1 : 0));
 function applyParse(a, raw, b){
   const r = PARSE.parse(raw, qtyCtx(b));
   const slots = r.slots.map((s,i)=> (i===0 && r.note) ? Object.assign({}, s, {note:r.note}) : s);
