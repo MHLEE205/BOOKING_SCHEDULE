@@ -760,7 +760,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.27', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.28', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3885,6 +3885,18 @@ const DvCompass = {
         L.cols.alloc = {label:'割当量（明細の'+wc.label+'の合計）', col:'calc'}; L.cols.remain = {label:(L.cols.wt ? L.cols.wt.label : '重量')+' − 割当量', col:'calc', calc:true};
       });
     }
+    /* 購買の 残本数 = 購買アイテムの 本数 − その購買を使っている明細の 本数 の合計 (ユーザー 2026-11-17) */
+    const hc = out.cols.hon;
+    if(hc && out.purch.cols.hon){
+      try{
+        const k = '_'+pL.col+'_value'; let A;
+        try{ const j = await dvGet(D.entity.EntitySetName+'?$apply='+encodeURIComponent('filter(statecode eq 0)/groupby(('+k+'),aggregate('+hc.col+' with sum as h))'));
+             A = new Map((j.value || []).filter(r => r[k]).map(r => [r[k], +r.h || 0])); }
+        catch(e){ A = new Map(); (await dvGetAll(D.entity.EntitySetName+'?$select='+k+','+hc.col+'&$filter=statecode eq 0')).forEach(r => { if(r[k]) A.set(r[k], (A.get(r[k])||0) + (+r[hc.col]||0)); }); }
+        out.purch.items.forEach(x => { if(x.hon!=null){ x.allocHon = A.get(x.id) || 0; x.remainHon = x.hon - x.allocHon; } });
+        out.purch.cols.remainHon = {label:out.purch.cols.hon.label+' − 明細の'+hc.label+'の合計', col:'calc'};
+      }catch(e){}
+    }
     /* 明細を作る時に使う列: ブッキング・販売契約・購買契約 を指す列 (行き先のテーブルで探す) */
     const toT = t => t ? lks.find(x => x.rel.target===t) || null : null;
     out.cols.bk = D.cols.find(c => c.rel && c.rel.target===M.entity.LogicalName) || null;
@@ -4081,7 +4093,7 @@ function cpCol(E, re, kind){
 async function cpLoadItems(target, onlyRemain){
   const E = await cpEntMeta(target);
   const C = {item:cpCol(E, /品目/, 'lk') || cpCol(E, /品目/, 'txt'), co:cpCol(E, /CO\b|CO$|契約/i, 'lk'), party:cpCol(E, /販売先|購買元|仕入/, 'lk'),
-    remain:cpCol(E, /残/, 'num'), alloc:cpCol(E, /割当/, 'num'), wt:cpCol(E, /重量/, 'num'), unit:cpCol(E, /unit|単価/i, 'num'), note:cpCol(E, /備考/, 'txt') || cpCol(E, /積み地/, 'txt'), tol:cpCol(E, /Tolerance|許容/i)};
+    remain:cpCol(E, /残/, 'num'), alloc:cpCol(E, /割当/, 'num'), wt:cpCol(E, /重量/, 'num'), hon:cpCol(E, /本数/, 'num'), unit:cpCol(E, /unit|単価/i, 'num'), note:cpCol(E, /備考/, 'txt') || cpCol(E, /積み地/, 'txt'), tol:cpCol(E, /Tolerance|許容/i)};
   const pid = E.entity.PrimaryIdAttribute, pn = E.entity.PrimaryNameAttribute;
   const sc = c => c ? (c.rel ? '_'+c.col+'_value' : c.col) : null;
   const base = E.entity.EntitySetName+'?$select='+Array.from(new Set([pid, pn].concat(Object.values(C).map(sc)).filter(Boolean))).join(',');
@@ -4096,7 +4108,7 @@ async function cpLoadItems(target, onlyRemain){
   const N = (r, c) => c && r[c.col]!=null ? +r[c.col] : null;
   const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item, 'item'), itemId:C.item && C.item.rel ? r['_'+C.item.col+'_value'] || null : null,
     co:F(r, C.co, 'co'), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
-    party:F(r, C.party, 'party'), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), unit:F(r, C.unit), note:F(r, C.note), tol:F(r, C.tol)}));
+    party:F(r, C.party, 'party'), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), hon:N(r, C.hon), unit:F(r, C.unit), note:F(r, C.note), tol:F(r, C.tol)}));
   /* 残の列がない時は 重量 − 割当量 */
   if(!C.remain && C.wt && C.alloc){ items.forEach(x => { if(x.wt!=null) x.remain = Math.round((x.wt - (x.alloc||0))*100)/100; }); C.remain = {label:C.wt.label+'−'+C.alloc.label, col:'calc', calc:true}; }
   /* 販売先・購買元がアイテムになく、契約 (CO) の方にある時は契約から引く */
@@ -4176,7 +4188,7 @@ function makeMemCompass(){
     party:opts.demo_buyer.list.find(x => x.id===co.parent).name, remain:[55, 120, 0][k], alloc:[1445, 380, 500][k], wt:[1500, 500, 500][k], unit:'$192', note:'', tol:'+-10%'})));
   const purItems = [['OCC','SAMPLE','LR-2610SA1',23],['OCC','SAMPLE','LR-2611SA1',69],['ONP','SAMPLE','LR-2611SA2',46],['OCC','TEST','LR-2611TE1',92],
     ['MIX','TEST','LR-2611TE2',23],['OCC','デモ再生','LR-2611DS1',46],['SOP','デモ再生','LR-2611DS2',23],['OCC','みほん商事','LR-2611MH1',10],['ONP','レイ紙材','LR-2611RE1',115]]
-    .map(([it, p, co, r]) => ({id:uuid(), name:String(pid++), item:it, co:co, coId:co, party:p, partyId:'PK-'+p, remain:r, alloc:0, wt:r, unit:'¥15.0', note:''}));
+    .map(([it, p, co, r]) => ({id:uuid(), name:String(pid++), item:it, co:co, coId:co, party:p, partyId:'PK-'+p, remain:r, alloc:0, wt:r, unit:'¥15.0', note:'', hon:Math.ceil(r/23)+1, allocHon:1, remainHon:Math.ceil(r/23)}));
   const dcol = (col, label) => ({col:col, label:label});
   const dtl = {ent:'cr49f_booking_detail', set:'cr49f_booking_details',
     cols:{sale:Object.assign(dcol('cr49f_sale_contract_detail_id','販売CO明細'), {rel:{target:'demo_sale_item'}}), purch:Object.assign(dcol('cr49f_purchase_contract_detail_id','購買CO明細'), {rel:{target:'demo_pur_item'}}),
@@ -4621,10 +4633,11 @@ function dtlHtml(D, coId, coName){
   const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
   h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
-    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th></tr>'
-    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
-      + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td></tr>').join('')
-    + (pL.length ? '' : '<tr><td colspan="7" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
+    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th><th title="購買アイテムの本数 − 明細で使った本数">残本数</th></tr>'
+    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.hon!=null ? ' / 本数 '+x.hon+'本（明細で '+(x.allocHon||0)+'本 使用）' : ''))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
+      + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td>'
+      + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+'</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
+    + (pL.length ? '' : '<tr><td colspan="8" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
     + (pL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目・購買元で絞り込んでください）</div>' : '') + '</div>';
   return h;
 }
