@@ -346,7 +346,9 @@ td:hover .st .pe{opacity:1}
 .b6-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
 .b6-modal{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;width:100%;max-width:760px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
 .b6-modal.wide{max-width:1100px}
-.b6-modal h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px;display:flex;align-items:center;gap:8px}
+.b6-modal h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px;display:flex;align-items:center;gap:8px;cursor:move;user-select:none;touch-action:none}
+.b6-modal h3 .x{cursor:pointer}
+.b6-modal.drag{box-shadow:0 16px 50px rgba(0,0,0,.45)}
 .b6-modal h3 .x{margin-left:auto}
 .b6-modal .bd{padding:12px 16px;max-height:70vh;overflow:auto;font-size:13px}
 .b6-modal .ft{padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
@@ -729,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.5', date:'2026-11-16', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.6', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3206,6 +3208,25 @@ function modal(title, bodyHtml, buttons, wide){
   const ft = bg.querySelector('.ft');
   (buttons||[]).forEach(bt => { const e=document.createElement('button'); e.className='b6-btn'+(bt.pri?' pri':''); e.textContent=bt.label; e.addEventListener('click', ()=>bt.fn(close)); ft.appendChild(e); });
   if(!(buttons||[]).length) ft.style.display = 'none';
+  /* タイトル行をつかんで自由に移動 (ダブルクリックで元の位置) */
+  const box = bg.querySelector('.b6-modal'), hd = box.querySelector('h3');
+  let dx = 0, dy = 0;
+  hd.addEventListener('pointerdown', ev => {
+    if(ev.button!==0 || ev.target.closest('button')) return;
+    ev.preventDefault();
+    const sx = ev.clientX - dx, sy = ev.clientY - dy;
+    const r0 = box.getBoundingClientRect(), bx = r0.left - dx, by = r0.top - dy;
+    hd.setPointerCapture(ev.pointerId); box.classList.add('drag');
+    const mv = e => {
+      const W = window.innerWidth, H = window.innerHeight;
+      dx = Math.min(W - 60 - bx, Math.max(60 - bx - r0.width, e.clientX - sx));
+      dy = Math.min(H - 40 - by, Math.max(-by, e.clientY - sy));
+      box.style.transform = 'translate('+dx+'px,'+dy+'px)';
+    };
+    const up = () => { hd.removeEventListener('pointermove', mv); hd.removeEventListener('pointerup', up); hd.removeEventListener('pointercancel', up); box.classList.remove('drag'); };
+    hd.addEventListener('pointermove', mv); hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up);
+  });
+  hd.addEventListener('dblclick', ev => { if(ev.target.closest('button')) return; dx = dy = 0; box.style.transform = ''; });
   document.body.appendChild(bg);
   return {el:bg, close:close, body:bg.querySelector('.bd')};
 }
