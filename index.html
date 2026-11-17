@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.13', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.14', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4405,6 +4405,22 @@ function compassBody(R, picks){
 /* ② 送る内容の確認 */
 async function openCompass(b){
   toast('COMPASS を確認しています（読み取りのみ）…', 'info');
+  /* COMPASS に同じ Booking no. が既にあれば 入力画面は開かない (ユーザー 2026-11-17)。B-06 を「COMPASS済」にできる */
+  const C = S.store.compass;
+  if(!blank(b.bkgno) && C && C.findByBookingNo){
+    let dup = [];
+    try{ dup = await C.findByBookingNo(firstLine(b.bkgno)); }catch(e){}
+    if(dup.length){
+      modal('✔ COMPASS に入力済み — '+esc(bkLabel(b)),
+        '<div><span class="bdg o">✔</span> COMPASS に同じ Booking no.（<b>'+esc(firstLine(b.bkgno))+'</b>）が既にあります（'+dup.length+' 件 — '+esc(dup.map(d => fmtDT(d.at)).join(', '))+'）。</div>'
+        + '<div class="muted" style="margin-top:6px;font-size:12px">二重に入力しないよう、入力画面は開きません。B-06 の表示を「COMPASS済」にできます（COMPASS には何も書き込みません）。</div>',
+        [{label:'閉じる', fn:c=>c()},
+         {label:'B-06 を「COMPASS済」にする', pri:true, fn:async c=>{ c();
+           await saveBooking(b, {compass_id:String(dup[0].id), compass_status:'SENT', compass_at:dup[0].at || new Date().toISOString()}, 'bkgno');
+           toast('「COMPASS済」にしました（'+bkLabel(b)+'）', 'ok'); }}]);
+      return;
+    }
+  }
   let R;
   try{ R = await compassCheck(b); }
   catch(e){ modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">確認に失敗</span> '+esc(e.message.slice(0,300))+'</div><div class="muted" style="margin-top:6px">COMPASS を読む権限がない場合もこの表示になります。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
