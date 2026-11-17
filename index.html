@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.18', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.19', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1929,7 +1929,7 @@ async function loadBkHist(){
   catch(e){ S.bkHistErr = e.message; if(!S.bkHist) S.bkHist = {}; return; }
   if(S.ready) renderBoard();
 }
-function bkHistOf(b){ return (S.bkHist && S.bkHist[b.bookkey]) || []; }
+function bkHistOf(b){ return ((S.bkHist && S.bkHist[b.bookkey]) || []).filter(e => str(e.from).trim()); }   /* 前に残った 空 → 番号 は出さない */
 async function addBkHist(b, from, to){
   const ent = {from:str(from), to:str(to), by:myName() || userEmail(), at:new Date().toISOString()};
   for(let i=0;i<3;i++){
@@ -2028,7 +2028,8 @@ async function saveBooking(b, patch, cellKey){
     const saved = await job;
     b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
     setFx('B', b.id, fk, 'saved');
-    if('bkgno' in patch && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
+    /* 空 → 番号 (はじめての入力) は変更ではないので残さない — ユーザー 2026-11-17 */
+    if('bkgno' in patch && str(prev.bkgno).trim() && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
     /* Booking no.・港 のコピーを Packer 行にも反映 */
     if('bkgno' in patch || 'port' in patch){
       for(const a of b.rows){
