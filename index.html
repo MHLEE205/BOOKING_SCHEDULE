@@ -775,7 +775,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.23', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.24', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -847,8 +847,9 @@ const BK_FIELDS = ['bookkey','region','seq','port','approval','approval_raw','bk
 const AS_FIELDS = ['bookkey','seq','bkgno','pol','grade','packer','qty_raw','slots','datefrom','dateto','totalhon','parse',
   'customs','dray','poapply','podist','drayfax','banyu','memo','source','batch','importkey','createdby','deleted'];
 const DATE_FIELDS = new Set(['cyopen','cycut','etd','eta','datefrom','dateto']);
-/* B-05 の値リスト (B-05 v6.2 TRUCK_LIST — 照合・プレビューの形式確認に使う。読み取りのみ) */
-const B05_TRUCKS = ['未定','デモ運送A','デモ運送B','デモ運送C','デモ運送D'];
+/* B-05 の運送会社はコードに書かない (取引先名を公開リポジトリに置かない — 2026-11-17)。形式確認は B-05 の実データにある値と比べる */
+const B05_TRUCK_UNSET = '未定';
+const B05_DEMO_TRUCKS = ['デモ運送A','デモ運送B','デモ運送C','デモ運送D'];
 const B05_PORTS = ['TOKYO','YOKOHAMA'];
 /* エクセル見出し → キー (正規化後の完全一致) */
 const HEADER_ALIASES = {
@@ -858,7 +859,7 @@ const HEADER_ALIASES = {
   etd:['etd'], eta:['eta'], delivery:['搬入先'], customs:['通関依頼'], dray:['ドレ配車','ドレー配車'], poapply:['po申込'],
   podist:['po配布'], drayfax:['ドレーfax','ドレfax'], banyu:['搬入表送付','搬入表'], memo:['検査番号備考','検査番号','備考'],
 };
-const HEADER_UNUSED = ['通関','depo','振込','fd送付日'];   /* 使わない列 (承認者決定 2026-11-02) */
+const HEADER_UNUSED = ['通関','depo','振込','fd送付日'];   /* 使わない列 (承認者の決定 2026-11-02) */
 
 /* ══════════ UTIL ══════════ */
 const $ = (s, el) => (el||document).querySelector(s);
@@ -3791,7 +3792,7 @@ function b05Preview(i){
     if(k==='leenai_cttype' || k==='leenai_scheduletime') return '<span class="muted">B-06 にない値 — B-05 で決める</span>';
     if(typeof v==='string' && v.startsWith('⚠')) return '<span class="ng">不一致 ❌</span>';
     if(k==='leenai_name') return /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_.+$/.test(v) && (!e || /^\d{4}-\d{2}-\d{2}_[^_]+_[^_]+_.+$/.test(e)) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span>';
-    if(k==='leenai_truck') return B05_TRUCKS.includes(v) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span>';
+    if(k==='leenai_truck') return (v===B05_TRUCK_UNSET || (S.b05.b05 || []).some(r => r.truck===v)) ? '<span class="ok">形式一致 ✅</span>' : '<span class="ng">不一致 ❌</span>';
     if(!ex) return '<span class="muted">比較対象なし</span>';
     if(e==null || e==='' || e==='(列なし/読めず)') return '<span class="muted">既存値が空 — 比較不可</span>';
     if(v==='' ) return '<span class="wn">B-06 側が空</span>';
@@ -4388,7 +4389,7 @@ async function compassCheck(b){
     R.lookups.push(L);
   }
   /* ── 販売先・販売CO・乙仲・海上運賃区分・AM (2026-11-12 ユーザーと決めた形) ──
-     COMPASS の列は表示名で探す (列名を推測しない)。今は画面で選ぶだけ — 送るのは CFG.COMPASS_EXTRA_WRITE (承認者承認) 後 */
+     COMPASS の列は表示名で探す (列名を推測しない)。今は画面で選ぶだけ — 送るのは CFG.COMPASS_EXTRA_WRITE (承認者の承認) 後 */
   const findCol = re => { for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)) return k; } return null; };
   const inv = PARSE.nfkcSame(firstLine(b.invoiceno)).toUpperCase().trim();
   const invPre = (inv.match(/^[A-Z]+/)||[''])[0], invMon = (inv.match(/^[A-Z]+[-\s]?(\d{4})/)||[])[1] || '';
@@ -5591,7 +5592,7 @@ function buildDemoStore(){
           r.slots.forEach(s => {
             if(!s.d || s.d2 || s.n==null) return;
             const x = rnd(); if(x<0.25) return;   /* B-05未登録 */
-            M.b05rows.push({name:s.d+'_'+pick(B05_TRUCKS.slice(1,5))+'_06:00_demo'+M.b05rows.length, date:s.d, rawdate:s.d+'T00:00:00Z', truck:pick(B05_TRUCKS.slice(1,5)),
+            M.b05rows.push({name:s.d+'_'+pick(B05_DEMO_TRUCKS)+'_06:00_demo'+M.b05rows.length, date:s.d, rawdate:s.d+'T00:00:00Z', truck:pick(B05_DEMO_TRUCKS),
               packer: sh || '??', time:'06:00', cttype:'40HQ', hon: x<0.85 ? s.n : s.n+1, status:'pending', pol:b.port, bkgno: x<0.93 ? b.bkgno : '', cycut:b.cycut ? b.cycut+'T00:00:00Z' : '', hasCycut:true});
           });
         }
