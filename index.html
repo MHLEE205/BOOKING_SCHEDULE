@@ -731,7 +731,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.17', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.18', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2262,18 +2262,19 @@ function startEdit(td, opt){
   }
   S.cellSel = cellKeyOf(td);
   if(opt && opt.text!=null && el.tagName!=='SELECT') el.value = opt.text;
-  /* 入力欄はセルの今の大きさのまま (列の幅・行の高さを変えない — 押すと一度広がってから縮んでいた: ユーザー 2026-11-16)。
-     日付は狭い列に入らないので、セルの上に重ねて出す */
+  /* 入力欄はセルの上に重ねる (セルの中身は見えないまま残す) — 表の 行の高さ・列の幅 が一切変わらない。
+     押すと一度広がってから縮んでいた (ユーザー 2026-11-16・11-17「처음부터 고정된 셀높이로」)。
+     複数行の入力 (textarea) は 2 行分まで下に重ねて広げる (ほかの行は動かない) */
   const rc = td.getBoundingClientRect(), cw = Math.round(rc.width), ch = Math.round(rc.height);
-  td.style.width = td.style.minWidth = td.style.maxWidth = cw+'px';
-  if(DATE_KEYS.includes(k)){
-    td.style.position = 'relative';
-    Object.assign(el.style, {width:'100%', minWidth:'0', height:Math.max(ch-6, 30)+'px', margin:'0', paddingRight:'20px', textAlign:'center'});
-  } else if(el.tagName!=='SELECT'){
-    /* 高さは 2 行分 (40px) で固定 — 押した後に小さくならないように (ユーザー 2026-11-16「너비가 아니라 높이」) */
-    Object.assign(el.style, {width:'100%', minWidth:'0', height:Math.max(ch-6, 40)+'px', minHeight:'40px', resize:'none', margin:'0'});
-  }
-  td.innerHTML = ''; td.appendChild(el); td.classList.remove('saved','fail');
+  td.style.position = 'relative';
+  const ghost = document.createElement('div'); ghost.style.visibility = 'hidden';
+  while(td.firstChild) ghost.appendChild(td.firstChild);
+  td.appendChild(ghost);
+  Object.assign(el.style, {position:'absolute', left:'0', top:'0', width:Math.max(cw, el.tagName==='SELECT' ? 120 : 0)+'px', height:ch+'px', minWidth:'0', minHeight:'0',
+    margin:'0', zIndex:'5', fontSize:'inherit', boxSizing:'border-box', resize:'none', textAlign:'inherit', borderRadius:'0'});
+  if(el.tagName==='TEXTAREA') el.style.height = Math.max(ch, 44)+'px';
+  if(DATE_KEYS.includes(k)) Object.assign(el.style, {paddingRight:'20px', textAlign:'center'});
+  td.appendChild(el); td.classList.remove('saved','fail');
   let picking = false;   /* カレンダーを開いている間は blur で確定しない */
   if(DATE_KEYS.includes(k)){
     const cal = document.createElement('input'); cal.type = 'date'; cal.tabIndex = -1;
