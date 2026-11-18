@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.33', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.34', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1561,11 +1561,19 @@ async function allocRemainHon(){
   if(!bt._b6obs){ bt._b6obs = new w.MutationObserver(() => allocRemainHon()); bt._b6obs.observe(bt, {childList:true}); }
   let BD, BK; try{ BD = w.eval('BD'); BK = w.eval('BK'); }catch(e){ console.warn('割り当て 残本数: BD・BK を読めません', e); return; }
   if(!Array.isArray(BD) || !BD.length || !Array.isArray(BK)) return;
+  /* 本数が空 (0) の明細は N/W から推定: 1 本の重さ = その購買の 重量 ÷ 本数 (例 92 MT・4 本 → 23 MT)。
+     本数 4 − 明細 2 本 = 2 本 と出たが Alloc 89 MT で実際はほぼ 4 本 — 本数の空いた明細があった (ユーザー 2026-11-18) */
+  const perHon = new Map();
+  BD.forEach(b => { const n = +b.cr49f_count, q = +b.cr49f_quantity; if(n > 0 && q > 0) perHon.set(b.cr49f_purchase_detailid, q / n); });
   const used = new Map();
-  BK.forEach(r => { const id = r._cr49f_purchase_contract_detail_id_value; if(id) used.set(id, (used.get(id) || 0) + (+r.cr49f_count || 0)); });
+  BK.forEach(r => { const id = r._cr49f_purchase_contract_detail_id_value; if(!id) return;
+    const u = used.get(id) || {n:0, est:0, nEst:0}; used.set(id, u);
+    const c = +r.cr49f_count || 0, w = +r.cr49f_net || 0, ph = perHon.get(id);
+    if(c > 0) u.n += c;
+    else if(w > 0 && ph){ const e = Math.max(1, Math.round(w / ph)); u.n += e; u.est += e; u.nEst++; } });
   const rh = new Map();
-  BD.forEach(b => { if(b.cr49f_count==null || b.cr49f_count==='') return; const hon = +b.cr49f_count, u = used.get(b.cr49f_purchase_detailid) || 0;
-    rh.set(b.cr49f_purchase_detailid, {hon:hon, allocHon:u, remainHon:Math.round((hon - u)*10)/10}); });
+  BD.forEach(b => { if(b.cr49f_count==null || b.cr49f_count==='') return; const hon = +b.cr49f_count, u = used.get(b.cr49f_purchase_detailid) || {n:0, est:0, nEst:0};
+    rh.set(b.cr49f_purchase_detailid, {hon:hon, allocHon:u.n, est:u.est, nEst:u.nEst, remainHon:Math.round((hon - u.n)*10)/10}); });
   if(!rh.size){ console.info('割り当て 残本数: 購買明細に 本数 (cr49f_count) がありません'); return; }
   const key = a => a.map(v => str(v).replace(/\s+/g, ' ').trim()).join('|');
   /* 合わせ方: 全部の文字 → だめなら POL・Packer・Item・CO.・Contract だけ (Inco・¥/kg の書き方が違っても合うように) */
@@ -1590,7 +1598,9 @@ async function allocRemainHon(){
     if(!x) return; nHit++;
     if(td[8].querySelector('.b6-rh')) return;
     const s = d.createElement('span'); s.className = 'b6-rh'+(x.remainHon <= 0 ? ' z' : '');
-    s.textContent = x.remainHon+'本'; s.title = '残本数: 本数 '+x.hon+' − 明細で使った '+(x.allocHon || 0)+'本';
+    s.textContent = (x.nEst ? '≈' : '')+x.remainHon+'本';
+    s.title = '残本数: 本数 '+x.hon+' − 明細で使った '+(x.allocHon || 0)+'本'
+      + (x.nEst ? ' （うち '+x.est+'本 は 本数が空の明細 '+x.nEst+' 件を N/W から推定 — 1本 '+Math.round(perHon.get(b.cr49f_purchase_detailid)*10)/10+' MT）' : '');
     td[8].appendChild(s);
   });
   console.info('割り当て 残本数: 行 '+nRow+' / 表示 '+nHit+' (購買明細 '+BD.length+'・本数あり '+rh.size+'・ブッキング明細 '+BK.length+')');
