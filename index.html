@@ -295,7 +295,7 @@ table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-co
 table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;font-size:13px;line-height:1.42;font-variant-numeric:tabular-nums}   /* 行の高さ 105% (1.35 → 1.42) — ユーザー 2026-11-16 */
 /* COMPASS 入力済み: Booking no. のセルに緑の網かけ (ユーザー 2026-11-16) */
 .b6-t td.cp-sent{background:color-mix(in srgb,#22a35a 17%,transparent)}
-/* Excel のようなセル選択 (クリック = 選択、もう一度・ダブルクリック・F2・Enter・文字を打つ = 入力) */
+/* Excel のようなセル選択 (クリック = 選択、もう一度・ダブルクリック・F2・文字を打つ = 入力・Enter = 右へ) */
 .b6-t td.ed{cursor:cell}
 .b6-t td.csel{outline:2px solid var(--accent);outline-offset:-2px}
 /* 日付の入力欄を大きく (小さくて押しにくかった — ユーザー 2026-11-16) */
@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.29', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.30', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2232,7 +2232,7 @@ async function saveAsg(b, a, patch, cellKey){
 }
 
 /* ── セルの選択 (Excel のように — ユーザー 2026-11-16「빈칸이 먼저 클릭되는 걸 엑셀처럼」) ──
-   クリック = 選択 / 選んだセルをもう一度クリック・ダブルクリック・F2・Enter = 入力 (カーソルは末尾) / 文字を打つ = 上書き入力
+   クリック = 選択 / 選んだセルをもう一度クリック・ダブルクリック・F2 = 入力 (カーソルは末尾) / 文字を打つ = 上書き入力 / Enter = 右へ
    ↑↓←→ Tab で移動・入力中の Enter・Tab は確定して右へ (Enter も右 — ユーザー 2026-11-18) */
 const cselCls = (lv, id, k) => S.cellSel && S.cellSel.lv===lv && S.cellSel.id===id && S.cellSel.f===k ? ' csel' : '';
 function cellKeyOf(td){
@@ -5715,7 +5715,9 @@ function initUI(){
     if(ev.key==='Enter' && (ev.ctrlKey || ev.metaKey) && td.dataset.f==='qty_raw'){ ev.preventDefault();   /* スロットで直す画面 */
       const b = S.bk.get(td.closest('tr').dataset.k), a = b && b.rows.find(x => x.id===td.dataset.aid);
       if(b && a && !b.deleted && !a.deleted) openQty(b, a); return; }
-    if(ev.key==='Enter' || ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
+    /* 選んだセルで Enter = 右のセルへ (ユーザー 2026-11-18)。入力は F2・ダブルクリック・もう一度クリック・文字を打つ */
+    if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); const nb = cellNeighbor(td, 'right'); if(nb) setCellSel(nb); return; }
+    if(ev.key==='F2'){ ev.preventDefault(); startEdit(td); return; }
     if(ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const f = td.dataset.f, plain = true;
     /* 日本語入力 (IME) — 空の入力欄を開いて そのまま変換が入るように */
