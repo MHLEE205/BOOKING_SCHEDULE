@@ -43,11 +43,15 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-rg.on{background:var(--accent-btn);color:#fff}
 .b6-rg .n{opacity:.7;font-size:11px;margin-left:3px;font-weight:400}
 .b6-chip.pt{font-family:var(--mono);font-size:11.5px;padding:2px 9px}
+/* 担当ごとの色 (港チップ・担当チップの点・表の見出しの港) — ユーザー 2026-11-18 */
+.b6-chip.sc{border-color:var(--sc);background:color-mix(in srgb,var(--sc) 18%,var(--surface2));color:var(--text)}
+.b6-chip.sc.on{background:var(--sc);border-color:var(--sc);color:#fff}
+.b6-chip .sd{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
 .b6-pin{margin-left:auto;background:none;border:1px dashed var(--border);color:var(--text3);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;cursor:pointer}
 .b6-pin:hover{color:var(--accent);border-color:var(--accent)}
 .b6-pin.on{border-style:solid;color:var(--accent);border-color:var(--accent)}
 .b6-rhd{position:sticky;left:0;font-weight:700;font-size:13px;padding:8px 10px 4px;color:var(--accent);display:flex;align-items:center;gap:6px}
-.b6-rhd .rhp{display:inline-block;padding:2px 12px;border-radius:6px;background:#f76b15;color:#fff;font-size:15px;font-weight:800;letter-spacing:.06em;font-family:"BIZ UDPGothic","Meiryo UI",sans-serif}
+.b6-rhd .rhp{display:inline-block;padding:2px 12px;border-radius:6px;background:var(--sc,#f76b15);color:#fff;font-size:15px;font-weight:800;letter-spacing:.06em;font-family:"BIZ UDPGothic","Meiryo UI",sans-serif}
 .b6-rhd .rht{color:var(--text2);font-size:12px;font-weight:700;margin-left:4px}
 .b6-rhd .n{color:var(--text3);font-weight:400;font-size:11.5px;margin-left:6px}
 /* 件数の表示は出さない (2026-11-12 ユーザー: 숫자 지워줘) — 0 件の港を隠す判定にはそのまま使う */
@@ -760,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.28', date:'2026-11-17', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.29', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1240,6 +1244,11 @@ function portStaff(port){
   const v = M.polStaff.get(str(port).trim().toUpperCase()) || M.polDefault;
   return v ? [v.staff, v.assist].filter(Boolean) : [];
 }
+/* 担当ごとの色 (担当の並び順で決まる) — 港は 担当 (補助ではなく) の色 */
+const STAFF_COLORS = ['#1c7ed6','#d6336c','#2f9e44','#e8590c','#7048e8','#0c8599','#c92a2a','#9c7a00'];
+function staffColor(code){ const o = S.masters.staffOrder || [], i = o.indexOf(code); return i < 0 ? '' : STAFF_COLORS[i % STAFF_COLORS.length]; }
+const portColor = p => staffColor(portStaff(p)[0]);
+const scStyle = c => c ? ' style="--sc:'+c+'"' : '';
 /* 担当の絞り込み: 港が空のブッキングは誰の表示にも出す (新規追加直後に見えなくならないように) */
 function staffMatch(b){ return !S.staff || blank(b.port) || portStaff(b.port).includes(S.staff); }
 function staffMatchPort(p){ return !S.staff || portStaff(p).includes(S.staff); }
@@ -1449,14 +1458,22 @@ function renderBoard(){
     : [{r:REGIONS.find(x=>x.code===S.region), list:list}];
   let h = '';
   groups.forEach((g, gi) => {
-    /* 表の見出し: この表にある港 (英字) を目立つ色で */
-    const pts = []; g.list.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(p && !pts.includes(p)) pts.push(p); });
+    /* 港ごとに表を分ける (関西なら 上に OSAKA・下に KOBE — ユーザー 2026-11-18)。港が空のブッキングは最後の表 */
+    const pts = []; let hasBlank = false;
+    g.list.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(!p) hasBlank = true; else if(!pts.includes(p)) pts.push(p); });
     pts.sort((x, y) => (g.r.ports.indexOf(x)<0?99:g.r.ports.indexOf(x)) - (g.r.ports.indexOf(y)<0?99:g.r.ports.indexOf(y)));
-    if(S.region==='ALL') h += '<div class="b6-rhd" data-rg="'+g.r.code+'">'+pts.map(p => '<span class="rhp">'+esc(p)+'</span>').join('')+'<span class="rht">'+esc(g.r.tab)+'</span><span class="n">'+g.list.filter(b=>!b.deleted).length+' 件</span>'
-      + (groups.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(gi===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(gi===groups.length-1?' disabled':'')+'>▼</button></span>' : '')
-      + ALLOC_LINK + '</div>';
-    else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
-    h += boardTable(g.r.code, g.list, F);
+    if(hasBlank) pts.push('');
+    pts.forEach((p, pi) => {
+      const sub = g.list.filter(b => str(b.port).trim().toUpperCase()===p);
+      const badge = p ? '<span class="rhp"'+scStyle(portColor(p))+' title="'+esc(portStaff(p).map(staffName).join(' ／ '))+'">'+esc(p)+'</span>' : '<span class="rhp" style="--sc:#868e96">港未入力</span>';
+      /* ▲▼ (地域の順番) と data-rg は地域の最初の表だけ */
+      const first = pi===0;
+      if(S.region==='ALL' || pts.length>1) h += '<div class="b6-rhd"'+(S.region==='ALL' && first ? ' data-rg="'+g.r.code+'"' : '')+'>'+badge+'<span class="rht">'+esc(g.r.tab)+'</span><span class="n">'+sub.filter(b=>!b.deleted).length+' 件</span>'
+        + (S.region==='ALL' && first && groups.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この地域を上へ"'+(gi===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この地域を下へ"'+(gi===groups.length-1?' disabled':'')+'>▼</button></span>' : '')
+        + ALLOC_LINK + '</div>';
+      else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
+      h += boardTable(g.r.code, sub, F);
+    });
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
@@ -1622,7 +1639,7 @@ function renderChips(){
     const pinned = S.staffPin && S.staffPin===S.staff;
     sh = '<span class="b6-lbl"><span class="ic">👤</span>担当</span><div class="b6-row">'
       + '<button class="b6-chip'+(S.staff?'':' on')+'" data-staff="">全員<span class="n">'+all.length+'</span></button>'
-      + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'">'+(c===S.staffPin?'📌':'')+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
+      + M.staffOrder.map(c => '<button class="b6-chip'+(c===S.staff?' on':'')+'" data-staff="'+esc(c)+'">'+(c===S.staffPin?'📌':'')+'<i class="sd" style="background:'+staffColor(c)+'"></i>'+esc(staffName(c))+'<span class="n">'+n(c)+'</span></button>').join('')
       + '<span style="margin-left:auto;display:inline-flex;gap:6px">'
       + '<button class="b6-mbtn'+(S.memoOpen?' on':'')+'" data-mopen="1" title="担当・港ごとのメモ帳（画像も貼れます）"><span class="ic">📝</span>'+(S.staff ? esc(staffName(S.staff))+' のメモ帳' : 'メモ帳')+'</button>'
       + (S.staff || S.staffPin ? '<button class="b6-pin'+(pinned?' on':'')+'" id="b6-pin" style="margin-left:0" title="'+(pinned?'既定の担当の固定を解除':'この担当を既定に固定（次回は最初にこの担当で開く）')+'"><span class="ic">📌</span>'+(pinned?'固定中':'既定に固定')+'</button>' : '')
@@ -1650,7 +1667,8 @@ function renderChips(){
     ph += '<span class="b6-grp" draggable="true" data-rg="'+g.r.code+'" title="ドラッグで表の順番を変更"><button class="b6-rg'+(rOn?' on':'')+'" data-region="'+g.r.code+'" title="'+esc(g.r.tab)+' の全件">'+esc(g.r.tab)+'<span class="n">'+g.n+'</span></button>'
       + g.order.map(p => {
           const st = portStaff(p), who = st.length ? '担当 '+staffName(st[0])+(st[1]?' ／ 補助 '+staffName(st[1]):'') : '';
-          return '<button class="b6-chip pt'+(p===S.port?' on':'')+'" data-port="'+esc(p)+'" title="'+esc(who)+'">'+esc(p)+'<span class="n">'+g.pc.get(p)+'</span></button>';
+          const pc = portColor(p);
+          return '<button class="b6-chip pt'+(pc?' sc':'')+(p===S.port?' on':'')+'" data-port="'+esc(p)+'"'+scStyle(pc)+' title="'+esc(who)+'">'+esc(p)+'<span class="n">'+g.pc.get(p)+'</span></button>';
         }).join('')
       + (g.nBlank ? '<button class="b6-chip pt'+(S.port==='__blank' && S.region===g.r.code?' on':'')+'" data-port="__blank" data-in="'+g.r.code+'" title="港が空のブッキング">港未入力<span class="n">'+g.nBlank+'</span></button>' : '')
       + '</span>';
@@ -2215,7 +2233,7 @@ async function saveAsg(b, a, patch, cellKey){
 
 /* ── セルの選択 (Excel のように — ユーザー 2026-11-16「빈칸이 먼저 클릭되는 걸 엑셀처럼」) ──
    クリック = 選択 / 選んだセルをもう一度クリック・ダブルクリック・F2・Enter = 入力 (カーソルは末尾) / 文字を打つ = 上書き入力
-   ↑↓←→ Tab で移動・入力中の Enter は確定して下へ・Tab は確定して右へ */
+   ↑↓←→ Tab で移動・入力中の Enter・Tab は確定して右へ (Enter も右 — ユーザー 2026-11-18) */
 const cselCls = (lv, id, k) => S.cellSel && S.cellSel.lv===lv && S.cellSel.id===id && S.cellSel.f===k ? ' csel' : '';
 function cellKeyOf(td){
   const tr = td && td.closest('tr'), b = tr && S.bk.get(tr.dataset.k); if(!b) return null;
@@ -2479,8 +2497,9 @@ function startEdit(td, opt){
   el.addEventListener('keydown', ev => {
     if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
     else if(ev.key==='Tab' && !ev.isComposing){ ev.preventDefault(); commitMove(ev.shiftKey ? 'left' : 'right'); }
-    else if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing && (el.tagName!=='TEXTAREA' || ev.ctrlKey)){ ev.preventDefault(); commitMove('down'); }
-    else if(ev.key==='Enter' && el.tagName==='TEXTAREA' && !ev.shiftKey && !ev.isComposing && !ev.altKey){ ev.preventDefault(); commitMove('down'); }
+    /* Enter は確定して右のセルへ (ユーザー 2026-11-18 — 前は下へ) */
+    else if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing && (el.tagName!=='TEXTAREA' || ev.ctrlKey)){ ev.preventDefault(); commitMove('right'); }
+    else if(ev.key==='Enter' && el.tagName==='TEXTAREA' && !ev.shiftKey && !ev.isComposing && !ev.altKey){ ev.preventDefault(); commitMove('right'); }
   });
 }
 /* セルの選択リスト (通関依頼・承認): 検索 (打つと絞り込み) / ↑↓ Enter / 押すとすぐ保存 / 候補にない文字も Enter で入力
@@ -2539,7 +2558,7 @@ function openListPick(td, cfg){
     if(ev.isComposing) return;
     if(ev.key==='ArrowDown'){ ev.preventDefault(); if(items.length){ act = (act+1) % items.length; hl(); } }
     else if(ev.key==='ArrowUp'){ ev.preventDefault(); if(items.length){ act = (act-1+items.length) % items.length; hl(); } }
-    else if(ev.key==='Enter'){ ev.preventDefault(); choose(items[act], 'down'); }
+    else if(ev.key==='Enter'){ ev.preventDefault(); choose(items[act], 'right'); }
     else if(ev.key==='Tab'){ ev.preventDefault(); choose(items[act], ev.shiftKey ? 'left' : 'right'); }
     else if(ev.key==='Escape'){ ev.preventDefault(); cancel(); }
   });
