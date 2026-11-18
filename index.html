@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.38', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.39', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1542,15 +1542,38 @@ function allocBoot(zoomOnly){
   if(!d.getElementById('b6-al-css')){
     const s = d.createElement('style'); s.id = 'b6-al-css';
     s.textContent = '.tab-bar,#ln-header,.ln-footer{display:none!important} #content-alloc .main{max-width:none!important;padding:6px 8px!important} body{overflow:auto}'
-      /* B-06 の中では 更新時刻の行・運賃 (SharePoint) の表示・合計のカード は出さない。Buy (購買) の表を先 (左) に — 購買の残から配分するので (ユーザー 2026-11-18) */
-      + ' #content-alloc>div:first-child,#content-alloc .toolbar,#sR{display:none!important} #content-alloc .sp>div:last-child{order:-1}'
+      /* B-06 の中では 更新時刻の行・運賃 (SharePoint) の表示・合計のカード は出さない (ユーザー 2026-11-18)。
+         Sales・Buy の左右は ◀▶ で入れ替え (人ごとに記憶 — 既定は元の Sales 左・Buy 右) */
+      + ' #content-alloc>div:first-child,#content-alloc .toolbar,#sR{display:none!important} .b6-buyfirst #content-alloc .sp>div:last-child{order:-1}'
+      + ' .b6-mv{display:inline-flex;gap:2px;margin-left:8px;vertical-align:middle} .b6-mv button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:4px;font-size:10px;line-height:16px;padding:0 5px;cursor:pointer}'
+      + ' .b6-mv button:hover:not(:disabled){color:#f76b15;border-color:#f76b15} .b6-mv button:disabled{opacity:.3;cursor:default}'
       /* 残本 はオレンジで目立つように (ユーザー 2026-11-18) */
       + ' .b6-rh{margin-left:4px;font-size:10px;font-weight:700;color:#f76b15;white-space:nowrap} .b6-rh.z{color:var(--danger)}';
     d.head.appendChild(s);
   }
   if(!w._allocLoaded) w.switchTab('alloc');
+  allocSide(d);
   allocRemainHon();
   return true;
+}
+/* 割り当て: Sales・Buy の表の見出しに ◀▶ — 左右を入れ替えて 人ごとに記憶 (次に開いても同じ — ユーザー 2026-11-18) */
+function allocSide(d){
+  const buyFirst = allocPref('buyFirst')==='1';
+  d.documentElement.classList.toggle('b6-buyfirst', buyFirst);
+  const sp = d.querySelector('#content-alloc .sp'); if(!sp) return;
+  Array.from(sp.children).forEach((col, i) => {
+    const ct = col.querySelector('.ct'); if(!ct) return;
+    let m = ct.querySelector('.b6-mv');
+    if(!m){
+      m = d.createElement('span'); m.className = 'b6-mv';
+      m.innerHTML = '<button title="左 (上) へ">◀</button><button title="右 (下) へ">▶</button>';
+      ct.appendChild(m);
+      m.addEventListener('click', ev => { const b = ev.target.closest('button'); if(!b || b.disabled) return;
+        allocPref('buyFirst', allocPref('buyFirst')==='1' ? '0' : '1'); allocSide(d); });
+    }
+    const onLeft = (i===1) === buyFirst;   /* i: 0 = Sales・1 = Buy */
+    m.children[0].disabled = onLeft; m.children[1].disabled = !onLeft;
+  });
 }
 /* 割り当ての Buy (Purchase Balance) 表: Balance の横に 残本数 を小さく (ユーザー 2026-11-18)
    残本数 = 購買明細の 本数 (cr49f_count) − その購買を使っているブッキング明細の 本数 の合計。
