@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.30', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.31', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1537,11 +1537,45 @@ function allocBoot(zoomOnly){
   d.getElementById('app').style.display = '';
   if(!d.getElementById('b6-al-css')){
     const s = d.createElement('style'); s.id = 'b6-al-css';
-    s.textContent = '.tab-bar,#ln-header,.ln-footer{display:none!important} #content-alloc .main{max-width:none!important;padding:6px 8px!important} body{overflow:auto}';
+    s.textContent = '.tab-bar,#ln-header,.ln-footer{display:none!important} #content-alloc .main{max-width:none!important;padding:6px 8px!important} body{overflow:auto}'
+      + ' .b6-rh{margin-left:4px;font-size:9.5px;font-weight:400;color:var(--text3);white-space:nowrap} .b6-rh.z{color:var(--danger)}';
     d.head.appendChild(s);
   }
   if(!w._allocLoaded) w.switchTab('alloc');
+  allocRemainHon();
   return true;
+}
+/* 割り当ての Buy (Purchase Balance) 表: Balance の横に 残本数 を小さく (ユーザー 2026-11-18)
+   残本数 = 購買アイテムの 本数 − 明細で使った 本数 (COMPASS 入力の 購買 の表と同じ)。
+   CLEARANCE_COMPASS の行には ID がないので、表の文字 (POL・Packer・Item・CO.・Inco・¥/kg・Contract) で その画面の BD (購買明細) と合わせる。
+   表を描き直したら (#bT の中身が変わったら) 付け直す */
+async function allocRemainHon(){
+  const fr = $('#b6-alloc iframe'); let w, d;
+  try{ w = fr && fr.contentWindow; d = w && w.document; }catch(e){ return; }
+  const bt = d && d.getElementById('bT'); if(!bt) return;
+  if(!bt._b6obs){ bt._b6obs = new w.MutationObserver(() => allocRemainHon()); bt._b6obs.observe(bt, {childList:true}); }
+  let D; try{ D = await COMPASS.details(); }catch(e){ return; }
+  const rh = new Map(); ((D && D.purch && D.purch.items) || []).forEach(x => { if(x.remainHon!=null) rh.set(x.id, x); });
+  let BD; try{ BD = w.eval('BD'); }catch(e){ return; }
+  if(!rh.size || !Array.isArray(BD)) return;
+  const key = a => a.map(v => str(v).replace(/\s+/g, ' ').trim()).join('|');
+  const pool = new Map();
+  BD.forEach(b => { const k = key([b._pol, b._pk, b._it, b._co, b.cr49f_incoterms || '-', b.cr49f_price || '-', Math.round(b.cr49f_quantity || 0)]);
+    if(!pool.has(k)) pool.set(k, []); pool.get(k).push(b); });
+  const th = bt.querySelectorAll('thead th')[8];
+  if(th && !th.querySelector('.b6-rh')){ const s = d.createElement('span'); s.className = 'b6-rh'; s.textContent = '残本'; s.title = '残本数 = 本数 − 明細で使った本数 (B-06 が表示)'; th.appendChild(s); }
+  let pol = '';
+  bt.querySelectorAll('tbody tr').forEach(tr => {
+    const td = tr.children;
+    if(tr.classList.contains('pol-row')){ pol = td[0] ? td[0].textContent : ''; return; }
+    if(td.length < 9) return;
+    const b = (pool.get(key([pol].concat(Array.from(td).slice(1, 7).map(c => c.textContent)))) || []).shift();
+    const x = b && rh.get(b.cr49f_purchase_detailid);
+    if(!x || td[8].querySelector('.b6-rh')) return;
+    const s = d.createElement('span'); s.className = 'b6-rh'+(x.remainHon <= 0 ? ' z' : '');
+    s.textContent = x.remainHon+'本'; s.title = '残本数: 本数 '+x.hon+' − 明細で使った '+(x.allocHon || 0)+'本';
+    td[8].appendChild(s);
+  });
 }
 function allocOpen(){
   let p = $('#b6-alloc');
@@ -1560,7 +1594,7 @@ function allocOpen(){
     p.querySelector('.ah').addEventListener('click', ev => {
       const b = ev.target.closest('button'); if(!b) return;
       if(b.dataset.az) allocZoom(+b.dataset.az);
-      else if(b.dataset.ar){ try{ fr.contentWindow.location.reload(); }catch(e){ fr.src = ALLOC_URL; } }
+      else if(b.dataset.ar){ if(COMPASS.forget) COMPASS.forget(); try{ fr.contentWindow.location.reload(); }catch(e){ fr.src = ALLOC_URL; } }
       else if(b.dataset.ao) window.open(ALLOC_URL, '_blank');
       else if(b.dataset.ax) allocClose();
     });
