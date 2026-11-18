@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.34', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.35', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1576,12 +1576,13 @@ async function allocRemainHon(){
     rh.set(b.cr49f_purchase_detailid, {hon:hon, allocHon:u.n, est:u.est, nEst:u.nEst, remainHon:Math.round((hon - u.n)*10)/10}); });
   if(!rh.size){ console.info('割り当て 残本数: 購買明細に 本数 (cr49f_count) がありません'); return; }
   const key = a => a.map(v => str(v).replace(/\s+/g, ' ').trim()).join('|');
-  /* 合わせ方: 全部の文字 → だめなら POL・Packer・Item・CO.・Contract だけ (Inco・¥/kg の書き方が違っても合うように) */
+  /* 合わせ方: 全部の文字 + Alloc → だめなら POL・Packer・Item・CO.・Contract・Alloc (Inco・¥/kg の書き方が違っても合うように)。
+     Alloc も入れる: 見た目が同じ行 (Packer・CO.・¥/kg・Contract が同じ) が 2 つあり 入れ違った (Alloc 89 の行に Alloc 47 の行の 残本 — 2026-11-18) */
   const pool = new Map(), loose = new Map(), taken = new Set();
   const put = (m, k, b) => { if(!m.has(k)) m.set(k, []); m.get(k).push(b); };
-  BD.forEach(b => { const q = Math.round(b.cr49f_quantity || 0);
-    put(pool, key([b._pol, b._pk, b._it, b._co, b.cr49f_incoterms || '-', b.cr49f_price || '-', q]), b);
-    put(loose, key([b._pol, b._pk, b._it, b._co, q]), b); });
+  BD.forEach(b => { const q = Math.round(b.cr49f_quantity || 0), al = Math.round(b._al || 0);
+    put(pool, key([b._pol, b._pk, b._it, b._co, b.cr49f_incoterms || '-', b.cr49f_price || '-', q, al]), b);
+    put(loose, key([b._pol, b._pk, b._it, b._co, q, al]), b); });
   const take = (m, k) => (m.get(k) || []).find(b => !taken.has(b));
   let nRow = 0, nHit = 0;
   const th = bt.querySelectorAll('thead th')[8];
@@ -1592,7 +1593,7 @@ async function allocRemainHon(){
     if(tr.classList.contains('pol-row')){ pol = td[0] ? td[0].textContent : ''; return; }
     if(td.length < 9) return;
     const t = Array.from(td).map(c => c.textContent); nRow++;
-    const b = take(pool, key([pol].concat(t.slice(1, 7)))) || take(loose, key([pol, t[1], t[2], t[3], t[6]]));
+    const b = take(pool, key([pol].concat(t.slice(1, 8)))) || take(loose, key([pol, t[1], t[2], t[3], t[6], t[7]]));
     if(b) taken.add(b);
     const x = b && rh.get(b.cr49f_purchase_detailid);
     if(!x) return; nHit++;
