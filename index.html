@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.39', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.40', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1547,8 +1547,8 @@ function allocBoot(zoomOnly){
       + ' #content-alloc>div:first-child,#content-alloc .toolbar,#sR{display:none!important} .b6-buyfirst #content-alloc .sp>div:last-child{order:-1}'
       + ' .b6-mv{display:inline-flex;gap:2px;margin-left:8px;vertical-align:middle} .b6-mv button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:4px;font-size:10px;line-height:16px;padding:0 5px;cursor:pointer}'
       + ' .b6-mv button:hover:not(:disabled){color:#f76b15;border-color:#f76b15} .b6-mv button:disabled{opacity:.3;cursor:default}'
-      /* 残本 はオレンジで目立つように (ユーザー 2026-11-18) */
-      + ' .b6-rh{margin-left:4px;font-size:10px;font-weight:700;color:#f76b15;white-space:nowrap} .b6-rh.z{color:var(--danger)}';
+      /* 残本 はオレンジ (太字にしない)・0 本は黒に近い灰色・マイナスは赤 (ユーザー 2026-11-18) */
+      + ' .b6-rh{margin-left:4px;font-size:10px;font-weight:400;color:#f76b15;white-space:nowrap} .b6-rh.z{color:#555} .b6-rh.neg{color:var(--danger)}';
     d.head.appendChild(s);
   }
   if(!w._allocLoaded) w.switchTab('alloc');
@@ -1633,7 +1633,7 @@ async function allocRemainHon(){
     const x = b && rh.get(b.cr49f_purchase_detailid);
     if(!x) return; nHit++;
     if(td[8].querySelector('.b6-rh')) return;
-    const s = d.createElement('span'); s.className = 'b6-rh'+(x.remainHon <= 0 ? ' z' : '');
+    const s = d.createElement('span'); s.className = 'b6-rh'+(x.remainHon < 0 ? ' neg' : x.remainHon===0 ? ' z' : '');
     s.textContent = (x.nEst ? '≈' : '')+x.remainHon+'本'; s.title = honRemainTip(x);
     td[8].appendChild(s);
   });
