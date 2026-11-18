@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.35', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.36', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1554,15 +1554,12 @@ function allocBoot(zoomOnly){
    v0.31 は B-06 の COMPASS 読み込みから取ろうとして出なかった (2026-11-18) → 割り当て画面がもう読んでいる BD (購買明細)・BK (ブッキング明細) で計算 (Alloc と同じ数え方)。
    CLEARANCE_COMPASS の行には ID がないので、表の文字 (POL・Packer・Item・CO.・Inco・¥/kg・Contract) で その画面の BD (購買明細) と合わせる。
    表を描き直したら (#bT の中身が変わったら) 付け直す */
-async function allocRemainHon(){
-  const fr = $('#b6-alloc iframe'); let w, d;
-  try{ w = fr && fr.contentWindow; d = w && w.document; }catch(e){ return; }
-  const bt = d && d.getElementById('bT'); if(!bt) return;
-  if(!bt._b6obs){ bt._b6obs = new w.MutationObserver(() => allocRemainHon()); bt._b6obs.observe(bt, {childList:true}); }
-  let BD, BK; try{ BD = w.eval('BD'); BK = w.eval('BK'); }catch(e){ console.warn('割り当て 残本数: BD・BK を読めません', e); return; }
-  if(!Array.isArray(BD) || !BD.length || !Array.isArray(BK)) return;
-  /* 本数が空 (0) の明細は N/W から推定: 1 本の重さ = その購買の 重量 ÷ 本数 (例 92 MT・4 本 → 23 MT)。
-     本数 4 − 明細 2 本 = 2 本 と出たが Alloc 89 MT で実際はほぼ 4 本 — 本数の空いた明細があった (ユーザー 2026-11-18) */
+/* 残本数の計算 (割り当て パネルと COMPASS 入力の 購買 の表で同じ — ユーザー 2026-11-18)
+   BD: 購買明細 cr49f_purchase_details {cr49f_purchase_detailid, cr49f_count, cr49f_quantity}
+   BK: ブッキング明細 cr49f_booking_details {_cr49f_purchase_contract_detail_id_value, cr49f_count, cr49f_net}
+   残本数 = 購買の 本数 − その購買を使っている明細の 本数 の合計。
+   本数が空 (0) の明細は N/W から推定: 1 本の重さ = 購買の 重量 ÷ 本数 (例 92 MT・4 本 → 23 MT)、四捨五入・最低 1 本 */
+function honRemainCalc(BD, BK){
   const perHon = new Map();
   BD.forEach(b => { const n = +b.cr49f_count, q = +b.cr49f_quantity; if(n > 0 && q > 0) perHon.set(b.cr49f_purchase_detailid, q / n); });
   const used = new Map();
@@ -1572,8 +1569,20 @@ async function allocRemainHon(){
     if(c > 0) u.n += c;
     else if(w > 0 && ph){ const e = Math.max(1, Math.round(w / ph)); u.n += e; u.est += e; u.nEst++; } });
   const rh = new Map();
-  BD.forEach(b => { if(b.cr49f_count==null || b.cr49f_count==='') return; const hon = +b.cr49f_count, u = used.get(b.cr49f_purchase_detailid) || {n:0, est:0, nEst:0};
-    rh.set(b.cr49f_purchase_detailid, {hon:hon, allocHon:u.n, est:u.est, nEst:u.nEst, remainHon:Math.round((hon - u.n)*10)/10}); });
+  BD.forEach(b => { if(b.cr49f_count==null || b.cr49f_count==='') return; const id = b.cr49f_purchase_detailid, hon = +b.cr49f_count, u = used.get(id) || {n:0, est:0, nEst:0};
+    rh.set(id, {hon:hon, allocHon:u.n, est:u.est, nEst:u.nEst, perHon:perHon.get(id), remainHon:Math.round((hon - u.n)*10)/10}); });
+  return rh;
+}
+const honRemainTip = x => '残本数: 本数 '+x.hon+' − 明細で使った '+(x.allocHon || 0)+'本'
+  + (x.nEst ? ' （うち '+x.est+'本 は 本数が空の明細 '+x.nEst+' 件を N/W から推定 — 1本 '+Math.round(x.perHon*10)/10+' MT）' : '');
+async function allocRemainHon(){
+  const fr = $('#b6-alloc iframe'); let w, d;
+  try{ w = fr && fr.contentWindow; d = w && w.document; }catch(e){ return; }
+  const bt = d && d.getElementById('bT'); if(!bt) return;
+  if(!bt._b6obs){ bt._b6obs = new w.MutationObserver(() => allocRemainHon()); bt._b6obs.observe(bt, {childList:true}); }
+  let BD, BK; try{ BD = w.eval('BD'); BK = w.eval('BK'); }catch(e){ console.warn('割り当て 残本数: BD・BK を読めません', e); return; }
+  if(!Array.isArray(BD) || !BD.length || !Array.isArray(BK)) return;
+  const rh = honRemainCalc(BD, BK);
   if(!rh.size){ console.info('割り当て 残本数: 購買明細に 本数 (cr49f_count) がありません'); return; }
   const key = a => a.map(v => str(v).replace(/\s+/g, ' ').trim()).join('|');
   /* 合わせ方: 全部の文字 + Alloc → だめなら POL・Packer・Item・CO.・Contract・Alloc (Inco・¥/kg の書き方が違っても合うように)。
@@ -1599,9 +1608,7 @@ async function allocRemainHon(){
     if(!x) return; nHit++;
     if(td[8].querySelector('.b6-rh')) return;
     const s = d.createElement('span'); s.className = 'b6-rh'+(x.remainHon <= 0 ? ' z' : '');
-    s.textContent = (x.nEst ? '≈' : '')+x.remainHon+'本';
-    s.title = '残本数: 本数 '+x.hon+' − 明細で使った '+(x.allocHon || 0)+'本'
-      + (x.nEst ? ' （うち '+x.est+'本 は 本数が空の明細 '+x.nEst+' 件を N/W から推定 — 1本 '+Math.round(perHon.get(b.cr49f_purchase_detailid)*10)/10+' MT）' : '');
+    s.textContent = (x.nEst ? '≈' : '')+x.remainHon+'本'; s.title = honRemainTip(x);
     td[8].appendChild(s);
   });
   console.info('割り当て 残本数: 行 '+nRow+' / 表示 '+nHit+' (購買明細 '+BD.length+'・本数あり '+rh.size+'・ブッキング明細 '+BK.length+')');
@@ -3969,18 +3976,17 @@ const DvCompass = {
         L.cols.alloc = {label:'割当量（明細の'+wc.label+'の合計）', col:'calc'}; L.cols.remain = {label:(L.cols.wt ? L.cols.wt.label : '重量')+' − 割当量', col:'calc', calc:true};
       });
     }
-    /* 購買の 残本数 = 購買アイテムの 本数 − その購買を使っている明細の 本数 の合計 (ユーザー 2026-11-17) */
-    const hc = out.cols.hon;
-    if(hc && out.purch.cols.hon){
-      try{
-        const k = '_'+pL.col+'_value'; let A;
-        try{ const j = await dvGet(D.entity.EntitySetName+'?$apply='+encodeURIComponent('filter(statecode eq 0)/groupby(('+k+'),aggregate('+hc.col+' with sum as h))'));
-             A = new Map((j.value || []).filter(r => r[k]).map(r => [r[k], +r.h || 0])); }
-        catch(e){ A = new Map(); (await dvGetAll(D.entity.EntitySetName+'?$select='+k+','+hc.col+'&$filter=statecode eq 0')).forEach(r => { if(r[k]) A.set(r[k], (A.get(r[k])||0) + (+r[hc.col]||0)); }); }
-        out.purch.items.forEach(x => { if(x.hon!=null){ x.allocHon = A.get(x.id) || 0; x.remainHon = x.hon - x.allocHon; } });
-        out.purch.cols.remainHon = {label:out.purch.cols.hon.label+' − 明細の'+hc.label+'の合計', col:'calc'};
-      }catch(e){}
-    }
+    /* 購買の 残本数: 割り当て パネルと同じ計算 (honRemainCalc — ユーザー 2026-11-18)。
+       v0.28 は 表示名で探した列と $apply の合計を使っていたが 割り当て では出なかった → 割り当て (CLEARANCE_COMPASS) と同じテーブル・列を直接読む */
+    try{
+      const [pd, bd] = await Promise.all([
+        dvGetAll('cr49f_purchase_details?$select=cr49f_purchase_detailid,cr49f_count,cr49f_quantity&$filter=cr49f_closing eq false'),
+        dvGetAll('cr49f_booking_details?$select=_cr49f_purchase_contract_detail_id_value,cr49f_count,cr49f_net&$filter=_cr49f_purchase_contract_detail_id_value ne null')]);
+      const rh = honRemainCalc(pd, bd);
+      out.purch.items.forEach(x => { const r = rh.get(x.id); delete x.remainHon;
+        if(r) Object.assign(x, {hon:r.hon, allocHon:r.allocHon, est:r.est, nEst:r.nEst, perHon:r.perHon, remainHon:r.remainHon}); });
+      console.info('COMPASS 入力 残本数: 購買 '+out.purch.items.length+' 件中 '+out.purch.items.filter(x => x.remainHon!=null).length+' 件 (購買明細 '+pd.length+'・ブッキング明細 '+bd.length+')');
+    }catch(e){ console.warn('COMPASS 入力 残本数: 読めません', e); }
     /* 明細を作る時に使う列: ブッキング・販売契約・購買契約 を指す列 (行き先のテーブルで探す) */
     const toT = t => t ? lks.find(x => x.rel.target===t) || null : null;
     out.cols.bk = D.cols.find(c => c.rel && c.rel.target===M.entity.LogicalName) || null;
@@ -4717,10 +4723,10 @@ function dtlHtml(D, coId, coName){
   const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
   h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
-    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th><th title="購買アイテムの本数 − 明細で使った本数">残本数</th></tr>'
-    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.hon!=null ? ' / 本数 '+x.hon+'本（明細で '+(x.allocHon||0)+'本 使用）' : ''))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
+    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th><th title="購買の本数 − 明細で使った本数（本数が空の明細は N/W から推定 ≈）— 割り当て パネルと同じ">残本数</th></tr>'
+    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
       + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td>'
-      + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+'</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
+      + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+(x.nEst ? '≈' : '')+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+'</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
     + (pL.length ? '' : '<tr><td colspan="8" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
     + (pL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目・購買元で絞り込んでください）</div>' : '') + '</div>';
   return h;
