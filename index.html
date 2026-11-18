@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.31', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.32', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1456,24 +1456,28 @@ function renderBoard(){
   const groups = S.region==='ALL'
     ? regionsOrdered().map(r => ({r:r, list:list.filter(b => b.region===r.code)})).filter(g => g.list.length)
     : [{r:REGIONS.find(x=>x.code===S.region), list:list}];
-  let h = '';
-  groups.forEach((g, gi) => {
-    /* 港ごとに表を分ける (関西なら 上に OSAKA・下に KOBE — ユーザー 2026-11-18)。港が空のブッキングは最後の表 */
+  /* 港ごとに表を分ける (関西なら 上に OSAKA・下に KOBE — ユーザー 2026-11-18)。港が空のブッキングは地域の最後の表 */
+  const tabs = [];
+  groups.forEach(g => {
     const pts = []; let hasBlank = false;
     g.list.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(!p) hasBlank = true; else if(!pts.includes(p)) pts.push(p); });
     pts.sort((x, y) => (g.r.ports.indexOf(x)<0?99:g.r.ports.indexOf(x)) - (g.r.ports.indexOf(y)<0?99:g.r.ports.indexOf(y)));
     if(hasBlank) pts.push('');
-    pts.forEach((p, pi) => {
-      const sub = g.list.filter(b => str(b.port).trim().toUpperCase()===p);
-      const badge = p ? '<span class="rhp"'+scStyle(portColor(p))+' title="'+esc(portStaff(p).map(staffName).join(' ／ '))+'">'+esc(p)+'</span>' : '<span class="rhp" style="--sc:#868e96">港未入力</span>';
-      /* ▲▼ (地域の順番) と data-rg は地域の最初の表だけ */
-      const first = pi===0;
-      if(S.region==='ALL' || pts.length>1) h += '<div class="b6-rhd"'+(S.region==='ALL' && first ? ' data-rg="'+g.r.code+'"' : '')+'>'+badge+'<span class="rht">'+esc(g.r.tab)+'</span><span class="n">'+sub.filter(b=>!b.deleted).length+' 件</span>'
-        + (S.region==='ALL' && first && groups.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この地域を上へ"'+(gi===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この地域を下へ"'+(gi===groups.length-1?' disabled':'')+'>▼</button></span>' : '')
-        + ALLOC_LINK + '</div>';
-      else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
-      h += boardTable(g.r.code, sub, F);
-    });
+    pts.forEach(p => tabs.push({r:g.r, p:p, k:g.r.code+':'+p, sub:g.list.filter(b => str(b.port).trim().toUpperCase()===p)}));
+  });
+  /* 表の順番: どの港の表にも ▲▼ (ユーザー 2026-11-18)。並べ替えた順は人ごとに記憶、まだ並べ替えていない表は地域の順 */
+  const po = S.portOrder || [];
+  tabs.forEach((t, i) => { const j = po.indexOf(t.k); t.o = j < 0 ? 1e6 + i : j; });
+  tabs.sort((a, b) => a.o - b.o);
+  let h = '';
+  tabs.forEach((t, ti) => {
+    const p = t.p;
+    const badge = p ? '<span class="rhp"'+scStyle(portColor(p))+' title="'+esc(portStaff(p).map(staffName).join(' ／ '))+'">'+esc(p)+'</span>' : '<span class="rhp" style="--sc:#868e96">港未入力</span>';
+    if(S.region==='ALL' || tabs.length>1) h += '<div class="b6-rhd" data-tk="'+esc(t.k)+'">'+badge+'<span class="rht">'+esc(t.r.tab)+'</span><span class="n">'+t.sub.filter(b=>!b.deleted).length+' 件</span>'
+      + (tabs.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(ti===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(ti===tabs.length-1?' disabled':'')+'>▼</button></span>' : '')
+      + ALLOC_LINK + '</div>';
+    else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
+    h += boardTable(t.r.code, t.sub, F);
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
@@ -1620,16 +1624,18 @@ function regionsOrdered(){
 }
 function setRegionOrder(codes){
   S.regionOrder = codes; IDB.set('regionOrder', codes);
+  /* 地域をドラッグで並べ替えたら 港の表の順番 (▲▼) は地域の順に戻す */
+  S.portOrder = []; IDB.set('portOrder', []);
   renderBoard();
 }
-/* 表示中の地域の中で 1 つ上・下へ (表示していない地域は飛ばす) */
-function moveRegion(code, dir){
-  const all = regionsOrdered().map(r => r.code);
-  const shown = Array.from(document.querySelectorAll('#b6-board .b6-rhd[data-rg]')).map(e => e.dataset.rg);
-  const k = shown.indexOf(code), other = shown[k+dir]; if(k<0 || !other) return;
-  const i = all.indexOf(code), j = all.indexOf(other);
-  all[i] = other; all[j] = code;
-  setRegionOrder(all);
+/* 港の表を 1 つ上・下へ (表示中の表の中で)。今の表示順を記憶に入れてから入れ替える */
+function moveTable(k, dir){
+  const shown = Array.from(document.querySelectorAll('#b6-board .b6-rhd[data-tk]')).map(e => e.dataset.tk);
+  const a = shown.indexOf(k), other = shown[a+dir]; if(a<0 || other==null) return;
+  const o = (S.portOrder || []).slice(); shown.forEach(x => { if(!o.includes(x)) o.push(x); });
+  const i = o.indexOf(k), j = o.indexOf(other); o[i] = other; o[j] = k;
+  S.portOrder = o; IDB.set('portOrder', o);
+  renderBoard();
 }
 function boardTable(region, list, F){
   const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
@@ -5767,7 +5773,7 @@ function initUI(){
   window.addEventListener('resize', () => allocLinkPlace());
   $('#b6-board').addEventListener('click', ev => {
     const mv = ev.target.closest('[data-rmv]'); if(!mv) return;
-    ev.stopPropagation(); moveRegion(mv.closest('[data-rg]').dataset.rg, +mv.dataset.rmv);
+    ev.stopPropagation(); moveTable(mv.closest('[data-tk]').dataset.tk, +mv.dataset.rmv);
   }, true);
   /* 地域の順番: 港の行で地域のかたまりをドラッグ */
   const fl = $('#b6-filter');
@@ -5835,6 +5841,7 @@ async function restorePrefs(){
   const mw = await IDB.get('memoW'); if(mw) $('#b6-memo').style.width = mw+'px';
   const bz = await IDB.get('boardZoom'); if(bz) setBoardZoom(+bz, true);
   const ro = await IDB.get('regionOrder'); if(Array.isArray(ro)) S.regionOrder = ro;
+  const pso = await IDB.get('portOrder'); if(Array.isArray(pso)) S.portOrder = pso;
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
