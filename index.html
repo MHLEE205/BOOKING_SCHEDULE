@@ -781,7 +781,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.56', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.57', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3017,13 +3017,15 @@ async function createQtyColumns(){
 }
 /* 船社の原文 → {n: ブッキング大数, c: コンテナ}。コンテナは 40HQ・40DRY・40RAD の 3 種類にそろえる (2026-11-12 ユーザー指定)
    「ONE(7/8)\n8HQ」→ 8 / 40HQ・「ONE(10)8'6」→ 10 / 40DRY・「ONE(5)RAD」→ 5 / 40RAD・「ONE(14/18)\n6HQ, 8RAD」→ 18 / 40HQ×6, 40RAD×8 */
-const CNTR_TYPES = ['40HQ','40DRY','40RAD'];
+/* 表示・保存は 40 を付けない HQ・DRY・RAD (ユーザー 2026-11-19)。前に保存した「40HQ」などは cntrNorm で 40 を外して見せる */
+const CNTR_TYPES = ['HQ','DRY','RAD'];
+const cntrNorm = v => str(v).replace(/(^|[^0-9])40\s*(HQ|DRY|RAD)/gi, '$1$2');
 const CNTR_WORD = /(40|20|45)?\s*(DRY\s*HQ|HQ|HC|HCD|DRY|DV|GP|RAD|RF|HR)|8['’′]\s*6"?|\bONLY\b/ig;
 function cntrType(w){
   const s = str(w).toUpperCase().replace(/\s/g,'');
-  if(/RAD|RF|HR/.test(s)) return '40RAD';
-  if(/HQ|HC/.test(s)) return '40HQ';
-  if(/DRY|DV|GP|8['’′]6/.test(s)) return '40DRY';
+  if(/RAD|RF|HR/.test(s)) return 'RAD';
+  if(/HQ|HC/.test(s)) return 'HQ';
+  if(/DRY|DV|GP|8['’′]6/.test(s)) return 'DRY';
   return '';
 }
 function isCntrLine(l){
@@ -3077,8 +3079,8 @@ function qtyBadge(b){
   const n = b.bkqty, done = bkConfirmed(b);
   if(n==null && !b.cntr) return '<span class="bq add" data-bq="1" title="ブッキング大数・コンテナを入力">＋大数</span>';
   const cls = n==null ? '' : done>n ? ' over' : done<n ? ' short' : ' full';
-  const tip = (n==null ? 'ブッキング大数 未入力' : 'ブッキング '+n+' 本中 Packer 確定 '+done+' 本'+(done<n ? '（残り '+(n-done)+' 本）' : done>n ? '（'+(done-n)+' 本 超過）' : '（満）'))+(b.cntr ? ' · '+b.cntr : '')+' — クリックで変更';
-  return '<span class="bq'+cls+'" data-bq="1" title="'+esc(tip)+'">'+(n==null ? done+'/?' : done+'/'+n)+(cls===' over' ? ' ⚠' : '')+(b.cntr ? '<span class="ct"> · '+esc(b.cntr)+'</span>' : '')+'</span>';
+  const tip = (n==null ? 'ブッキング大数 未入力' : 'ブッキング '+n+' 本中 Packer 確定 '+done+' 本'+(done<n ? '（残り '+(n-done)+' 本）' : done>n ? '（'+(done-n)+' 本 超過）' : '（満）'))+(b.cntr ? ' · '+cntrNorm(b.cntr) : '')+' — クリックで変更';
+  return '<span class="bq'+cls+'" data-bq="1" title="'+esc(tip)+'">'+(n==null ? done+'/?' : done+'/'+n)+(cls===' over' ? ' ⚠' : '')+(b.cntr ? '<span class="ct"> · '+esc(cntrNorm(b.cntr))+'</span>' : '')+'</span>';
 }
 function openQtyEdit(b){
   if(b.deleted){ toast('削除済みのブッキングです', 'warn'); return; }
@@ -3086,11 +3088,11 @@ function openQtyEdit(b){
   const h = '<div class="muted" style="font-size:12px;margin-bottom:8px">船社: '+esc(str(b.carrier).replace(/\n/g,' / '))+' ・ Packer 確定 <b>'+done+'</b> 本（QTY の計の合計）</div>'
     + '<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px">ブッキング大数 <input type="number" min="0" max="9999" class="b6-in" id="bq-n" style="width:90px" value="'+(b.bkqty!=null ? b.bkqty : g.n!=null ? g.n : '')+'"> 本</label>'
     + (() => {
-        const cur = str(b.cntr || g.c || ''), mix = cur && !CNTR_TYPES.includes(cur);
+        const cur = cntrNorm(b.cntr || g.c || ''), mix = cur && !CNTR_TYPES.includes(cur);
         return '<label style="display:flex;gap:8px;align-items:center">コンテナ <select class="b6-sel" id="bq-t"><option value="">（未入力）</option>'
           + CNTR_TYPES.map(t => '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>').join('')
           + '<option value="__mix"'+(mix?' selected':'')+'>混在（内訳を入力）</option></select>'
-          + '<input class="b6-in" id="bq-c" style="width:170px'+(mix?'':';display:none')+'" value="'+esc(mix ? cur : '')+'" placeholder="40HQ×6, 40RAD×8"></label>';
+          + '<input class="b6-in" id="bq-c" style="width:170px'+(mix?'':';display:none')+'" value="'+esc(mix ? cur : '')+'" placeholder="HQ×6, RAD×8"></label>';
       })()
     + (b.bkqty==null && (g.n!=null || g.c) ? '<div class="muted" style="font-size:11.5px;margin-top:6px">※ 船社の文字から読んだ値を入れています</div>' : '');
   modal('🚢 ブッキング大数・コンテナ — '+esc(bkLabel(b)), h, [
@@ -3099,7 +3101,7 @@ function openQtyEdit(b){
       const tv = $('#bq-t').value, nv = $('#bq-n').value.trim(), cv = tv==='__mix' ? $('#bq-c').value.trim() : tv;
       const n = nv==='' ? null : Math.max(0, Math.min(9999, parseInt(nv, 10)));
       if(nv!=='' && isNaN(n)){ toast('大数は数字で入力してください', 'warn'); return; }
-      c(); if(n===(b.bkqty==null?null:+b.bkqty) && cv===str(b.cntr)) return;
+      c(); if(n===(b.bkqty==null?null:+b.bkqty) && cv===cntrNorm(b.cntr)) return;
       saveBooking(b, {bkqty:n, cntr:cv}, 'carrier');
     }}]);
   setTimeout(() => {
@@ -6327,7 +6329,7 @@ function buildDemoStore(){
     const done = Array.from(M.T.A.values()).filter(a => a.bookkey===b.bookkey).reduce((t,a)=>t+(+a.totalhon||0),0);
     const x = rnd();
     b.bkqty = x<0.1 ? null : Math.max(1, done + (x<0.5 ? 0 : x<0.85 ? 1+Math.floor(rnd()*2) : -1));
-    b.cntr = b.bkqty==null ? '' : pick(['40HQ','40HQ','40HQ','40DRY','40RAD']);
+    b.cntr = b.bkqty==null ? '' : pick(['HQ','HQ','HQ','DRY','RAD']);
   });
   for(let i=0;i<4;i++){ const d = addDays(today, i*3); M.b05rows.push({name:d+'_デモ運送A_07:00_x'+i, date:d, rawdate:d+'T00:00:00Z', truck:'デモ運送A', packer:'外部', time:'07:00', cttype:'40HQ', hon:1, status:'confirmed', pol:'TOKYO', bkgno:'', cycut:'', hasCycut:true}); }
   return M;
