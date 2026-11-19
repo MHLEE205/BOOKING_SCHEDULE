@@ -334,6 +334,11 @@ table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Goth
 .b6-t th{position:sticky;top:0;z-index:2;background:var(--surface2);color:var(--text2);font-weight:700;padding:5px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;text-align:left}
 .b6-t td{padding:3px 6px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);vertical-align:top;white-space:pre-wrap;color:var(--text);max-width:260px}
 .b6-t tr.bk-first td{border-top:2px solid var(--border)}
+.b6-t tr.bk-hid td{opacity:.45}
+.b6-t tr.bk-hid td.no{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--text3) 18%,transparent) 4px 8px)}
+.b6-rhd .hidn{font-size:11px;font-weight:700;color:var(--text2);background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:1px 8px;cursor:pointer;margin-left:6px;font-family:inherit}
+.b6-rhd .hidn:hover{color:var(--accent);border-color:var(--accent)}
+.b6-rhd .hidn.on{color:var(--accent);border-style:solid}
 .b6-t td.ed{cursor:text}
 .b6-t td.ed:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
 .b6-t td.dt{white-space:nowrap;font-family:var(--mono);font-size:11.5px}
@@ -773,7 +778,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.48', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.49', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1457,6 +1462,22 @@ function cellHtml(col, b, a){
   }
   return esc(v);
 }
+/* ══════════ ブッキングの個別の非表示 (人ごと・この PC — ユーザー 2026-11-19)
+   港の案件が多い時に 今スケジュールしているブッキングが下に埋もれないように。見出しに「🙈 非表示 N 件」だけ出す ══════════ */
+const isHidBk = b => !!(S.hidBk && S.hidBk.has(b.bookkey));
+function hidChip(n){
+  if(!n) return '';
+  return S.showHid ? '<button class="hidn on" data-hidn="1" title="非表示のブッキングを薄く表示中 — クリックで また隠す">🙈 非表示 '+n+' 件を表示中</button>'
+                   : '<button class="hidn" data-hidn="1" title="クリックで 非表示のブッキングを薄く表示（≡ メニューで 再表示）">🙈 非表示 '+n+' 件</button>';
+}
+function setHidBk(b, on){
+  if(!S.hidBk) S.hidBk = new Set();
+  if(on) S.hidBk.add(b.bookkey); else S.hidBk.delete(b.bookkey);
+  IDB.set('hidBk', Array.from(S.hidBk));
+  if(S.selBk===b.bookkey && on && !S.showHid) S.selBk = null;
+  renderBoard();
+  toast(on ? 'ブッキング「'+firstLine(b.bkgno || '（番号なし）')+'」を非表示にしました（見出しの「🙈 非表示」で表示）' : '再表示しました', 'ok');
+}
 function renderBoard(){
   if(S.editing){ S.renderPending = true; return; }
   const F = filt();
@@ -1478,7 +1499,12 @@ function renderBoard(){
     g.list.forEach(b => { const p = str(b.port).trim().toUpperCase(); if(!p) hasBlank = true; else if(!pts.includes(p)) pts.push(p); });
     pts.sort((x, y) => (g.r.ports.indexOf(x)<0?99:g.r.ports.indexOf(x)) - (g.r.ports.indexOf(y)<0?99:g.r.ports.indexOf(y)));
     if(hasBlank) pts.push('');
-    pts.forEach(p => tabs.push({r:g.r, p:p, k:g.r.code+':'+p, sub:g.list.filter(b => str(b.port).trim().toUpperCase()===p)}));
+    pts.forEach(p => {
+      const all = g.list.filter(b => str(b.port).trim().toUpperCase()===p);
+      /* 個別の非表示 (人ごと — ユーザー 2026-11-19): 隠したブッキングは 数だけ見出しに出す。「表示」を押すと薄く出す */
+      const hid = all.filter(b => isHidBk(b)).length;
+      tabs.push({r:g.r, p:p, k:g.r.code+':'+p, hid:hid, sub:S.showHid ? all : all.filter(b => !isHidBk(b))});
+    });
   });
   /* 表の順番: どの港の表にも ▲▼ (ユーザー 2026-11-18)。並べ替えた順は人ごとに記憶、まだ並べ替えていない表は地域の順 */
   const po = S.portOrder || [];
@@ -1488,11 +1514,11 @@ function renderBoard(){
   tabs.forEach((t, ti) => {
     const p = t.p;
     const badge = p ? '<span class="rhp"'+scStyle(portColor(p))+' title="'+esc(portStaff(p).map(staffName).join(' ／ '))+'">'+esc(p)+'</span>' : '<span class="rhp" style="--sc:#868e96">港未入力</span>';
-    if(S.region==='ALL' || tabs.length>1) h += '<div class="b6-rhd" data-tk="'+esc(t.k)+'">'+badge+'<span class="rht">'+esc(t.r.tab)+'</span><span class="n">'+t.sub.filter(b=>!b.deleted).length+' 件</span>'
+    if(S.region==='ALL' || tabs.length>1) h += '<div class="b6-rhd" data-tk="'+esc(t.k)+'">'+badge+'<span class="rht">'+esc(t.r.tab)+'</span><span class="n">'+t.sub.filter(b=>!b.deleted && !isHidBk(b)).length+' 件</span>'
       + (tabs.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(ti===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(ti===tabs.length-1?' disabled':'')+'>▼</button></span>' : '')
-      + ALLOC_LINK + '</div>';
-    else h += '<div class="b6-rhd">'+ALLOC_LINK+'</div>';
-    h += boardTable(t.r.code, t.sub, F);
+      + hidChip(t.hid) + ALLOC_LINK + '</div>';
+    else h += '<div class="b6-rhd">'+hidChip(t.hid)+ALLOC_LINK+'</div>';
+    h += t.sub.length ? boardTable(t.r.code, t.sub, F) : '<div class="muted" style="padding:4px 12px 8px;font-size:12px">この表のブッキングは すべて非表示です</div>';
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
   wrap.innerHTML = h; wrap.scrollTop = st; wrap.scrollLeft = sl;
@@ -1721,7 +1747,7 @@ function boardTable(region, list, F){
     const merged = {};
     span.forEach(k => { merged[k] = n>1 && rows.slice(1).every(a => blank(a[k])); });
     rows.forEach((a, i) => {
-      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':'', S.selBk===b.bookkey?'bsel':'', i===n-1?'bk-last':'', S.keepOrder && S.keepOrder.moved.has(b.bookkey)?'moved':''].join(' ');
+      const cls = [i===0?'bk-first':'', (b.deleted||a.deleted)?'del':'', S.hl===b.bookkey?'hl':'', S.selBk===b.bookkey?'bsel':'', i===n-1?'bk-last':'', isHidBk(b)?'bk-hid':'', S.keepOrder && S.keepOrder.moved.has(b.bookkey)?'moved':''].join(' ');
       h += '<tr class="'+cls+'" data-k="'+esc(b.bookkey)+'" data-a="'+esc(a.id)+'">';
       if(i===0) h += '<td class="no" rowspan="'+n+'" title="クリックでこのブッキングを選択（航路を表示・Ctrl+C でコピー・Esc で解除）">'+noTxt+'</td>';
       if(i===0) h += '<td class="ops" rowspan="'+n+'"><button class="ob" data-act="bmenu" title="ブッキング操作">≡</button></td>';
@@ -3692,6 +3718,8 @@ function bookingMenu(ev, b){
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
     items.push({label:'↺ 変更履歴', fn:()=>openBkHist(b)});
+    items.push(isHidBk(b) ? {label:'👁 再表示する（非表示をやめる）', fn:()=>setHidBk(b, false)}
+                          : {label:'🙈 このブッキングを非表示（自分の画面だけ）', fn:()=>setHidBk(b, true)});
     items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
     items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
@@ -6336,6 +6364,8 @@ function initUI(){
   $('#b6-board').addEventListener('scroll', () => allocLinkPlace(), {passive:true});
   window.addEventListener('resize', () => allocLinkPlace());
   $('#b6-board').addEventListener('click', ev => {
+    const hn = ev.target.closest('[data-hidn]');
+    if(hn){ ev.stopPropagation(); S.showHid = !S.showHid; renderBoard(); return; }
     const mv = ev.target.closest('[data-rmv]'); if(!mv) return;
     ev.stopPropagation(); moveTable(mv.closest('[data-tk]').dataset.tk, +mv.dataset.rmv);
   }, true);
@@ -6406,6 +6436,7 @@ async function restorePrefs(){
   const bz = await IDB.get('boardZoom'); if(bz) setBoardZoom(+bz, true);
   const ro = await IDB.get('regionOrder'); if(Array.isArray(ro)) S.regionOrder = ro;
   const pso = await IDB.get('portOrder'); if(Array.isArray(pso)) S.portOrder = pso;
+  const hb = await IDB.get('hidBk'); if(Array.isArray(hb)) S.hidBk = new Set(hb);
   const t = await IDB.get('tab'); if(t && t!=='board'){ const b = document.querySelector('.b6-tab[data-tab="'+t+'"]'); if(b) b.click(); }
 }
 
