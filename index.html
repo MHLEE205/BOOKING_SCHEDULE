@@ -779,7 +779,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.50', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.51', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4098,8 +4098,8 @@ const COMPASS = {
 /* 船社の原文 → 船社名だけ: 「ONE(6→7)」→ ONE・「HA→SK(2)」→ SK・「ONE4〆」「ONE 8'6」→ ONE */
 function carrierKey(raw){
   const s = PARSE.nfkcSame(firstLine(raw)).replace(/[(（][^)）]*[)）]?/g,'').split(/→|->/).pop().trim();
-  const m = s.match(/[A-Za-z][A-Za-z\s\-]*/);
-  return m ? m[0].replace(/[\s\-]+$/,'').trim() : s;
+  const m = s.match(/[A-Za-z][A-Za-z\s\-.]*/);   /* 点も含める (T.S.LINES — 2026-11-19) */
+  return m ? m[0].replace(/[\s\-.]+$/,'').trim() : s;
 }
 /* 日付だけの列でない時は 日本時間の正午 で送る (= UTC でも同じ日)。0 時 (+09:00) で送ると UTC では前の日になり、
    COMPASS の画面に 1 日前 (11/27 → 11/26) と出た — ユーザー 2026-11-16 */
@@ -4589,7 +4589,17 @@ const CARRIER_ALIAS = [   /* 先頭が正式名。B-06 の表記 (サンプル 1
   ['NAMSUNG','NS','NSL'], ['JINJIANG','JIN','JINJANG','JIN JIANG','JIN JANG'], ['DONG YOUNG','DY','DYL','DONGYOUNG'], ['SINOKOR','SK','SNK','SN'],
   ['OOCL','OCL'], ['WAN HAI','WAN','WHL','WANHAI'], ['HAPAG-LLOYD','HPG','HLC','HAPAG'], ['EVERGREEN','EVER','EMC'], ['CMA CGM','CMA'],
   ['COSCO'], ['DONGJIN','DJ'], ['PAN OCEAN','PANOCEAN'], ['PAN CONTINENTAL','PCL','PANCON'], ['TS LINES','TSL'], ['SITC'], ['MSC'], ['ZIM'], ['RCL'],
-  ['CK LINE','CKL'], ['HMM','HYUNDAI'], ['EHIME']];
+  ['CK LINE','CKL'], ['HMM','HYUNDAI'], ['EHIME','EHIME OCEAN'], ['ASL'], ['ROUND EXPRESS','ROUND'], ['SEALAND','SEA LAND']];
+/* COMPASS の船社一覧の「…(N)」: OOCL・EVERGREEN だけ (N) の方を使い、ほかは (N) を使わず 同じ名前の (N) なしを使う (ユーザー 2026-11-19)。
+   一覧から外すので 自動選択・手で選ぶ候補・COMPASS との比較 すべてに効く */
+const CARRIER_USE_N = ['OOCL', 'EVERGREEN'];
+function carrierOpts(o){
+  if(!o || !Array.isArray(o.list)) return o;
+  const isN = x => /\(\s*N\s*\)\s*$/i.test(str(x.name)), base = x => cpNorm(str(x.name).replace(/\(\s*N\s*\)\s*$/i, ''));
+  const useN = x => CARRIER_USE_N.includes(base(x));
+  const hasN = new Set(o.list.filter(isN).map(base));
+  return Object.assign({}, o, {list:o.list.filter(x => isN(x) ? useN(x) : !(useN(x) && hasN.has(base(x))))});
+}
 const cpNorm = s => PARSE.nfkcSame(str(s)).toUpperCase().replace(/[^A-Z0-9\u3040-\u30ff\u4e00-\u9fff]/g,'');
 /* B-06 の値 → 探す名前の一覧 */
 function cpAliases(kind, key){
@@ -4698,7 +4708,8 @@ async function compassCheck(b){
     const L = {kind:f.k, label:f.label, col:fc, key:key, nav:null, set:null, list:[], cands:[], sel:'', auto:'', how:'', note:''};
     if(!rel){ L.note = 'COMPASS に一覧の列がない → 送らない'; R.lookups.push(L); continue; }
     try{
-      const o = await C.options(rel.target);
+      let o = await C.options(rel.target);
+      if(f.k==='carrier') o = carrierOpts(o);
       L.nav = rel.nav; L.set = o.set; L.list = o.list; L.nameCol = o.nameCol; L.target = rel.target;
       const lr = !blank(key) && (learned[f.k]||{})[cpNorm(key)];
       const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
@@ -5368,7 +5379,7 @@ async function cpDiffCtx(){
   const lks = [];
   for(const f of COMPASS.LOOKUPS){
     const fc = [].concat(f.col).find(c => M.rels.get(c)); if(!fc) continue;
-    const rel = M.rels.get(fc); let o = null; try{ o = await C.options(rel.target); }catch(e){}
+    const rel = M.rels.get(fc); let o = null; try{ o = await C.options(rel.target); if(f.k==='carrier') o = carrierOpts(o); }catch(e){}
     if(o) lks.push({f:f, col:fc, rel:rel, a:M.attrs.get(fc) || {}, o:o});
   }
   /* 乙仲: COMPASS の 乙仲 一覧の名前 (「|」の前) と B-06 の 通関依頼 を比べる */
