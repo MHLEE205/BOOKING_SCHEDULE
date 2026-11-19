@@ -781,7 +781,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.57', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.58', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6391,6 +6391,8 @@ function initUI(){
       const a = $('#f-from').value, z = $('#f-to').value;
       if(!a || !z) return;
       if(a > z){ toast('期間の開始が終了より後です', 'warn'); return; }
+      /* 絞り込んだ Cut の期間を覚える — 開き直し・ログインし直しでも そのまま (ユーザー 2026-11-19) */
+      IDB.set('cutRange', {from:a, to:z, noEtd:$('#f-noetd').checked});
       loadBoard();
     }, 500);
   };
@@ -6555,6 +6557,9 @@ function initUI(){
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refreshTick(); });
 }
 async function restorePrefs(){
+  const cr = await IDB.get('cutRange');
+  if(cr && /^\d{4}-\d{2}-\d{2}$/.test(str(cr.from)) && /^\d{4}-\d{2}-\d{2}$/.test(str(cr.to)) && cr.from <= cr.to){
+    $('#f-from').value = cr.from; $('#f-to').value = cr.to; $('#f-noetd').checked = cr.noEtd!==false; }
   const r = await IDB.get('region'); if(r && (r==='ALL' || REGIONS.some(x=>x.code===r))) S.region = r;
   const mw = await IDB.get('memoW'); if(mw) $('#b6-memo').style.width = mw+'px';
   const bz = await IDB.get('boardZoom'); if(bz) setBoardZoom(+bz, true);
