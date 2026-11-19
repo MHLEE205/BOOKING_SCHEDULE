@@ -215,7 +215,7 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-dtl td.cp-dn{font-size:11.5px;line-height:1.5;min-width:160px}
 .bdg.cpk{cursor:pointer;font-size:7.4px;padding:0 3.5px;line-height:1.5;margin-left:auto;flex:none}   /* 今の 70% (10.5px → 7.4px) — ユーザー 2026-11-13 */
 .pkc{display:flex;align-items:center;gap:4px;text-align:left}
-.cpco{font-size:9.5px;line-height:1.25;color:var(--text3);white-space:nowrap;font-weight:400}
+.cpco{font-size:8px;line-height:1.2;color:var(--info);white-space:nowrap;font-weight:400;opacity:.9}
 .cpco.r{text-align:right}
 .pkc .pkt{flex:1 1 auto;min-width:0}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
@@ -781,7 +781,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.59', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.60', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1450,7 +1450,7 @@ function cellHtml(col, b, a){
     }
     if(k==='carrier' && S.hasQty) return esc(carrierText(b)) + ' ' + qtyBadge(b);
     if(k==='invoiceno'){ const co = cpContracts(b);
-      return esc(v) + (co && co.sale.length ? '<div class="cpco" title="COMPASS の販売契約">販 '+esc(co.sale.join('・'))+'</div>' : ''); }
+      return esc(v) + (co && co.sale.length ? '<div class="cpco" title="COMPASS の販売契約">'+esc(co.sale.join('・'))+'</div>' : ''); }
     return esc(v);
   }
   const v = a[k];
@@ -1474,7 +1474,7 @@ function cellHtml(col, b, a){
       h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(nm)+(o && o.alt.length ? '（'+esc(o.alt[0])+'）' : '')+' — クリックで変更">'+esc(nm)+'</span>'
              : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
     const co = cpContracts(b), pc = co && co.purch.get(a.id);
-    return '<div class="pkc">'+h+'</div>' + (pc ? '<div class="cpco r" title="COMPASS の購買契約">購 '+esc(pc)+'</div>' : '');
+    return '<div class="pkc">'+h+'</div>' + (pc ? '<div class="cpco r" title="COMPASS の購買契約">'+esc(pc)+'</div>' : '');
   }
   if(col.st && col.k==='customs'){
     /* 通関依頼 = 乙仲の名前。押すと選択リスト */
