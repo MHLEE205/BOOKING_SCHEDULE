@@ -184,6 +184,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bkh:hover{background:var(--info);color:#fff}
 .bkh.cp{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn) 14%,transparent);font-weight:700}
 .bkh.cp:hover{background:var(--warn);color:#fff}
+.bkh.cpd{color:#c2410c;border-color:#fb923c;background:#fff7ed;font-weight:700}
+.bkh.cpd:hover{background:#ea580c;color:#fff}
+.b6-t td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c}
 tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .amtg{display:inline-block;margin-left:3px;padding:0 4px;border-radius:4px;font-size:10px;font-weight:700;line-height:15px;cursor:pointer;border:1px dashed var(--border);color:var(--text3);opacity:0;transition:opacity .15s}
 .b6-t td:hover .amtg{opacity:.8}
@@ -767,7 +770,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.42', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.43', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -784,7 +787,7 @@ const CFG = {
   COMPASS_EXTRA_WRITE: true,    /* 販売先・販売CO・乙仲・海上運賃区分・AM を COMPASS に送るか — 2026-11-16 ユーザー承認で true */
   COMPASS_DTL_WRITE: true,      /* 明細 (cr49f_booking_details) を作るか — 2026-11-16 ABCD0000000001 の試験 JSON をユーザーと確認して true */
   /* COMPASS 入力済みのブッキングの 変更入力 (ヘッダーの PATCH)。false の間は 違い・送る内容を見せるだけ (2026-11-19 — 試験 JSON を確認してから true) */
-  COMPASS_UPDATE_WRITE: false,
+  COMPASS_UPDATE_WRITE: true,   /* 2026-11-19 ユーザー「추천하는대로 진행」で true (ヘッダーのみ・明細は変えない) */
   COMPASS_TON_PER_HON: 23,     /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
@@ -1401,6 +1404,9 @@ function cellHtml(col, b, a){
       let h = esc(v);
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
+      const cmp = cpCmpOf(b), cdn = cpDiffN(b);
+      if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
+      else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
       const hs = bkHistOf(b), cpn = cpChgOf(b);
       if(cpn) h += ' <span class="bkh cp" data-bkh="1" title="'+esc('COMPASS 入力（'+fmtDT(b.compass_at)+'）の後に '+cpn+' 件の変更\n— クリックで変更履歴・COMPASS に変更入力')+'">↺'+cpn+'</span>';
       else if(hs.length) h +=' <span class="bkh" data-bkh="1" title="'+esc('Booking no. の変更 '+hs.length+' 回\n'+hs.slice(-3).map(e => fmtDT(e.at)+'  '+(e.from||'（空）').replace(/\n/g,' ')+' → '+(e.to||'（空）').replace(/\n/g,' ')+'  ('+e.by+')').join('\n')+'\n— クリックで履歴')+'">↺'+hs.length+'</span>';
@@ -1720,12 +1726,12 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' ? ' cp-sent' : '')+(c.k==='approval' && apYellow(b) ? ' ap-y' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'">'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' ? ' cp-sent' : '')+(c.k==='approval' && apYellow(b) ? ' ap-y' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'"'+cpCellAttr(b,c.k)+'>'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+cselCls('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'" title="結合表示 (1 行目の値)">'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+cselCls('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'"'+(cpCellAttr(b,c.k) || ' title="結合表示 (1 行目の値)"')+'>'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
         } else {
-          h += '<td class="ed'+(c.st && c.k!=='customs' ? ' stcell s-'+statusOf(a[c.k]).st : '')+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+cselCls('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'">'+remoteTag('A',a.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td class="ed'+(c.st && c.k!=='customs' ? ' stcell s-'+statusOf(a[c.k]).st : '')+fmtCls(a,c.k,b)+fxClass('A',a.id,c.k)+cselCls('A',a.id,c.k)+'" data-lv="A" data-aid="'+esc(a.id)+'" data-f="'+c.k+'"'+cpCellAttr(b,c.k)+'>'+remoteTag('A',a.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         }
       });
       h += '</tr>';
@@ -2177,6 +2183,7 @@ async function loadBoard(retried){
     loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
     loadBkHist();      /* Booking no. の変更履歴 (待たない) */
     loadCpChg();       /* COMPASS 入力後の変更の数 (待たない) */
+    compassCompareAll();   /* COMPASS と比べて違う所に印 (開いた時・⟳ — 待たない) */
   }catch(e){
     if(isFmtErr(e) && S.hasFmt && retried!==true){ LEENAI.loading.hide(); fmtFallback(e); return loadBoard(true); }
     if(isQtyErr(e) && S.hasQty && retried!==true){ LEENAI.loading.hide(); qtyFallback(e); return loadBoard(true); }
@@ -2324,7 +2331,7 @@ async function openBkHist(b){
   const sel = $('#b6-hist-f');
   if(sel) sel.addEventListener('change', () => { $('#b6-hist-t').innerHTML = tbl(sel.value); });
 }
-function updSync(){ $('#b6-sync').textContent = S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : ''; }
+function updSync(){ $('#b6-sync').textContent = (S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : '') + (S.cmpInfo ? ' · '+S.cmpInfo : ''); }
 
 /* ── 20 秒自動更新 (modifiedon 基準・編集中のセルは上書きしない・非表示タブでは停止) ── */
 async function refreshTick(){
@@ -3665,7 +3672,7 @@ function bookingMenu(ev, b){
   if(!b.deleted){
     if(b.compass_status==='SENT'){
       items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
-      items.push({label:'🚢 COMPASS に変更入力'+(cpChgOf(b) ? '（変更 '+cpChgOf(b)+' 件）' : ''), fn:()=>compassUpdate(b)});
+      items.push({label:'🚢 COMPASS と比べる・変更入力'+(cpDiffN(b) ? '（違い '+cpDiffN(b)+' 件）' : cpChgOf(b) ? '（変更 '+cpChgOf(b)+' 件）' : ''), fn:()=>compassUpdate(b)});
     }
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
@@ -4170,6 +4177,42 @@ const DvCompass = {
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
     return dvGet(COMPASS.ES+'('+id+')?$select='+Array.from(new Set([pid].concat(cols))).join(','));
   },
+  /* 比較用: まとめて読む (20 件ずつ)。Map<id 小文字, レコード> */
+  async readMany(ids, cols){
+    const M = await this.meta(), pid = M.entity.PrimaryIdAttribute, out = new Map();
+    const sel = Array.from(new Set([pid].concat(cols))).join(',');
+    for(let i=0; i<ids.length; i+=20){
+      const f = ids.slice(i, i+20).filter(x => /^[0-9a-f-]{36}$/i.test(x)).map(x => pid+' eq '+x).join(' or ');
+      if(!f) continue;
+      (await dvGetAll(COMPASS.ES+'?$select='+sel+'&$filter='+encodeURIComponent(f))).forEach(r => out.set(String(r[pid]).toLowerCase(), r));
+    }
+    return out;
+  },
+  /* 比較用: ブッキングごとの明細 — 行数・本数の合計・品目名。Map<ブッキング id 小文字, {n, hon, items}> */
+  async detailSummary(ids){
+    const M = await this.meta();
+    const rl = await dvGet("EntityDefinitions(LogicalName='"+M.entity.LogicalName+"')/OneToManyRelationships?$select=ReferencingEntity,ReferencingAttribute");
+    const kids = (rl.value||[]).filter(x => /detail/i.test(x.ReferencingEntity));
+    const k = kids.find(x => x.ReferencingEntity==='cr49f_booking_detail') || kids[0];
+    if(!k) throw new Error('明細テーブルが見つかりません');
+    const D = await cpEntMeta(k.ReferencingEntity);
+    const bk = '_'+k.ReferencingAttribute+'_value', hon = cpCol(D, /本数/, 'num'), item = cpCol(D, /品目/, 'lk');
+    const nm = item ? await cpNameOf(item) : null;
+    const sel = [bk].concat(hon ? [hon.col] : [], item ? ['_'+item.col+'_value'] : []).join(',');
+    const out = new Map();
+    ids.forEach(id => out.set(id, {n:0, hon:0, items:[]}));
+    for(let i=0; i<ids.length; i+=20){
+      const f = ids.slice(i, i+20).filter(x => /^[0-9a-f-]{36}$/i.test(x)).map(x => bk+' eq '+x).join(' or ');
+      if(!f) continue;
+      (await dvGetAll(D.entity.EntitySetName+'?$select='+sel+'&$filter='+encodeURIComponent('statecode eq 0 and ('+f+')'))).forEach(r => {
+        const o = out.get(String(r[bk]).toLowerCase()); if(!o) return;
+        o.n++; o.hon += hon ? (+r[hon.col] || 0) : 0;
+        if(item){ const v = (nm && nm(r['_'+item.col+'_value'])) || str(r['_'+item.col+'_value@OData.Community.Display.V1.FormattedValue']); if(v) o.items.push(v); }
+      });
+    }
+    out.forEach(o => { o.hon = Math.round(o.hon*100)/100; });
+    return out;
+  },
   /* 変更入力: 決めた列だけ・If-Match (読んだ後に COMPASS で変わっていたら 412)・新規作成はしない (If-Match があるので upsert にならない) */
   async update(id, body, allowed, etag){
     compassGuard(COMPASS.ES, body, allowed);
@@ -4461,6 +4504,11 @@ function makeMemCompass(){
       const o = {'@odata.etag':'W/"'+(r.v||1)+'"'};
       Object.keys(r.body).forEach(k => { const m = k.match(/^(.*)@odata\.bind$/); if(m) o['_'+m[1]+'_value'] = (String(r.body[k]).match(/\(([^)]+)\)/) || [])[1] || null; else o[k] = r.body[k]; });
       return o;
+    },
+    async readMany(ids, cols){
+      const out = new Map();
+      for(const id of ids){ try{ out.set(String(id).toLowerCase(), await this.read(recs.find(r => r.id.toLowerCase()===id) ? recs.find(r => r.id.toLowerCase()===id).id : id, cols)); }catch(e){} }
+      return out;
     },
     async update(id, body, allowed, etag){
       compassGuard(COMPASS.ES, body, allowed);
@@ -5232,62 +5280,147 @@ function compassInfo(b){
    明細 (Packer・本数) と 販売先・販売CO・乙仲・運賃 は B-06 から決まらないので変えない (COMPASS で直す) */
 const jstDay = v => !v ? '' : String(v).includes('T') ? new Date(Date.parse(v) + 9*3600e3).toISOString().slice(0, 10) : String(v).slice(0, 10);
 const cpAmCol = M => { let c = null; M.attrs.forEach((a, k) => { if(!c && a.type==='Boolean' && /(^|\s|CUT\s*)(AM|ＡＭ)(\s|カット|$)|午前/i.test(a.label)) c = k; }); return c; };
-async function compassDiff(b){
-  const C = S.store.compass, M = await C.meta(), id = b.compass_id;
-  if(!id) throw new Error('COMPASS ID がありません');
+/* 比較の準備 (列・一覧) — 一括比較と 変更入力 で共通 */
+async function cpDiffCtx(){
+  const C = S.store.compass, M = await C.meta();
   const fcols = [];
   COMPASS.FIELDS.forEach(f => {
     let col = f.col;
     if(!M.attrs.get(col) && f.re){ for(const [k, a] of M.attrs){ if(a.type==='String' && f.re.test(a.label)){ col = k; break; } } }
     const a = M.attrs.get(col); if(a && a.type!=='Lookup' && a.type!=='Customer') fcols.push({f:f, col:col, a:a});
   });
-  const lks = COMPASS.LOOKUPS.map(f => { const fc = [].concat(f.col).find(c => M.rels.get(c)); return fc ? {f:f, col:fc, rel:M.rels.get(fc), a:M.attrs.get(fc) || {}} : null; }).filter(Boolean);
+  const lks = [];
+  for(const f of COMPASS.LOOKUPS){
+    const fc = [].concat(f.col).find(c => M.rels.get(c)); if(!fc) continue;
+    const rel = M.rels.get(fc); let o = null; try{ o = await C.options(rel.target); }catch(e){}
+    if(o) lks.push({f:f, col:fc, rel:rel, a:M.attrs.get(fc) || {}, o:o});
+  }
   const amCol = cpAmCol(M);
-  const sel = fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), amCol ? [amCol] : []);
-  let rec;
-  try{ rec = await C.read(id, sel); }
-  catch(e){ if(e.status===404) throw new Error('COMPASS にこのブッキング（ID '+id+'）がありません — COMPASS で削除された場合は「✔ COMPASS 入力済み（詳細）」の「もう一度入力」で入力し直してください'); throw e; }
+  let upCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /^更新日時$/.test(a.label)){ upCol = {col:k, dateOnly:a.dateOnly}; break; } }
+  return {M:M, fcols:fcols, lks:lks, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
+    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), amCol ? [amCol] : [])};
+}
+/* ヘッダーの違い (k = B-06 の列 — 画面のセルに印を付けるのに使う) */
+function cpHeaderRows(b, rec, X){
   const rows = [], FVK = '@OData.Community.Display.V1.FormattedValue';
   const same = (x, y) => PARSE.nfkcSame(str(x)).replace(/\s+/g, ' ').trim() === PARSE.nfkcSame(str(y)).replace(/\s+/g, ' ').trim();
-  for(const x of fcols){
+  X.fcols.forEach(x => {
     const f = x.f, v06 = f.date ? str(b[f.k]).slice(0, 10) : f.val(b), vcp = rec[x.col]==null ? '' : f.date ? jstDay(rec[x.col]) : str(rec[x.col]);
-    if(same(v06, vcp)) continue;
-    const r = {label:f.label, col:x.col, cp:f.date ? vcp.replace(/-/g, '/') : vcp, b06:f.date ? v06.replace(/-/g, '/') : v06,
+    if(same(v06, vcp)) return;
+    const r = {k:f.k, label:f.label, col:x.col, cp:f.date ? vcp.replace(/-/g, '/') : vcp, b06:f.date ? v06.replace(/-/g, '/') : v06,
       send:blank(v06) ? null : f.date ? compassDate(v06, x.a.dateOnly) : v06, ok:x.a.updOk!==false, def:!blank(v06), note:''};
     if(!r.ok) r.note = 'COMPASS で更新できない列';
     else if(blank(v06)) r.note = 'B-06 が空 — チェックすると COMPASS も空にします';
-    if(f.k==='bkgno' && !blank(v06) && r.ok){
-      const dup = (await C.findByBookingNo(v06).catch(() => [])).filter(d => String(d.id)!==String(id));
-      if(dup.length){ r.ok = false; r.note = 'COMPASS に同じ Booking no. の別のブッキングがあります（'+dup.length+' 件）— 変更できません'; }
-    }
     rows.push(r);
-  }
-  const learned = await cpMapLoad();
-  for(const x of lks){
-    const key = x.f.key(b), cur = rec['_'+x.col+'_value'] || '';
-    let o; try{ o = await C.options(x.rel.target); }catch(e){ continue; }
+  });
+  X.lks.forEach(x => {
+    const key = x.f.key(b), cur = rec['_'+x.col+'_value'] || '', o = x.o;
+    if(blank(key)) return;   /* B-06 が空の一覧の項目は 比べない・COMPASS を空にしない */
     const curName = (o.list.find(y => y.id===cur) || {}).name || str(rec['_'+x.col+'_value'+FVK]);
-    if(blank(key)) continue;   /* B-06 が空の一覧の項目は COMPASS を空にしない */
-    const lr = (learned[x.f.k]||{})[cpNorm(key)];
+    const lr = (X.learned[x.f.k]||{})[cpNorm(key)];
     const c = cpMatch(o.list, cpAliases(x.f.k, key));
     let to = '';
     if(lr && o.list.some(y => y.id===lr.id)) to = lr.id;
     else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)) to = c[0].id;
-    if(to && to===cur) continue;
-    if(!to && cur && c.some(y => y.id===cur && y.s>=80)) continue;   /* 候補が決まらなくても 今の COMPASS の値が B-06 に合っていれば同じ */
+    if(to && to===cur) return;
+    if(!to && cur && c.some(y => y.id===cur && y.s>=80)) return;   /* 候補が決まらなくても 今の COMPASS の値が B-06 に合っていれば同じ */
     const toName = to ? (o.list.find(y => y.id===to) || {}).name || '' : '';
-    rows.push({label:x.f.label, col:x.col, cp:curName, b06:to ? toName+(cpNorm(toName)!==cpNorm(key) ? '（B-06: '+key+'）' : '') : key,
+    rows.push({k:x.f.k, label:x.f.label, col:x.col, cp:curName, b06:to ? toName+(cpNorm(toName)!==cpNorm(key) ? '（B-06: '+key+'）' : '') : key,
       bind:to ? {nav:x.rel.nav, set:o.set, id:to} : null, ok:!!to && x.a.updOk!==false, def:!!to,
       note:!to ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
+  });
+  if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
+    if(v!==c) rows.push({k:'cycut', label:'AM', col:X.amCol, cp:c ? '✔ AM' : '—', b06:v ? '✔ AM' : '—', send:v, ok:(X.M.attrs.get(X.amCol)||{}).updOk!==false, def:true, note:''}); }
+  return rows;
+}
+/* 明細の違い (行数・本数の合計 — 正確 / 品目 — 参考)。B-06 からは明細を変えない */
+function cpDetailRows(b, d){
+  if(!d) return [];
+  const live = b.rows.filter(a => !a.deleted), hon = live.reduce((t, a) => t + honOf(a), 0), rows = [];
+  if(live.length!==d.n) rows.push({k:'packer', dtl:true, label:'明細の行数（Packer 行）', cp:d.n+' 行', b06:live.length+' 行'});
+  if(Math.round(hon*100)!==Math.round(d.hon*100)) rows.push({k:'qty_raw', dtl:true, label:'本数の合計', cp:d.hon+' 本', b06:hon+' 本'});
+  if(d.items && d.items.length){
+    const g = live.map(a => cpNorm(a.grade)).filter(Boolean).sort().join(','), it = d.items.map(cpNorm).filter(Boolean).sort().join(',');
+    if(g && it && g!==it) rows.push({k:'grade', dtl:true, soft:true, label:'品目（参考）', cp:d.items.join('・'), b06:live.map(a => str(a.grade).trim()).filter(Boolean).join('・')});
   }
-  if(amCol){ const v = cutAM(b), c = !!rec[amCol];
-    if(v!==c) rows.push({label:'AM', col:amCol, cp:c ? '✔ AM' : '—', b06:v ? '✔ AM' : '—', send:v, ok:(M.attrs.get(amCol)||{}).updOk!==false, def:true, note:''}); }
-  let upCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /^更新日時$/.test(a.label)){ upCol = {col:k, dateOnly:a.dateOnly}; break; } }
-  return {id:id, etag:rec['@odata.etag'] || '*', rows:rows, upCol:upCol};
+  return rows;
+}
+async function compassDiff(b){
+  const C = S.store.compass, id = b.compass_id;
+  if(!id) throw new Error('COMPASS ID がありません');
+  const X = await cpDiffCtx();
+  let rec;
+  try{ rec = await C.read(id, X.sel); }
+  catch(e){ if(e.status===404) throw new Error('COMPASS にこのブッキング（ID '+id+'）がありません — COMPASS で削除された場合は「✔ COMPASS 入力済み（詳細）」の「もう一度入力」で入力し直してください'); throw e; }
+  const rows = cpHeaderRows(b, rec, X);
+  for(const r of rows){
+    if(r.k==='bkgno' && !blank(r.b06) && r.ok){
+      const dup = (await C.findByBookingNo(r.b06).catch(() => [])).filter(d => String(d.id).toLowerCase()!==String(id).toLowerCase());
+      if(dup.length){ r.ok = false; r.def = false; r.note = 'COMPASS に同じ Booking no. の別のブッキングがあります（'+dup.length+' 件）— 変更できません'; }
+    }
+  }
+  let dRows = [];
+  if(C.detailSummary){ try{ const m = await C.detailSummary([id]); dRows = cpDetailRows(b, m.get(String(id).toLowerCase())); }catch(e){} }
+  return {id:id, etag:rec['@odata.etag'] || '*', rows:rows, dRows:dRows, upCol:X.upCol};
+}
+/* ══════════ COMPASS と B-06 の比較 (画面を開いた時・⟳ — ユーザー 2026-11-19) ══════════
+   COMPASS済 のブッキングを COMPASS から まとめて読んで (読み取りのみ) 違う所をセルに印。
+   COMPASS に ID がない: 同じ Booking no. が 1 件あれば COMPASS で再登録 → 新しい ID につなぎ直す / なければ「COMPASS削除」 */
+async function compassCompareAll(){
+  const C = S.store && S.store.compass;
+  if(!C || !C.readMany || S._cmpBusy) return;
+  const list = Array.from(S.bk.values()).filter(b => !b.deleted && b.compass_status==='SENT' && b.compass_id);
+  if(!list.length){ S.cpCmp = {}; S.cmpInfo = ''; updSync(); return; }
+  S._cmpBusy = true;
+  let nr = 0;
+  try{
+    const X = await cpDiffCtx();
+    const ids = list.map(b => String(b.compass_id).toLowerCase());
+    const [recs, dts] = await Promise.all([C.readMany(ids, X.sel), C.detailSummary ? C.detailSummary(ids).catch(e => { console.warn('COMPASS 明細の比較: 読めません', e); return null; }) : null]);
+    const out = {}; let nd = 0, ng = 0;
+    for(const b of list){
+      const id = String(b.compass_id).toLowerCase(), rec = recs.get(id);
+      if(rec){
+        const rows = cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id)));
+        out[b.bookkey] = {rows:rows}; if(rows.some(r => !r.soft)) nd++;
+        continue;
+      }
+      /* COMPASS にない */
+      let dup = [];
+      if(!blank(b.bkgno)){ try{ dup = await C.findByBookingNo(firstLine(b.bkgno)); }catch(e){ continue; } }
+      if(dup.length===1){
+        await saveBooking(b, {compass_id:String(dup[0].id), compass_at:dup[0].at || new Date().toISOString()}, 'bkgno');
+        logHist(b, [{lv:'B', k:'_cp', from:'', to:'COMPASS で再登録されたのを検出 — 新しい COMPASS ID に つなぎ直しました（前 '+id+'）'}]);
+        toast('COMPASS で再登録されたブッキングを つなぎ直しました（'+bkLabel(b)+'）', 'info');
+        nr++;
+      } else { out[b.bookkey] = {gone:true, multi:dup.length>1}; ng++; }
+    }
+    S.cpCmp = out;
+    S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
+    updSync(); renderBoard();
+  }catch(e){ console.warn('COMPASS 比較: できません', e); S.cmpInfo = 'COMPASS 比較できません'; updSync(); }
+  finally{ S._cmpBusy = false; }
+  if(nr) setTimeout(compassCompareAll, 1500);   /* つなぎ直したものを比べる */
+}
+const cpCmpOf = b => (b.compass_status==='SENT' && S.cpCmp && S.cpCmp[b.bookkey]) || null;
+const cpDiffN = b => { const o = cpCmpOf(b); return o && o.rows ? o.rows.filter(r => !r.soft).length : 0; };
+/* セルの印: その列が COMPASS と違う時 */
+function cpCellAttr(b, k){
+  const o = cpCmpOf(b); if(!o || !o.rows) return '';
+  const rs = o.rows.filter(r => r.k===k && !r.soft); if(!rs.length) return '';
+  return ' data-cpdiff="1" title="'+esc(rs.map(r => 'COMPASS と違います — '+r.label+'\nCOMPASS: '+(r.cp || '（空）')+'\nB-06: '+(r.b06 || '（空）')).join('\n'))+'"';
+}
+function compassGoneInfo(b){
+  const o = cpCmpOf(b) || {};
+  modal('COMPASS にありません — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> COMPASS に このブッキング（ID '+esc(b.compass_id)+'）がありません。COMPASS で削除されたようです。</div>'
+    + (o.multi ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> COMPASS に同じ Booking no. が複数あります — どれにつなぐか決められません。COMPASS を確認してください。</div>' : '')
+    + '<div class="muted" style="margin-top:6px;font-size:12px">内容を直して入れ直す場合は「再入力」— 今の B-06 の内容で COMPASS 入力の画面を開きます。</div>',
+    [{label:'閉じる', fn:c=>c()}, {label:'↻ 比べ直す', fn:c=>{ c(); compassCompareAll(); }}, {label:'🚢 再入力', pri:true, fn:c=>{ c(); compassResend(b); }}]);
 }
 async function compassUpdate(b){
   const C = S.store.compass;
   if(!C || !C.read){ toast('COMPASS に接続できません', 'danger'); return; }
+  if(cpCmpOf(b) && cpCmpOf(b).gone){ compassGoneInfo(b); return; }
   LEENAI.loading.show('COMPASS を読んでいます（読み取りのみ）…');
   let X, hist = [];
   try{
@@ -5295,6 +5428,8 @@ async function compassUpdate(b){
     try{ const r = await memoStore().get(histPath(b)); hist = (r.doc && r.doc.list) || []; }catch(e){}
   }catch(e){ LEENAI.loading.hide(); modal('🚢 COMPASS に変更入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> '+esc(String(e.message || e).slice(0, 400))+'</div>', [{label:'閉じる', fn:c=>c()}]); return; }
   LEENAI.loading.hide();
+  /* 一覧の印も今の内容に */
+  S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:X.rows.concat(X.dRows)}; renderBoard();
   const cpT = Date.parse(b.compass_at);
   const aChg = hist.filter(e => e.lv==='A' && cpRel(e) && Date.parse(e.at) > cpT + 1000);
   const test = !CFG.COMPASS_UPDATE_WRITE && !C.demo;
@@ -5305,12 +5440,17 @@ async function compassUpdate(b){
     + '<table class="b6-s"><tr><th></th><th>項目</th><th>COMPASS（今）</th><th></th><th>B-06（変更後）</th><th></th></tr>'
     + X.rows.map((r, i) => '<tr><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b></td>'
       + '<td class="muted" style="font-size:11.5px">'+(r.ok ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td></tr>').join('') + '</table>';
-  if(aChg.length) h += '<div style="margin-top:8px"><span class="bdg w">⚠</span> COMPASS 入力の後に <b>Packer 行の変更 '+aChg.length+' 件</b>があります。明細（Packer・本数）は B-06 から変えません — COMPASS で直してください。'
-    + '<div class="muted" style="font-size:11.5px;margin-top:2px">'+aChg.slice(-8).map(e => esc(fmtDT(e.at)+' '+(e.row ? e.row+' ' : '')+(e.k==='_add' ? '行を追加' : (HIST_LABEL[e.k] || e.k)+': '+(e.from || '（空）')+' → '+(e.to || '（空）')))).join('<br>')+'</div></div>';
+  /* 明細 (Packer・本数・品目) の違い — B-06 からは変えない */
+  if(X.dRows.length || aChg.length){
+    h += '<div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)"><b>明細（Packer・本数・品目）</b>'
+      + (X.dRows.length ? '<table class="b6-s" style="margin-top:4px"><tr><th>項目</th><th>COMPASS</th><th>B-06</th></tr>'+X.dRows.map(r => '<tr><td>'+esc(r.label)+'</td><td>'+cell(r.cp)+'</td><td>'+cell(r.b06)+'</td></tr>').join('')+'</table>' : '')
+      + (aChg.length ? '<div class="muted" style="font-size:11.5px;margin-top:4px">COMPASS 入力の後の Packer 行の変更 '+aChg.length+' 件:<br>'+aChg.slice(-8).map(e => esc(fmtDT(e.at)+' '+(e.row ? e.row+' ' : '')+(e.k==='_add' ? '行を追加' : (HIST_LABEL[e.k] || e.k)+': '+(e.from || '（空）')+' → '+(e.to || '（空）')))).join('<br>')+'</div>' : '')
+      + '<div style="margin-top:4px">明細は B-06 からは変えません。<b>COMPASS で直す</b>か、<b>COMPASS でブッキングを削除 → B-06 で 再入力</b>（Invoice・販売CO・品目・Packer・行の追加/削除 などは こちら）してください。</div></div>';
+  }
   h += '<div class="muted" style="margin-top:8px;font-size:12px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・乙仲・海上運賃区分 は変えません。チェックした項目だけ送ります。</div>';
   if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
   const btns = [{label:'やめる', fn:c=>c()}];
-  if(!X.rows.length || !X.rows.some(r => r.ok)) btns.push({label:'変更マークを消す（確認済み）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
+  if(!X.rows.some(r => r.ok) && cpChgOf(b)) btns.push({label:'↺ 変更マークを消す（確認済み）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
   let busy = false;
   if(X.rows.some(r => r.ok)) btns.push({label:'変更入力する', pri:true, fn:async c=>{
     if(busy) return;
@@ -5343,6 +5483,7 @@ async function sendCompassUpdate(b, X, picked, test){
   logHist(b, [{lv:'B', k:'_cp', from:'', to:picked.map(r => r.label+': '+(r.cp || '（空）')+' → '+(r.b06 || '（空）')).join('\n')}]);
   await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno');
   if(S.store.compass.forget) S.store.compass.forget();
+  if(S.cpCmp && S.cpCmp[b.bookkey] && S.cpCmp[b.bookkey].rows){ S.cpCmp[b.bookkey].rows = S.cpCmp[b.bookkey].rows.filter(r => !picked.includes(r)); renderBoard(); }
   toast('COMPASS に変更入力しました（'+labels+'）', 'ok');
   return true;
 }
@@ -6034,6 +6175,10 @@ function initUI(){
     }
     const bh = ev.target.closest('[data-bkh]');
     if(bh){ const b = S.bk.get(bh.closest('tr').dataset.k); if(b) openBkHist(b); return; }
+    const cpd = ev.target.closest('[data-cpd]');
+    if(cpd){ const b = S.bk.get(cpd.closest('tr').dataset.k); if(b) compassUpdate(b); return; }
+    const cpg = ev.target.closest('[data-cpg]');
+    if(cpg){ const b = S.bk.get(cpg.closest('tr').dataset.k); if(b) compassGoneInfo(b); return; }
     const am = ev.target.closest('[data-am]');
     if(am){ const b = S.bk.get(am.closest('tr').dataset.k); if(b) toggleCutAM(b); return; }
     const bq = ev.target.closest('[data-bq]');
@@ -6059,7 +6204,7 @@ function initUI(){
   });
   $('#b6-board').addEventListener('dblclick', ev => {
     const td = ev.target.closest('td.ed');
-    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && td.dataset.f!=='approval' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
+    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && td.dataset.f!=='approval' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-cpd],[data-cpg],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
   });
   /* 表の外を押したら選択を外す (選んだまま ほかで文字を打って書き換わらないように) */
   document.addEventListener('mousedown', ev => { if(S.cellSel && !S.editing && !ev.target.closest('#b6-board')) setCellSel(null); });
