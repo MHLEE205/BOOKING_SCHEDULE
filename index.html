@@ -788,7 +788,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.65', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.66', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1414,7 +1414,8 @@ function coIdx(){
 }
 function cpContracts(b){
   const o = cpCmpOf(b), d = o && o.dt, I = d && d.rows && d.rows.length ? coIdx() : null; if(!I) return null;
-  if(b._co && b._co.d===d && b._co.I===I && b._co.n===b.rows.length) return b._co.v;
+  const sig = b.rows.map(a => a.id+'|'+str(a.cpacker)+'|'+str(a.packer)+'|'+(a.deleted?1:0)).join(',');
+  if(b._co && b._co.d===d && b._co.I===I && b._co.sig===sig) return b._co.v;
   const coOf = (M, id) => { const x = id && M.get(id); return x ? str(x.co).trim() : ''; };
   const sale = Array.from(new Set(d.rows.map(r => coOf(I.sale, r.s)).filter(Boolean)));
   /* 購買元が同じ明細を その行に (1 つの Packer で日付ごとに明細が分かれていても 全部)。購買元は ID か 名前 (COMPASS 購買元・Packer の文字) で合わせる。
@@ -1429,7 +1430,7 @@ function cpContracts(b){
   if(live.length===d.rows.length) live.forEach(a => { if(!byRow.has(a.id) && left.length) byRow.set(a.id, [left.shift()]); });
   const purch = new Map(); byRow.forEach((rs, k) => { const c = Array.from(new Set(rs.map(r => coOf(I.purch, r.p)).filter(Boolean))).join('・'); if(c) purch.set(k, c); });
   const v = {sale:sale, purch:purch};
-  b._co = {d:d, I:I, n:b.rows.length, v:v};
+  b._co = {d:d, I:I, sig:sig, v:v};
   return v;
 }
 function cellHtml(col, b, a){
@@ -2254,6 +2255,7 @@ async function loadBoard(retried){
     asgs.forEach(a => { const b = m.get(a.bookkey); if(b) b.rows.push(a); });
     m.forEach(sortRows);
     S.bk = m; S.lastSync = syncAt; S.ready = true;
+    S.lastSrv = ''; bks.forEach(b => { if(b.modifiedon && b.modifiedon > S.lastSrv) S.lastSrv = b.modifiedon; }); asgs.forEach(a => { if(a.modifiedon && a.modifiedon > S.lastSrv) S.lastSrv = a.modifiedon; });
     fillFilterOptions(); renderBoard(); updSync();
     loadMemoIndex();   /* 📝 の付くブッキング (待たない) */
     loadBkHist();      /* Booking no. の変更履歴 (待たない) */
@@ -2279,7 +2281,8 @@ function bkHistOf(b){ return ((S.bkHist && S.bkHist[b.bookkey]) || []).filter(e 
 async function addBkHist(b, from, to){
   const ent = {from:str(from), to:str(to), by:myName() || userEmail(), at:new Date().toISOString()};
   for(let i=0;i<3;i++){
-    const r = await memoStore().get(BKH_PATH).catch(() => ({doc:null, etag:null}));
+    const r = await memoStore().get(BKH_PATH).catch(e => ({err:e}));
+    if(r.err){ toast('Booking no. の履歴を保存できません（読めません）: '+r.err.message, 'warn'); return; }
     const map = (r.doc && r.doc.map) || {};
     (map[b.bookkey] = map[b.bookkey] || []).push(ent);
     try{ await memoStore().put(BKH_PATH, {map:map, updated_at:ent.at}, r.etag); S.bkHist = map; renderBoard(); return; }
@@ -2333,7 +2336,8 @@ function cpChgOf(b){
 async function bumpCpChg(b, n){
   const since = cpSince(b); if(!since) return;
   for(let i=0;i<4;i++){
-    const r = await memoStore().get(CPC_PATH).catch(() => ({doc:null, etag:null}));
+    const r = await memoStore().get(CPC_PATH).catch(e => ({err:e}));
+    if(r.err) return;
     const map = (r.doc && r.doc.map) || {};
     const o = map[b.bookkey] && map[b.bookkey].since===since ? map[b.bookkey] : {since:since, n:0};
     o.n += n; o.at = new Date().toISOString(); map[b.bookkey] = o;
@@ -2343,13 +2347,16 @@ async function bumpCpChg(b, n){
 }
 async function flushHist(b){
   const add = (S.histBuf[b.bookkey] || []).splice(0); if(!add.length) return;
+  /* 保存できなかった分は 戻して 次の変更の時に一緒に送る (消さない) */
+  const keep = () => { S.histBuf[b.bookkey] = add.concat(S.histBuf[b.bookkey] || []); };
   for(let i=0;i<4;i++){
-    const r = await memoStore().get(histPath(b)).catch(() => ({doc:null, etag:null}));
+    const r = await memoStore().get(histPath(b)).catch(e => ({err:e}));
+    if(r.err){ keep(); toast('変更履歴を保存できません（読めません）: '+r.err.message, 'warn'); return; }
     const list = ((r.doc && r.doc.list) || []).concat(add);
     try{ await memoStore().put(histPath(b), {bookkey:b.bookkey, list:list, updated_at:add[add.length-1].at}, r.etag); return; }
-    catch(e){ if(e.status!==412){ toast('変更履歴を保存できません: '+e.message, 'warn'); return; } }
+    catch(e){ if(e.status!==412){ keep(); toast('変更履歴を保存できません: '+e.message, 'warn'); return; } }
   }
-  toast('変更履歴を保存できません（同時に更新が重なりました）', 'warn');
+  keep(); toast('変更履歴を保存できません（同時に更新が重なりました）', 'warn');
 }
 function histDiff(lv, keys, prevObj, obj, row){
   const out = [];
@@ -2423,9 +2430,12 @@ async function refreshTick(){
   S.refreshing = true;
   try{
     const now = new Date().toISOString();
-    const since = new Date(Date.parse(S.lastSync) - 5000).toISOString();
+    /* 基準は サーバーの modifiedon (この PC の時計が進んでいると 他の人の変更を取りこぼしていた — 2026-11-19 検査) */
+    const base = S.lastSrv && S.lastSrv < S.lastSync ? S.lastSrv : S.lastSync;
+    const since = new Date(Date.parse(base) - 5000).toISOString();
     const ch = await S.store.changes(since);
     S.lastSync = now;
+    ch.B.concat(ch.A).forEach(x => { if(x.modifiedon && (!S.lastSrv || x.modifiedon > S.lastSrv)) S.lastSrv = x.modifiedon; });
     if(S.editing){ S.pending = mergeChanges(S.pending, ch); }
     else await applyChanges(ch);
     updSync();
@@ -2441,7 +2451,7 @@ async function applyChanges(ch){
     const cur = S.bk.get(nb.bookkey);
     if(cur){ if(cur.etag===nb.etag) return; markRemote('B', cur, nb); const rows = cur.rows; Object.assign(cur, nb); cur.rows = rows; changed = true; }
     else {
-      const inRange = nb.cycut ? (nb.cycut>=S.range.from && nb.cycut<=S.range.to) : S.range.noEtd;
+      const inRange = nb.cycut ? ((!S.range.from || nb.cycut>=S.range.from) && (!S.range.to || nb.cycut<=S.range.to)) : S.range.noEtd;
       if(!inRange) return;
       nb.rows = []; S.bk.set(nb.bookkey, nb); newKeys.push(nb.bookkey); changed = true;
       markRemote('B', null, nb);
@@ -2501,7 +2511,8 @@ async function saveBooking(b, patch, cellKey){
     if('bkgno' in patch || 'port' in patch){
       for(const a of b.rows){
         a.bkgno = b.bkgno; a.pol = b.port; a.name = asName(b, a);
-        try{ const s2 = await S.store.update('A', a, ['bkgno','pol','name']); a.etag = s2.etag; a.modifiedon = s2.modifiedon; }
+        const job = (a._q || Promise.resolve()).catch(() => {}).then(() => S.store.update('A', a, ['bkgno','pol','name'])); a._q = job;
+        try{ const s2 = await job; a.etag = s2.etag; a.modifiedon = s2.modifiedon; }
         catch(e){ if(e.status===412) await on412('A', a); else toast('Packer 行のコピー更新に失敗: '+e.message.slice(0,80), 'danger'); }
       }
     }
@@ -2935,12 +2946,12 @@ function fmtOf(o){
 /* td に付けるクラス (セルの書式 → なければブッキング全体のハイライト) */
 function fmtCls(o, k, b){
   const f = fmtOf(o)[k] || {}, row = fmtOf(b)._row || {};
-  let c = '';
-  if(f.c) c += ' fc-'+f.c;
-  if(f.s) c += ' fs-'+f.s;
+  let c = ''; const ok = v => /^[a-z0-9_-]{1,20}$/i.test(str(v));   /* 共有の書式データの値は 決まった形だけ (属性を壊さない) */
+  if(f.c && ok(f.c)) c += ' fc-'+f.c;
+  if(f.s && ok(f.s)) c += ' fs-'+f.s;
   if(f.b) c += ' fb';
   const bg = f.bg || row.bg;
-  if(bg) c += ' bg-'+bg;
+  if(bg && ok(bg)) c += ' bg-'+bg;
   return c;
 }
 async function saveFmt(b, a, k, change){
@@ -3450,7 +3461,7 @@ function memoSanitize(html){
         const ok = st.split(';').map(x=>x.trim()).filter(Boolean).filter(d => {
           const i = d.indexOf(':'); if(i<0) return false;
           const p = d.slice(0,i).trim().toLowerCase(), v = d.slice(i+1).trim().toLowerCase();
-          return MEMO_CSS.test(p) && !/url\(|expression|javascript|@import|[<>]/.test(v);
+          return MEMO_CSS.test(p) && !/url\(|image-set|image\(|expression|javascript|@import|[<>\\"']/.test(v);
         });
         if(ok.length) keep.style = ok.join(';');
       }
@@ -3495,14 +3506,15 @@ function makeMemoEditor(host, opt){
     if(E.uploads){ E.timer = setTimeout(save, 800); return; }
     if(E.saving){ E.timer = setTimeout(save, 500); return; }
     E.saving = true; E.dirty = false; setSt('保存中…');
-    const html = serialize(), path = E.path;
+    const html = serialize(), path = E.path, same = () => E.path===path;
     const doc = {html:html, updated_at:new Date().toISOString(), updated_by:(LEENAI.user && LEENAI.user.name) || userEmail()};
     try{
-      if(memoEmpty(html) && opt.deleteWhenEmpty){ if(E.etag) await memoStore().del(path, force ? null : E.etag); E.etag = null; E.meta = null; setSt('（空のメモ — 削除しました）'); }
-      else { E.etag = await memoStore().put(path, doc, force ? null : E.etag); E.meta = {at:doc.updated_at, by:doc.updated_by}; showMeta(); }
+      if(memoEmpty(html) && opt.deleteWhenEmpty){ if(E.etag) await memoStore().del(path, force ? null : E.etag); if(same()){ E.etag = null; E.meta = null; setSt('（空のメモ — 削除しました）'); } }
+      else { const et = await memoStore().put(path, doc, force ? null : E.etag); if(same()){ E.etag = et; E.meta = {at:doc.updated_at, by:doc.updated_by}; showMeta(); } }
       if(opt.onSaved) opt.onSaved(path, !memoEmpty(html), html);
     }catch(e){
-      if(e.status===412){ E.dirty = true; conflict(); }
+      if(!same()) toast('前のメモを保存できませんでした: '+e.message, 'warn');   /* 別のメモに移った後の失敗 */
+      else if(e.status===412){ E.dirty = true; conflict(); }
       else { E.dirty = true; setSt('⚠ '+e.message, 'ng'); }
     }
     E.saving = false;
@@ -3519,7 +3531,9 @@ function makeMemoEditor(host, opt){
   });
   async function load(path, forceReload){
     if(E.path===path && !forceReload) return;
-    if(E.path && E.dirty) await save();
+    /* 保存中なら 終わるのを待ってから (待たずに切り替えると 打った文字が消えていた) */
+    const idle = async () => { while(E.saving) await new Promise(r => setTimeout(r, 100)); };
+    if(E.path && (E.dirty || E.saving)){ await idle(); if(E.dirty) await save(); await idle(); }
     const seq = ++E.loadSeq;
     E.path = path; E.etag = null; E.dirty = false; E.meta = null;
     ed.innerHTML = ''; ed.contentEditable = 'false'; setSt('読込中…');
@@ -4306,6 +4320,7 @@ const DvCompass = {
     const sL = side(/販売/, /sale|sell/i), pL = side(/購買|仕入/, /purchas|buy/i);
     const sel = [bk, 'createdon'].concat(hon ? [hon.col] : [], item ? ['_'+item.col+'_value'] : [], sL ? ['_'+sL.col+'_value'] : [], pL ? ['_'+pL.col+'_value'] : []).join(',');
     const out = new Map();
+    ids = ids.map(x => String(x).toLowerCase());
     ids.forEach(id => out.set(id, {n:0, hon:0, items:[], rows:[]}));
     for(let i=0; i<ids.length; i+=20){
       const f = ids.slice(i, i+20).filter(x => /^[0-9a-f-]{36}$/i.test(x)).map(x => bk+' eq '+x).join(' or ');
@@ -4395,6 +4410,7 @@ function cpNames(entity, hint, depth){
 }
 function cpNamesForget(entity){ Array.from(_cpNm.keys()).forEach(k => { if(k.startsWith(entity+'|')) _cpNm.delete(k); }); }
 async function cpNamesLoad(entity, hint, depth){
+  if(!S.cpMap) await cpMapLoad().catch(() => {});   /* 名前の列の設定 (namecol) を先に読む */
   const E = await cpEntMeta(entity), pid = E.entity.PrimaryIdAttribute, pn = E.entity.PrimaryNameAttribute;
   const cols = E.cols.filter(c => !c.rel && (c.col===pn || /^[a-z0-9]+_/.test(c.col)) && (c.type==='String' || c.type==='DateTime' || DTL_NUM.has(c.type))
     && !/yomi|traversedpath|_base$/i.test(c.col)).slice(0, 40);
@@ -4627,7 +4643,7 @@ function makeMemCompass(){
       inv:recs.map(r => ({no:str(r.body.cr49f_invoice_no).trim(), co:null})).filter(x => x.no)}; },
     async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
     async detailSummary(ids){
-      const out = new Map(); ids.forEach(id => out.set(id, {n:0, hon:0, items:[], rows:[]}));
+      const out = new Map(); ids.forEach(id => out.set(String(id).toLowerCase(), {n:0, hon:0, items:[], rows:[]}));
       const v = (body, re) => { const k = Object.keys(body).find(x => re.test(x)); return k ? (String(body[k]).match(/\(([^)]+)\)/) || [])[1] || null : null; };
       recs.filter(r => r.id.startsWith('DEMO-D-')).forEach(r => { const bk = v(r.body, /booking.*@odata\.bind$/i); const o = bk && out.get(bk.toLowerCase()); if(!o) return;
         o.n++; o.rows.push({s:v(r.body, /sale.*@odata\.bind$/i), p:v(r.body, /purch.*@odata\.bind$/i), at:r.at}); });
@@ -4707,12 +4723,14 @@ async function cpMapLoad(){
 async function cpMapLearn(items){
   if(!items.length) return;
   for(let i=0;i<2;i++){
-    const r = await memoStore().get(CP_MAP).catch(() => ({doc:null, etag:null}));
+    const r = await memoStore().get(CP_MAP).catch(e => ({err:e}));
+    if(r.err){ toast('選択の記憶に失敗（読めません）: '+r.err.message, 'warn'); return; }
     const map = (r.doc && r.doc.map) || {};
     items.forEach(x => { (map[x.kind] = map[x.kind] || {})[x.key] = {id:x.id, name:x.name, by:(LEENAI.user && LEENAI.user.name) || userEmail(), at:new Date().toISOString()}; });
     try{ await memoStore().put(CP_MAP, {map:map, updated_at:new Date().toISOString()}, r.etag); S.cpMap = map; return; }
     catch(e){ if(e.status!==412){ toast('選択の記憶に失敗: '+e.message, 'warn'); return; } }
   }
+  toast('選択の記憶に失敗（同時に更新が重なりました）', 'warn');
 }
 /* ══════════ 担当ごとの学習 (ユーザー 2026-11-19)
    同じ船社・POD でも 担当によって B-06 の書き方が違うので、覚えた対応は 担当ごと (kind@担当コード) にも持つ。
@@ -4751,7 +4769,9 @@ async function cpLearnFromCompass(list, recs, X){
       const key = x.f.key(b), k = cpNorm(key), cur = rec['_'+x.col+'_value'];
       if(!k || !cur) return;
       if(x.f.k==='pod' && POD_CP[k]) return;
-      if(!x.o.list.some(y => y.id===cur)) return;   /* 一覧に無い・使わない項目 (船社の (N) など) は学ばない */
+      if(!x.o.list.some(y => y.id===cur)) return;
+      /* 名前で 1 つに決まる書き方は 学ばない (COMPASS 側が違っていても その違いを隠さない — 2026-11-19 検査) */
+      const mc = cpMatch(x.o.list, cpAliases(x.f.k, key)); if(mc[0] && mc[0].s>=80 && !(mc[1] && mc[1].s===mc[0].s)) return;   /* 一覧に無い・使わない項目 (船社の (N) など) は学ばない */
       const g = (st[x.f.k+'@'+staff] = st[x.f.k+'@'+staff] || {}), c = (g[k] = g[k] || {});
       c[cur] = (c[cur] || 0) + 1;
     });
@@ -4768,7 +4788,8 @@ async function cpLearnFromCompass(list, recs, X){
   }));
   if(!add.length && !del.length) return 0;
   for(let i=0;i<2;i++){
-    const r = await memoStore().get(CP_MAP).catch(() => ({doc:null, etag:null}));
+    const r = await memoStore().get(CP_MAP).catch(e => ({err:e}));
+    if(r.err){ console.warn('COMPASS 実績の学習: 読めません', r.err); return 0; }
     const map = (r.doc && r.doc.map) || {};
     add.forEach(x => { const old = (map[x.kind] || {})[x.key]; if(old && !old.src) return;
       (map[x.kind] = map[x.kind] || {})[x.key] = {id:x.id, name:x.name, src:'hist', n:x.n, by:'COMPASS 入力実績 '+x.n+' 件', at:new Date().toISOString()}; });
@@ -4834,8 +4855,9 @@ async function compassCheck(b){
       let o = await C.options(rel.target);
       if(f.k==='carrier') o = carrierOpts(o);
       L.nav = rel.nav; L.set = o.set; L.list = o.list; L.nameCol = o.nameCol; L.target = rel.target;
-      const lr = !blank(key) && cpLearnedOf(learned, f.k, b, key);
       const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
+      let lr = !blank(key) && cpLearnedOf(learned, f.k, b, key);
+      if(lr && lr.src==='hist' && c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)) lr = null;
       L.cands = c.slice(0, 6);
       if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = lr.src==='hist' ? '学習（'+staffName(bkStaff(b))+' の '+str(lr.by)+'）' : '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
       else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)){ L.sel = c[0].id; L.how = 'auto'; L.note = c[0].s>=100 ? '自動で選択' : '自動で選択（似た名前）'; }
@@ -5331,7 +5353,12 @@ async function compassDtlBodies(R, bkId){
   const [saleCoSet, purCoSet, itemSet] = await Promise.all([setOf(c.saleCo && c.saleCo.rel.target), setOf(c.purCo && c.purCo.rel.target), setOf(c.item && c.item.rel && c.item.rel.target)]);
   const itemSame = c.item && c.item.rel && D.sale.cols.item && D.sale.cols.item.rel && D.sale.cols.item.rel.target===c.item.rel.target;
   const bind = (body, col, set, id) => { if(!col || !col.rel || !set || !id) return; const k = (col.rel.nav || col.col)+'@odata.bind'; body[k] = '/'+set+'('+id+')'; out.allowed.add(k); };
-  if(D.b) gradeLearn(D.b, D.rows.map(r => { const si = D.sale.items.find(x => x.id===r.sale); return [r.grade, si ? si.item : '']; }));
+  if(D.b){
+    const nLive = D.b.rows.filter(a => !a.deleted).length, by = new Map();
+    D.rows.slice(0, nLive).forEach(r => { const si = D.sale.items.find(x => x.id===r.sale); const g = cpNorm(r.grade); if(!g || !si) return;
+      (by.get(g) || by.set(g, {g:r.grade, items:new Set()}).get(g)).items.add(si.item); });
+    gradeLearn(D.b, Array.from(by.values()).filter(o => o.items.size===1).map(o => [o.g, Array.from(o.items)[0]]));
+  }
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const nm = (r.packer || '追加の行 '+(i+1));
@@ -5538,8 +5565,9 @@ function cpHeaderRows(b, rec, X){
     const key = x.f.key(b), cur = rec['_'+x.col+'_value'] || '', o = x.o;
     if(blank(key)) return;   /* B-06 が空の一覧の項目は 比べない・COMPASS を空にしない */
     const curName = (o.list.find(y => y.id===cur) || {}).name || str(rec['_'+x.col+'_value'+FVK]);
-    const lr = cpLearnedOf(X.learned, x.f.k, b, key);
     const c = cpMatch(o.list, cpAliases(x.f.k, key));
+    let lr = cpLearnedOf(X.learned, x.f.k, b, key);
+    if(lr && lr.src==='hist' && c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)) lr = null;
     let to = '';
     if(lr && o.list.some(y => y.id===lr.id)) to = lr.id;
     else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)) to = c[0].id;
@@ -5668,7 +5696,8 @@ function applyCpOk(b, rows){
 async function setCpOk(b, r, on){
   const key = cpRowKey(r), ent = {label:r.label, cp:str(r.cp), b06:str(r.b06), by:myName() || userEmail(), at:new Date().toISOString()};
   for(let i=0;i<4;i++){
-    const g = await memoStore().get(CPOK_PATH).catch(() => ({doc:null, etag:null}));
+    const g = await memoStore().get(CPOK_PATH).catch(e => ({err:e}));
+    if(g.err){ toast('確認を保存できません（読めません）: '+g.err.message, 'warn'); return false; }
     const map = (g.doc && g.doc.map) || {};
     const m = map[b.bookkey] = map[b.bookkey] || {};
     if(on) m[key] = ent; else { delete m[key]; if(!Object.keys(m).length) delete map[b.bookkey]; }
@@ -5697,7 +5726,7 @@ async function compassUpdate(b){
   LEENAI.loading.hide();
   applyCpOk(b, X.rows); applyCpOk(b, X.dRows);
   /* 一覧の印も今の内容に */
-  S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:X.rows.concat(X.dRows)}; renderBoard();
+  S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:X.rows.concat(X.dRows), dt:(S.cpCmp[b.bookkey] || {}).dt}; renderBoard();
   const test = !CFG.COMPASS_UPDATE_WRITE && !C.demo;
   const cell = v => v ? esc(v).replace(/\n/g, '<br>') : '<span class="muted">（空）</span>';
   const okCell = (r, src, i) => r.okd
