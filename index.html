@@ -785,7 +785,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.62', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.63', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2386,7 +2386,7 @@ async function openBkHist(b){
     const ls = f ? list.filter(e => e.k===f) : list;
     return ls.length
       ? '<table class="b6-s"><tr><th>日時</th><th>項目</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
-        + ls.map(e => '<tr'+(e===firstIn ? ' class="hist-cp1"' : e.k==='_cp' || e.k==='_cpin' || e.k==='_cpok' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
+        + ls.map(e => '<tr'+(e===firstIn ? ' class="hist-cp1"' : e.k==='_cp' || e.k==='_cpin' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
           + (e.k.startsWith('_') ? '<td colspan="3">'+cell(e.to)+'</td>' : '<td>'+cell(e.from)+'</td><td>→</td><td>'+cell(e.to)+'</td>')
           + '<td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
       : '<div class="muted">変更の記録はありません。</div>';
@@ -4714,6 +4714,21 @@ function cpLearnedOf(learned, kind, b, key){
   const st = bkStaff(b);
   return (st && (learned[kind+'@'+st] || {})[k]) || (learned[kind] || {})[k] || null;
 }
+/* ══════════ Grade (B-06) → COMPASS の品目名 を覚える (ユーザー 2026-11-19 — 例: 紙管 → PAPER CORE)
+   覚える時: COMPASS 入力で 品目の違う販売アイテムを選んで送った時・「品目（参考）」の違いを ✔ 確認した時。担当ごと + 全員 ══════════ */
+function gradeAs(b, g){
+  const k = cpNorm(g), L = S.cpMap || {}, st = bkStaff(b); if(!k) return '';
+  const e = (st && (L['grade@'+st] || {})[k]) || (L.grade || {})[k];
+  return e ? str(e.name) : '';
+}
+const gradeWants = (b, g) => Array.from(new Set([cpNorm(gradeAs(b, g)), cpNorm(g)].filter(Boolean)));
+function gradeLearn(b, pairs){
+  const st = bkStaff(b), L = S.cpMap || {};
+  const items = [];
+  pairs.forEach(([g, nm]) => { const k = cpNorm(g); if(!k || !cpNorm(nm) || cpNorm(nm)===k || cpNorm(gradeAs(b, g))===cpNorm(nm)) return;
+    items.push({kind:'grade', key:k, id:'', name:nm}); if(st) items.push({kind:'grade@'+st, key:k, id:'', name:nm}); });
+  if(items.length) cpMapLearn(items).catch(() => {});
+}
 /* COMPASS 入力の実績から学ぶ: B-06 の書き方 → 実際に COMPASS に入っている項目 が 2 件以上同じで、別の項目の例が無い時だけ。
    手で選んだ記憶 (src なし) は上書きしない。実績の記憶 (src:'hist') は 別の例が出たら消す */
 const CP_HIST_MIN = 2;
@@ -4956,7 +4971,8 @@ async function dtlLoad(R, b){
   D.ton = CFG.COMPASS_TON_PER_HON;
   const seen = new Set(); D.parties = [];
   D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, pid:x.partyId || null, alt:x.partyAlt || []}); } });
-  D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), hon:honOf(a), cpk:cpkOf(a),
+  D.b = b;
+  D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), gw:gradeWants(b, a.grade), hon:honOf(a), cpk:cpkOf(a),
     sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0}));
   const sc = R.lookups.find(L => L.kind==='saleco');
   D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); dtlAuto(D, r, sc ? sc.sel : ''); });
@@ -4977,7 +4993,7 @@ function dtlItemScore(name, wants){
 const dtlRank = (list, wants) => list.map(x => ({x:x, s:dtlItemScore(x.item, wants)})).filter(y => y.s>0)
   .sort((p, q) => q.s-p.s || str(p.x.co).localeCompare(str(q.x.co))).map(y => y.x);
 function dtlSaleCands(D, r, coId){
-  return dtlRank(dtlSaleList(D, coId), [cpNorm(r.grade)]);
+  return dtlRank(dtlSaleList(D, coId), r.gw || [cpNorm(r.grade)]);
 }
 /* ひらがな・カタカナ → ローマ字 (ヘボン式)。長音の書き方違いも返す (とうきょう → TOUKYOU / TOKYO)。かな以外を含むと空 */
 const KANA_R = (() => { const m = {};
@@ -5016,7 +5032,7 @@ function dtlSuppliers(D, r){
 /* 購買元が分かればその購買元の品目が合うもの。分からない時は COMPASS の画面と同じく 品目 が合うもの全部 (購買元順) */
 function dtlPurCands(D, r){
   const si = D.sale.items.find(x => x.id===r.sale), sn = si ? si.item : r.grade;
-  const w = [cpNorm(sn), cpNorm(r.grade)];
+  const w = [cpNorm(sn)].concat(r.gw || [cpNorm(r.grade)]);
   if(r.sup.list.length) return D.purch.items.filter(x => r.sup.list.includes(x.party)).map(x => ({x:x, s:dtlItemScore(x.item, w)})).filter(y => y.s>0)
     .sort((p, q) => q.s-p.s || dtlNewer(p.x, q.x)).map(y => y.x);
   return D.purch.items.filter(x => dtlItemScore(x.item, w)>0).sort((p, q) => str(p.party).localeCompare(str(q.party)) || dtlNewer(p, q));
@@ -5064,7 +5080,7 @@ function dtlFocus(D, i){
   const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
   const pItems = dtlUniq(D.purch.items.map(x => x.item));
   const want = pi ? pi.item : si ? si.item : '';
-  D.fPi = pItems.includes(want) ? want : (dtlRank(pItems.map(n => ({item:n})), [cpNorm(want), cpNorm(r.grade)])[0] || {}).item || '';
+  D.fPi = pItems.includes(want) ? want : (dtlRank(pItems.map(n => ({item:n})), [cpNorm(want)].concat(r.gw || [cpNorm(r.grade)]))[0] || {}).item || '';
   D.fPp = pi ? pi.party : (r.sup.list[0] || '');
 }
 function dtlHtml(D, coId, coName){
@@ -5305,6 +5321,7 @@ async function compassDtlBodies(R, bkId){
   const [saleCoSet, purCoSet, itemSet] = await Promise.all([setOf(c.saleCo && c.saleCo.rel.target), setOf(c.purCo && c.purCo.rel.target), setOf(c.item && c.item.rel && c.item.rel.target)]);
   const itemSame = c.item && c.item.rel && D.sale.cols.item && D.sale.cols.item.rel && D.sale.cols.item.rel.target===c.item.rel.target;
   const bind = (body, col, set, id) => { if(!col || !col.rel || !set || !id) return; const k = (col.rel.nav || col.col)+'@odata.bind'; body[k] = '/'+set+'('+id+')'; out.allowed.add(k); };
+  if(D.b) gradeLearn(D.b, D.rows.map(r => { const si = D.sale.items.find(x => x.id===r.sale); return [r.grade, si ? si.item : '']; }));
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const nm = (r.packer || '追加の行 '+(i+1));
@@ -5543,7 +5560,7 @@ function cpDetailRows(b, d){
   if(live.length!==d.n) rows.push({k:'packer', dtl:true, label:'明細の行数（Packer 行）', cp:d.n+' 行', b06:live.length+' 行'});
   if(Math.round(hon*100)!==Math.round(d.hon*100)) rows.push({k:'qty_raw', dtl:true, label:'本数の合計', cp:d.hon+' 本', b06:hon+' 本'});
   if(d.items && d.items.length){
-    const g = live.map(a => cpNorm(a.grade)).filter(Boolean).sort().join(','), it = d.items.map(cpNorm).filter(Boolean).sort().join(',');
+    const g = live.map(a => cpNorm(gradeAs(b, a.grade) || a.grade)).filter(Boolean).sort().join(','), it = d.items.map(cpNorm).filter(Boolean).sort().join(',');
     if(g && it && g!==it) rows.push({k:'grade', dtl:true, soft:true, label:'品目（参考）', cp:d.items.join('・'), b06:live.map(a => str(a.grade).trim()).filter(Boolean).join('・')});
   }
   return rows;
@@ -5649,6 +5666,12 @@ async function setCpOk(b, r, on){
     catch(e){ if(e.status!==412){ toast('確認を保存できません: '+e.message, 'warn'); return false; } if(i===3){ toast('確認を保存できません（同時に更新が重なりました）', 'warn'); return false; } }
   }
   r.okd = on ? ent : null;
+  if(on && r.k==='grade' && r.dtl){
+    const gs = Array.from(new Set(b.rows.filter(a => !a.deleted).map(a => str(a.grade).trim()).filter(Boolean)));
+    const cs = Array.from(new Set(str(r.cp).split('・').map(x => x.trim()).filter(Boolean)));
+    const g1 = gs.filter(g => !cs.some(c => cpNorm(c)===cpNorm(g))), c1 = cs.filter(c => !gs.some(g => cpNorm(c)===cpNorm(g)));
+    if(g1.length===1 && c1.length===1) gradeLearn(b, [[g1[0], c1[0]]]);   /* 1 対 1 に決まる時だけ */
+  }
   logHist(b, [{lv:'B', k:'_cpok', from:'', to:(on ? 'COMPASS との違いを確認（このままで OK）' : 'COMPASS との違いの確認を取り消し')+' — '+r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')}]);
   renderBoard();
   return true;
