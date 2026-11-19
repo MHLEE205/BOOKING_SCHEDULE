@@ -779,7 +779,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.52', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.53', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4602,12 +4602,17 @@ function carrierOpts(o){
 }
 const cpNorm = s => PARSE.nfkcSame(str(s)).toUpperCase().replace(/[^A-Z0-9\u3040-\u30ff\u4e00-\u9fff]/g,'');
 /* B-06 の値 → 探す名前の一覧 */
+const POD_CP = {PKG:'PORT KLANG', PORTKLANG:'PORT KLANG', VUNG:'VUNG TAU', VUNGTAU:'VUNG TAU', JAKA:'JAKARTA', JAKARTA:'JAKARTA', JKT:'JAKARTA', SURA:'SURABAYA', SURABAYA:'SURABAYA', SUB:'SURABAYA'};
 function cpAliases(kind, key){
   const out = [key];
   if(kind==='carrier'){
     const k = cpNorm(key), g = CARRIER_ALIAS.find(g => g.some(x => cpNorm(x)===k));
     if(g) out.push(...g);
   } else if(kind==='pod'){
+    /* B-06 の略 → COMPASS の POD 名 (ユーザー指定 2026-11-19)。COMPASS の一覧にこの名前があれば 一番に選ぶ (VUNG が CAI MEP と同点にならないように)。
+       一覧に無ければ 下の別名で COMPASS の一覧から探す */
+    const cp = POD_CP[cpNorm(key)];
+    if(cp) out.push(cp);
     const D = podLL(key);
     if(D){
       out.push(D[2], D[2].replace(/\s*\(.*\)$/,''), (D[2].match(/\((.*?)\)/)||[])[1]||'');
@@ -4617,7 +4622,9 @@ function cpAliases(kind, key){
     const p = str(key).trim().toUpperCase();
     if(PORT_JA[p]) out.push(PORT_JA[p], PORT_JA[p].replace(/港$/,''));
   }
-  return Array.from(new Set(out.map(cpNorm).filter(Boolean)));
+  const res = Array.from(new Set(out.map(cpNorm).filter(Boolean)));
+  if(kind==='pod' && POD_CP[cpNorm(key)]) res.pref = cpNorm(POD_CP[cpNorm(key)]);
+  return res;
 }
 /* 一覧の各項目に点数: 一致 100 / 前方一致 80 / 含む 60 / 頭 3 文字 40 */
 function cpMatch(list, aliases){
@@ -4627,7 +4634,7 @@ function cpMatch(list, aliases){
     let s = 0, via = '';
     ns.forEach(n => aliases.forEach(a => {
       let t = 0;
-      if(n===a) t = 100;
+      if(n===a) t = aliases.pref && a===aliases.pref ? 101 : 100;
       else if(a.length>=4 && (n.startsWith(a) || a.startsWith(n) && n.length>=4)) t = 80;
       else if(a.length>=4 && n.includes(a)) t = 60;
       else if(a.length>=2 && /[぀-ヿ一-鿿]/.test(a) && n.includes(a)) t = 50;   /* 漢字・かな 2 文字以上を含む (テスト ↔ 株式会社テスト) */
@@ -4715,7 +4722,7 @@ async function compassCheck(b){
       const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
       L.cands = c.slice(0, 6);
       if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
-      else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)){ L.sel = c[0].id; L.how = 'auto'; L.note = c[0].s===100 ? '自動で選択' : '自動で選択（似た名前）'; }
+      else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)){ L.sel = c[0].id; L.how = 'auto'; L.note = c[0].s>=100 ? '自動で選択' : '自動で選択（似た名前）'; }
       else L.note = blank(key) ? 'B-06 が空 — 必要なら選んでください' : c.length ? '候補から選んでください' : '「'+key+'」が一覧にない — 選んでください';
       L.auto = L.sel;
       R.allowed.add(rel.nav+'@odata.bind');
