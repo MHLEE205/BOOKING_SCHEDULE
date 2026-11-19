@@ -779,7 +779,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.53', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.54', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4609,10 +4609,9 @@ function cpAliases(kind, key){
     const k = cpNorm(key), g = CARRIER_ALIAS.find(g => g.some(x => cpNorm(x)===k));
     if(g) out.push(...g);
   } else if(kind==='pod'){
-    /* B-06 の略 → COMPASS の POD 名 (ユーザー指定 2026-11-19)。COMPASS の一覧にこの名前があれば 一番に選ぶ (VUNG が CAI MEP と同点にならないように)。
-       一覧に無ければ 下の別名で COMPASS の一覧から探す */
+    /* B-06 の略 → COMPASS の POD 名 (ユーザー指定 2026-11-19)。決まっている時は この名前だけで探す — 一覧に無くても 別の港 (VUNG → CAI MEP など) は選ばない */
     const cp = POD_CP[cpNorm(key)];
-    if(cp) out.push(cp);
+    if(cp) return Array.from(new Set([key, cp].map(cpNorm).filter(Boolean)));
     const D = podLL(key);
     if(D){
       out.push(D[2], D[2].replace(/\s*\(.*\)$/,''), (D[2].match(/\((.*?)\)/)||[])[1]||'');
@@ -4622,9 +4621,7 @@ function cpAliases(kind, key){
     const p = str(key).trim().toUpperCase();
     if(PORT_JA[p]) out.push(PORT_JA[p], PORT_JA[p].replace(/港$/,''));
   }
-  const res = Array.from(new Set(out.map(cpNorm).filter(Boolean)));
-  if(kind==='pod' && POD_CP[cpNorm(key)]) res.pref = cpNorm(POD_CP[cpNorm(key)]);
-  return res;
+  return Array.from(new Set(out.map(cpNorm).filter(Boolean)));
 }
 /* 一覧の各項目に点数: 一致 100 / 前方一致 80 / 含む 60 / 頭 3 文字 40 */
 function cpMatch(list, aliases){
@@ -4634,7 +4631,7 @@ function cpMatch(list, aliases){
     let s = 0, via = '';
     ns.forEach(n => aliases.forEach(a => {
       let t = 0;
-      if(n===a) t = aliases.pref && a===aliases.pref ? 101 : 100;
+      if(n===a) t = 100;
       else if(a.length>=4 && (n.startsWith(a) || a.startsWith(n) && n.length>=4)) t = 80;
       else if(a.length>=4 && n.includes(a)) t = 60;
       else if(a.length>=2 && /[぀-ヿ一-鿿]/.test(a) && n.includes(a)) t = 50;   /* 漢字・かな 2 文字以上を含む (テスト ↔ 株式会社テスト) */
