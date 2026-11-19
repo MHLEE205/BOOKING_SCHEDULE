@@ -252,6 +252,8 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-form .cp-ok{color:#22a35a;font-weight:700;margin-left:4px}
 .cp-form .cp-why{font-size:11px;color:var(--text2);margin-top:2px}
 .cp-two .cp-pan{margin-top:6px}
+.cp-sp>.cp-pan{min-width:0;max-height:320px;margin-top:8px}
+.cp-sp .cp-it td,.cp-sp .cp-it th{padding-left:4px;padding-right:4px}
 /* Invoice の次の番号 (ユーザー 2026-11-16) */
 .inv-help{position:fixed;z-index:60;width:auto;max-width:min(560px,calc(100vw - 16px));max-height:260px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:5px 7px;font-size:11px;line-height:1.3}
 .inv-help .t{font-weight:700;margin-bottom:2px;font-size:11px}
@@ -791,7 +793,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.69', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.70', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5230,6 +5232,8 @@ function dtlHtml(D, coId, coName){
   /* ② 販売アイテム */
   const sAll = coId ? D.sale.items.filter(x => x.coId===coId) : D.sale.items;
   const sL = dtlSaleShown(D, coId);
+  /* 販売 (左)・購買 (右) を 横に並べる (ユーザー 2026-11-19 — 前は 上下) */
+  h += '<div class="cp-two cp-sp">';
   h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売CO</th><th>S.unit</th><th>残</th></tr>'
@@ -5256,6 +5260,7 @@ function dtlHtml(D, coId, coName){
     + (pH.length ? '<div style="font-size:11px;margin-top:3px"><span class="muted">この条件で 使えない購買（〆・残なし）'+pH.length+' 件 </span><button class="b6-btn sm cp-phid">'+(D.showHidP ? '隠す' : '表示')+'</button>'
       + ' <span class="muted">— COMPASS で 〆 を外した直後なら ⟳ で読み直してください</span></div>' : '')
     + (pL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目・購買元で絞り込んでください）</div>' : '') + '</div>';
+  h += '</div>';
   return h;
 }
 function compassBody(R, picks){
