@@ -779,7 +779,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.54', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.55', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4659,6 +4659,55 @@ async function cpMapLearn(items){
     catch(e){ if(e.status!==412){ toast('選択の記憶に失敗: '+e.message, 'warn'); return; } }
   }
 }
+/* ══════════ 担当ごとの学習 (ユーザー 2026-11-19)
+   同じ船社・POD でも 担当によって B-06 の書き方が違うので、覚えた対応は 担当ごと (kind@担当コード) にも持つ。
+   探す順: 決めた規則 (POD_CP・船社の (N)) → この担当の学習 → 全員の学習 (手で選んだもの) → 名前の自動一致 ══════════ */
+const bkStaff = b => (portStaff(b && b.port)[0]) || '';
+function cpLearnedOf(learned, kind, b, key){
+  const k = cpNorm(key); if(!k || !learned) return null;
+  if(kind==='pod' && POD_CP[k]) return null;   /* 決めた規則が先 */
+  const st = bkStaff(b);
+  return (st && (learned[kind+'@'+st] || {})[k]) || (learned[kind] || {})[k] || null;
+}
+/* COMPASS 入力の実績から学ぶ: B-06 の書き方 → 実際に COMPASS に入っている項目 が 2 件以上同じで、別の項目の例が無い時だけ。
+   手で選んだ記憶 (src なし) は上書きしない。実績の記憶 (src:'hist') は 別の例が出たら消す */
+const CP_HIST_MIN = 2;
+async function cpLearnFromCompass(list, recs, X){
+  const st = {};   /* kind@担当 → B-06 の書き方 → {COMPASS id → 件数} */
+  for(const b of list){
+    const rec = recs.get(String(b.compass_id).toLowerCase()); if(!rec) continue;
+    const staff = bkStaff(b); if(!staff) continue;
+    X.lks.forEach(x => {
+      const key = x.f.key(b), k = cpNorm(key), cur = rec['_'+x.col+'_value'];
+      if(!k || !cur) return;
+      if(x.f.k==='pod' && POD_CP[k]) return;
+      if(!x.o.list.some(y => y.id===cur)) return;   /* 一覧に無い・使わない項目 (船社の (N) など) は学ばない */
+      const g = (st[x.f.k+'@'+staff] = st[x.f.k+'@'+staff] || {}), c = (g[k] = g[k] || {});
+      c[cur] = (c[cur] || 0) + 1;
+    });
+  }
+  const names = {}; X.lks.forEach(x => x.o.list.forEach(y => { names[y.id] = y.name; }));
+  const cur = S.cpMap || {}, add = [], del = [];
+  Object.keys(st).forEach(kind => Object.keys(st[kind]).forEach(k => {
+    const c = st[kind][k], ids = Object.keys(c), old = (cur[kind] || {})[k];
+    if(ids.length===1 && c[ids[0]] >= CP_HIST_MIN){
+      if(old && !old.src) return;   /* 手で選んだものが先 */
+      if(old && old.id===ids[0] && old.n===c[ids[0]]) return;
+      add.push({kind:kind, key:k, id:ids[0], name:names[ids[0]] || '', n:c[ids[0]]});
+    } else if(ids.length > 1 && old && old.src==='hist') del.push({kind:kind, key:k});
+  }));
+  if(!add.length && !del.length) return 0;
+  for(let i=0;i<2;i++){
+    const r = await memoStore().get(CP_MAP).catch(() => ({doc:null, etag:null}));
+    const map = (r.doc && r.doc.map) || {};
+    add.forEach(x => { const old = (map[x.kind] || {})[x.key]; if(old && !old.src) return;
+      (map[x.kind] = map[x.kind] || {})[x.key] = {id:x.id, name:x.name, src:'hist', n:x.n, by:'COMPASS 入力実績 '+x.n+' 件', at:new Date().toISOString()}; });
+    del.forEach(x => { const m = map[x.kind]; if(m && m[x.key] && m[x.key].src==='hist') delete m[x.key]; });
+    try{ await memoStore().put(CP_MAP, {map:map, updated_at:new Date().toISOString()}, r.etag); S.cpMap = map; return add.length + del.length; }
+    catch(e){ if(e.status!==412){ console.warn('COMPASS 実績の学習: 保存できません', e); return 0; } }
+  }
+  return 0;
+}
 
 /* ① チェック (読み取りのみ) → 送る内容 */
 /* COMPASS の一覧・明細を先に (並べて) 読んでおく — 「COMPASS に入力」を開くのが遅かった (ユーザー 2026-11-16)。
@@ -4715,10 +4764,10 @@ async function compassCheck(b){
       let o = await C.options(rel.target);
       if(f.k==='carrier') o = carrierOpts(o);
       L.nav = rel.nav; L.set = o.set; L.list = o.list; L.nameCol = o.nameCol; L.target = rel.target;
-      const lr = !blank(key) && (learned[f.k]||{})[cpNorm(key)];
+      const lr = !blank(key) && cpLearnedOf(learned, f.k, b, key);
       const c = blank(key) ? [] : cpMatch(o.list, cpAliases(f.k, key));
       L.cands = c.slice(0, 6);
-      if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
+      if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = lr.src==='hist' ? '学習（'+staffName(bkStaff(b))+' の '+str(lr.by)+'）' : '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
       else if(c[0] && c[0].s>=80 && !(c[1] && c[1].s===c[0].s)){ L.sel = c[0].id; L.how = 'auto'; L.note = c[0].s>=100 ? '自動で選択' : '自動で選択（似た名前）'; }
       else L.note = blank(key) ? 'B-06 が空 — 必要なら選んでください' : c.length ? '候補から選んでください' : '「'+key+'」が一覧にない — 選んでください';
       L.auto = L.sel;
@@ -5129,7 +5178,8 @@ function openCompassUI(b, R){
       const amc = m.el.querySelector('#cp-am'); picks.am = amc ? amc.checked : false;
       /* 手で選んだ (自動と違う) 対応を覚える */
       cpMapLearn(R.lookups.map((L, i) => ({L:L, id:picks[i]})).filter(x => x.id && x.id!==x.L.auto && !blank(x.L.key))
-        .map(x => ({kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''})));
+        .flatMap(x => { const it = {kind:x.L.kind, key:cpNorm(x.L.key), id:x.id, name:(x.L.list.find(o => o.id===x.id)||{}).name||''};
+          return bkStaff(b) ? [it, Object.assign({}, it, {kind:x.L.kind+'@'+bkStaff(b)})] : [it]; }));
       /* 「← 戻る」で同じ選択のまま開き直せるように R に残す */
       R.lookups.forEach((L, i) => { if(i in picks && picks[i]!==L.sel){ L.sel = picks[i]; L.how = picks[i] && picks[i]===L.auto ? L.how : ''; } });
       if(R.am) R.am.val = picks.am;
@@ -5416,7 +5466,7 @@ function cpHeaderRows(b, rec, X){
     const key = x.f.key(b), cur = rec['_'+x.col+'_value'] || '', o = x.o;
     if(blank(key)) return;   /* B-06 が空の一覧の項目は 比べない・COMPASS を空にしない */
     const curName = (o.list.find(y => y.id===cur) || {}).name || str(rec['_'+x.col+'_value'+FVK]);
-    const lr = (X.learned[x.f.k]||{})[cpNorm(key)];
+    const lr = cpLearnedOf(X.learned, x.f.k, b, key);
     const c = cpMatch(o.list, cpAliases(x.f.k, key));
     let to = '';
     if(lr && o.list.some(y => y.id===lr.id)) to = lr.id;
@@ -5504,6 +5554,7 @@ async function compassCompareAll(){
       } else { out[b.bookkey] = {gone:true, multi:dup.length>1}; ng++; }
     }
     S.cpCmp = out; S.cmpErr = '';
+    cpLearnFromCompass(list, recs, X).then(n => { if(n) console.info('COMPASS 実績から学習: '+n+' 件'); }).catch(e => console.warn('COMPASS 実績の学習', e));
     S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
     updSync(); renderBoard();
   }catch(e){ console.warn('COMPASS 比較: できません', e); S.cmpInfo = '⚠ COMPASS 比較できません'; S.cmpErr = String(e.message || e).slice(0, 300); updSync();
