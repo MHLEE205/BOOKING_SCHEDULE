@@ -764,7 +764,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.40', date:'2026-11-18', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.41', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2198,15 +2198,86 @@ async function addBkHist(b, from, to){
   }
   toast('Booking no. の履歴を保存できません（同時に更新が重なりました）', 'warn');
 }
-function openBkHist(b){
-  const hs = bkHistOf(b).slice().reverse();
-  let x = '<div style="margin-bottom:8px">今の Booking no.: <b>'+esc(b.bkgno || '（空）')+'</b></div>';
-  x += hs.length
-    ? '<table class="b6-s"><tr><th>日時</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
-      + hs.map(e => '<tr><td>'+esc(fmtDT(e.at))+'</td><td>'+(e.from ? esc(e.from).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>')+'</td><td>→</td><td>'+(e.to ? esc(e.to).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>')+'</td><td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
-    : '<div class="muted">変更の記録はありません。</div>';
-  x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で Booking no. を変えた時の記録です（2026-11-12 から）。前の番号で検索しても見つかります。</div>';
-  modal('↺ Booking no. の変更履歴 — '+esc(bkLabel(b)), x, [{label:'閉じる', fn:c=>c()}]);
+/* ══════════ ブッキングの変更履歴 (全項目) — SharePoint B-06_MEMO/hist/bk/<bookkey>.json (2026-11-19 から)
+   {list: [{at, by, lv:'B'|'A', row, k, from, to}, ...]}。B-06 の画面で保存した変更だけ (COMPASS・取込・他アプリは対象外)。
+   値は記録した時の表示用の文字。bkgno.json (Booking no. のみ・検索用) も今まで通り書く ══════════ */
+const HIST_LABEL = Object.assign({}, COL_LABEL, {cy_note:'OPEN/Cut メモ', etd_note:'ETD メモ', eta_note:'ETA メモ', bkqty:'本数', cntr:'コンテナ', deleted:'削除'});
+const HIST_B_KEYS = new Set(BOOKING_KEYS.concat(['cy_note','etd_note','eta_note','bkqty','cntr','deleted']));
+const HIST_A_KEYS = new Set(['grade','packer','qty_raw','memo','deleted'].concat(STATUS_KEYS));
+const histPath = b => 'hist/bk/'+b.bookkey+'.json';
+function histVal(k, o){
+  const v = o[k];
+  if(k==='deleted') return v ? '削除' : '（有効）';
+  if(k==='approval') return v==='NONE' || !v ? '' : approvalLabel(o);
+  if(DATE_KEYS.includes(k)) return v ? str(v).slice(0,10).replace(/-/g,'/') : '';
+  return str(v);
+}
+function histRowLabel(a){ return [str(a.grade).trim(), str(a.packer).trim()].filter(Boolean).join(' ') || 'Packer 行'; }
+/* 変更を集めて ブッキングごとに 1 つずつ書く (続けて入力しても 同じファイルへの同時書き込みにならないように) */
+function logHist(b, ents){
+  if(!ents.length) return;
+  const by = myName() || userEmail(), at = new Date().toISOString();
+  ents.forEach(e => { e.by = by; e.at = at; });
+  S.histBuf = S.histBuf || {}; S.histQ = S.histQ || {};
+  (S.histBuf[b.bookkey] = S.histBuf[b.bookkey] || []).push(...ents);
+  S.histQ[b.bookkey] = (S.histQ[b.bookkey] || Promise.resolve()).then(() => flushHist(b)).catch(() => {});
+}
+async function flushHist(b){
+  const add = (S.histBuf[b.bookkey] || []).splice(0); if(!add.length) return;
+  for(let i=0;i<4;i++){
+    const r = await memoStore().get(histPath(b)).catch(() => ({doc:null, etag:null}));
+    const list = ((r.doc && r.doc.list) || []).concat(add);
+    try{ await memoStore().put(histPath(b), {bookkey:b.bookkey, list:list, updated_at:add[add.length-1].at}, r.etag); return; }
+    catch(e){ if(e.status!==412){ toast('変更履歴を保存できません: '+e.message, 'warn'); return; } }
+  }
+  toast('変更履歴を保存できません（同時に更新が重なりました）', 'warn');
+}
+function histDiff(lv, keys, prevObj, obj, row){
+  const out = [];
+  keys.forEach(k => {
+    if(!(lv==='B' ? HIST_B_KEYS : HIST_A_KEYS).has(k)) return;
+    const f = histVal(k, prevObj), t = histVal(k, obj);
+    if(f.trim()===t.trim()) return;
+    const e = {lv:lv, k:k, from:f, to:t}; if(row) e.row = row;
+    out.push(e);
+  });
+  return out;
+}
+async function openBkHist(b){
+  let list = [], err = '';
+  LEENAI.loading.show('変更履歴を読込中…');
+  try{ const r = await memoStore().get(histPath(b)); list = (r.doc && r.doc.list) || []; }
+  catch(e){ err = e.message; }
+  finally{ LEENAI.loading.hide(); }
+  /* 2026-11-19 より前の Booking no. の変更 (bkgno.json) も合わせて出す (同じ変更は 1 つに) */
+  bkHistOf(b).forEach(o => {
+    const dup = list.some(e => e.k==='bkgno' && e.from===str(o.from) && e.to===str(o.to) && Math.abs(Date.parse(e.at)-Date.parse(o.at)) < 120000);
+    if(!dup) list.push({at:o.at, by:o.by, lv:'B', k:'bkgno', from:str(o.from), to:str(o.to)});
+  });
+  list = list.slice().sort((x, y) => str(y.at).localeCompare(str(x.at)));
+  const cell = v => v ? esc(v).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>';
+  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : (HIST_LABEL[e.k] || e.k))
+    + (e.lv==='A' && e.row ? ' <span class="muted" style="font-size:11px">（'+esc(e.row)+'）</span>' : '');
+  const keys = Array.from(new Set(list.map(e => e.k)));
+  const tbl = f => {
+    const ls = f ? list.filter(e => e.k===f) : list;
+    return ls.length
+      ? '<table class="b6-s"><tr><th>日時</th><th>項目</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
+        + ls.map(e => '<tr><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
+          + (e.k.startsWith('_') ? '<td colspan="3">'+cell(e.to)+'</td>' : '<td>'+cell(e.from)+'</td><td>→</td><td>'+cell(e.to)+'</td>')
+          + '<td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
+      : '<div class="muted">変更の記録はありません。</div>';
+  };
+  let x = '<div style="margin-bottom:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span>今の Booking no.: <b>'+esc(b.bkgno || '（空）')+'</b></span>';
+  if(keys.length > 1) x += '<label>項目 <select id="b6-hist-f"><option value="">すべて（'+list.length+'）</option>'
+    + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
+  x += '</div>';
+  if(err) x += '<div class="muted" style="color:var(--danger)">履歴ファイルを読めませんでした: '+esc(err)+'</div>';
+  x += '<div id="b6-hist-t" style="max-height:60vh;overflow:auto">'+tbl('')+'</div>';
+  x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で変えた時の記録です（全項目は 2026-11-19 から・Booking no. は 2026-11-12 から）。COMPASS・取込・他のアプリでの変更は残りません。前の Booking no. で検索しても見つかります。</div>';
+  modal('↺ 変更履歴 — '+esc(bkLabel(b)), x, [{label:'閉じる', fn:c=>c()}], true);
+  const sel = $('#b6-hist-f');
+  if(sel) sel.addEventListener('change', () => { $('#b6-hist-t').innerHTML = tbl(sel.value); });
 }
 function updSync(){ $('#b6-sync').textContent = S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : ''; }
 
@@ -2287,6 +2358,8 @@ async function saveBooking(b, patch, cellKey){
     setFx('B', b.id, fk, 'saved');
     /* 空 → 番号 (はじめての入力) は変更ではないので残さない — ユーザー 2026-11-17 */
     if('bkgno' in patch && str(prev.bkgno).trim() && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
+    /* 全項目の変更履歴 (空 → 値 のはじめての入力も残す・Booking no. の 空 → 番号 も) */
+    logHist(b, histDiff('B', Object.keys(patch), Object.assign({}, b, prev), b));
     /* Booking no.・港 のコピーを Packer 行にも反映 */
     if('bkgno' in patch || 'port' in patch){
       for(const a of b.rows){
@@ -2320,6 +2393,8 @@ async function saveAsg(b, a, patch, cellKey){
     const saved = await job;
     a.etag = saved.etag; a.modifiedon = saved.modifiedon; a.modifiedby = saved.modifiedby;
     setFx('A', a.id, fk, 'saved');
+    const pa = Object.assign({}, a, prev);
+    logHist(b, histDiff('A', Object.keys(patch), pa, a, histRowLabel(pa)));
     renderBoard(); return true;
   }catch(e){
     Object.assign(a, prev); a.name = asName(b, a);
@@ -3545,7 +3620,7 @@ function bookingMenu(ev, b){
     if(b.compass_status==='SENT') items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
-    items.push({label:'↺ Booking no. の変更履歴'+(bkHistOf(b).length ? '（'+bkHistOf(b).length+'）' : ''), fn:()=>openBkHist(b)});
+    items.push({label:'↺ 変更履歴', fn:()=>openBkHist(b)});
     items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
     items.push({label:'🗑 ブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
@@ -3580,6 +3655,7 @@ async function addRow(b){
   try{
     const saved = await S.store.create('A', newAsg(b, seq, last));
     b.rows.push(saved); sortRows(b); renderBoard();
+    logHist(b, [{lv:'A', k:'_add', from:'', to:histRowLabel(saved)}]);
     toast('Packer 行を追加しました（Grade・Packer は直上行の値）', 'ok');
   }catch(e){ toast('追加に失敗: '+e.message.slice(0,120), 'danger'); }
 }
@@ -3624,6 +3700,7 @@ async function addBooking(){
     const saved = await S.store.create('B', b);
     const a = await S.store.create('A', newAsg(saved, 1, null));   /* ブッキングは常に Packer 行 1 つ以上 */
     saved.rows = [a]; S.bk.set(saved.bookkey, saved);
+    logHist(saved, [{lv:'B', k:'_new', from:'', to:'B-06 の画面で作成'}]);
     S.hl = saved.bookkey;
     ['#f-appr','#f-packer','#f-q'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false;
     S.port = ''; if(!staffMatch(saved)) S.staff = '';
