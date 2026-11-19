@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.71', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.72', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6339,6 +6339,26 @@ async function cpInspectRec(E, r, depth, lkOnly, prog){
   return '<table class="b6-s" style="font-size:12px"><tr><th>項目</th><th>つながるテーブル</th><th>COMPASS の表示 (主の名前)</th><th>B-06 での名前</th><th>レコード ID</th></tr>'+lk+'</table>'
     + (other.length ? '<div style="font-size:11.5px;margin:4px 0 8px;line-height:1.7">'+other.join('　')+'</div>' : '');
 }
+/* このレコードを指している ほかのテーブル (COMPASS の作ったテーブルだけ) のレコード — 作業・ドレー の「保存」で何ができるかを調べる (2026-11-19) */
+async function cpInspectKids(logical, ids, skip, prog){
+  const rl = await dvGet("EntityDefinitions(LogicalName='"+logical+"')/OneToManyRelationships?$select=ReferencingEntity,ReferencingAttribute");
+  const rels = (rl.value || []).filter(x => /^(cr49f|crcf9|cr[0-9a-z]{3,4})_/.test(x.ReferencingEntity) && !/^leenai_/.test(x.ReferencingEntity) && !skip.includes(x.ReferencingEntity));
+  let h = '';
+  for(const x of rels){
+    let KE; try{ KE = await cpEntMeta(x.ReferencingEntity); }catch(e){ continue; }
+    if(prog) prog(cpEntLabel(KE));
+    let rows = [];
+    for(const id of ids){
+      try{ rows = rows.concat((await dvGetAnn(KE.entity.EntitySetName+'?$filter='+encodeURIComponent('_'+x.ReferencingAttribute+'_value eq '+id)+'&$top=30')).value || []); }
+      catch(e){ h += '<div class="ng" style="font-size:11px">'+esc(cpEntLabel(KE))+' ('+esc(x.ReferencingAttribute)+'): 読めません '+esc(e.message.slice(0, 80))+'</div>'; break; }
+    }
+    if(!rows.length) continue;
+    h += '<h4 style="margin:10px 0 4px">🧩 '+esc(cpEntLabel(KE))+' <span class="muted" style="font-weight:400;font-size:11px">'+esc(KE.entity.LogicalName)+' / '+esc(KE.entity.EntitySetName)+' — 列 '+esc(x.ReferencingAttribute)+' で つながる '+rows.length+' 件</span></h4>';
+    for(let i=0; i<Math.min(rows.length, 8); i++) h += '<div style="font-size:11.5px;margin-top:4px"><b>'+(i+1)+'</b> <span class="muted">作成 '+esc(fmtDT(rows[i].createdon))+' · 更新 '+esc(fmtDT(rows[i].modifiedon))+'</span></div>'+await cpInspectRec(KE, rows[i], 0, false, prog);
+    if(rows.length > 8) h += '<div class="muted" style="font-size:11px">… ほか '+(rows.length - 8)+' 件</div>';
+  }
+  return h || '<div class="muted" style="font-size:11.5px">（つながるレコードはありません）</div>';
+}
 async function compassInspect(q, el){
   q = str(q).trim(); if(!q){ el.innerHTML = '<span class="ng">Booking no. か Invoice no. を入れてください</span>'; return; }
   el.innerHTML = '<div class="muted">COMPASS を読んでいます（読み取りのみ）…</div>';
@@ -6359,7 +6379,12 @@ async function compassInspect(q, el){
         const ds = (await dvGetAnn(DE.entity.EntitySetName+'?$filter='+encodeURIComponent('_'+dr.ReferencingAttribute+'_value eq '+r[pid]))).value || [];
         h += '<h4 style="margin:10px 0 4px">📦 明細 — '+esc(cpEntLabel(DE))+' ('+esc(DE.entity.EntitySetName)+') '+ds.length+' 行</h4>';
         for(let i=0; i<ds.length; i++) h += '<div style="font-weight:700;font-size:12px;margin-top:6px">明細 '+(i+1)+'</div>'+await cpInspectRec(DE, ds[i], 1, false, prog);
+        /* 作業・ドレー などの 明細を指すテーブル */
+        h += '<h4 style="margin:12px 0 2px;border-top:1px dashed var(--border);padding-top:8px">🔗 明細を指している ほかのテーブル</h4>'
+          + await cpInspectKids(DE.entity.LogicalName, ds.map(d => d[DE.entity.PrimaryIdAttribute]), [], prog);
       } else h += '<div class="muted">明細のテーブルが見つかりません</div>';
+      h += '<h4 style="margin:12px 0 2px;border-top:1px dashed var(--border);padding-top:8px">🔗 ブッキングを指している ほかのテーブル（明細 以外）</h4>'
+        + await cpInspectKids(M.entity.LogicalName, [r[pid]], dr ? [dr.ReferencingEntity] : [], prog);
     }
     el.innerHTML = h;
   }catch(e){ el.innerHTML = '<span class="ng">読めません: '+esc(e.message.slice(0, 300))+'</span>'; }
