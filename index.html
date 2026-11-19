@@ -773,7 +773,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.47', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.48', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5344,7 +5344,10 @@ function cpHeaderRows(b, rec, X){
   const rows = [], FVK = '@OData.Community.Display.V1.FormattedValue';
   const same = (x, y) => PARSE.nfkcSame(str(x)).replace(/\s+/g, ' ').trim() === PARSE.nfkcSame(str(y)).replace(/\s+/g, ' ').trim();
   X.fcols.forEach(x => {
-    const f = x.f, v06 = f.date ? str(b[f.k]).slice(0, 10) : f.val(b), vcp = rec[x.col]==null ? '' : f.date ? jstDay(rec[x.col]) : str(rec[x.col]);
+    const f = x.f;
+    /* ETD・ETA は 入力後に COMPASS と ずれることが多いので 比べない (ユーザー 2026-11-19) */
+    if(f.k==='etd' || f.k==='eta') return;
+    const v06 = f.date ? str(b[f.k]).slice(0, 10) : f.val(b), vcp = rec[x.col]==null ? '' : f.date ? jstDay(rec[x.col]) : str(rec[x.col]);
     /* 本船名: COMPASS 側も 括弧の前だけで比べる (括弧を送らない規則 2026-11-17 より前に入力したものは COMPASS に (1ST) などが残っている — ユーザー 2026-11-19) */
     if(same(v06, vcp) || (f.k==='vessel' && same(v06, vesselForCompass(vcp)))) return;
     const r = {k:f.k, label:f.label, col:x.col, cp:f.date ? vcp.replace(/-/g, '/') : vcp, b06:f.date ? v06.replace(/-/g, '/') : v06,
@@ -5524,7 +5527,7 @@ async function compassUpdate(b){
     /* 明細 (Packer・本数・品目): 参考のお知らせだけ — B-06 からは変えない */
     if(X.dRows.length) h += '<div style="margin-top:10px;font-size:12.5px"><div class="muted" style="margin-bottom:2px">ℹ 明細の違い（参考 — 明細は B-06 からは変えません。COMPASS で直すか、削除 → 再入力）</div>'
       + X.dRows.map((r, i) => '<div style="display:flex;gap:8px;align-items:center;padding:2px 0'+(r.okd ? ';opacity:.6' : '')+'"><span>・'+esc(r.label)+': COMPASS <b>'+esc(r.cp || '（空）')+'</b> / B-06 <b>'+esc(r.b06 || '（空）')+'</b></span><span style="margin-left:auto">'+okCell(r, 'd', i)+'</span></div>').join('') + '</div>';
-    h += '<div class="muted" style="margin-top:8px;font-size:11.5px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・乙仲・海上運賃区分 は変えません。</div>';
+    h += '<div class="muted" style="margin-top:8px;font-size:11.5px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・海上運賃区分 は変えません。ETD・ETA は比べません。</div>';
     if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
     return h;
   };
