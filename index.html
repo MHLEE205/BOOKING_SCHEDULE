@@ -771,7 +771,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.45', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.46', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1407,7 +1407,7 @@ function cellHtml(col, b, a){
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
       if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
-      else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
+      else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
       const hs = bkHistOf(b), cpn = cpChgOf(b);
       if(cpn) h += ' <span class="bkh cp" data-bkh="1" title="'+esc('COMPASS 入力（'+fmtDT(b.compass_at)+'）の後に '+cpn+' 件の変更\n— クリックで変更履歴・COMPASS に変更入力')+'">↺'+cpn+'</span>';
       else if(hs.length) h +=' <span class="bkh" data-bkh="1" title="'+esc('Booking no. の変更 '+hs.length+' 回\n'+hs.slice(-3).map(e => fmtDT(e.at)+'  '+(e.from||'（空）').replace(/\n/g,' ')+' → '+(e.to||'（空）').replace(/\n/g,' ')+'  ('+e.by+')').join('\n')+'\n— クリックで履歴')+'">↺'+hs.length+'</span>';
@@ -2305,21 +2305,21 @@ async function openBkHist(b){
   const isNew = e => sent && !isNaN(cpT) && Date.parse(e.at) > cpT + 1000 && cpRel(e);
   const nNew = list.filter(isNew).length;
   const cell = v => v ? esc(v).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>';
-  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : e.k==='_cpin' ? 'COMPASS に入力' : (HIST_LABEL[e.k] || e.k))
+  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : e.k==='_cpin' ? 'COMPASS に入力' : e.k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[e.k] || e.k))
     + (e.lv==='A' && e.row ? ' <span class="muted" style="font-size:11px">（'+esc(e.row)+'）</span>' : '');
   const keys = Array.from(new Set(list.map(e => e.k)));
   const tbl = f => {
     const ls = f ? list.filter(e => e.k===f) : list;
     return ls.length
       ? '<table class="b6-s"><tr><th>日時</th><th>項目</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
-        + ls.map(e => '<tr'+(e.k==='_cp' || e.k==='_cpin' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
+        + ls.map(e => '<tr'+(e.k==='_cp' || e.k==='_cpin' || e.k==='_cpok' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
           + (e.k.startsWith('_') ? '<td colspan="3">'+cell(e.to)+'</td>' : '<td>'+cell(e.from)+'</td><td>→</td><td>'+cell(e.to)+'</td>')
           + '<td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
       : '<div class="muted">変更の記録はありません。</div>';
   };
   let x = '<div style="margin-bottom:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span>今の Booking no.: <b>'+esc(b.bkgno || '（空）')+'</b></span>';
   if(keys.length > 1) x += '<label>項目 <select id="b6-hist-f"><option value="">すべて（'+list.length+'）</option>'
-    + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : k==='_cpin' ? 'COMPASS に入力' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
+    + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : k==='_cpin' ? 'COMPASS に入力' : k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
   x += '</div>';
   if(err) x += '<div class="muted" style="color:var(--danger)">履歴ファイルを読めませんでした: '+esc(err)+'</div>';
   if(sent) x += '<div style="margin-bottom:6px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)">🚢 COMPASS 入力: '+esc(fmtDT(b.compass_at))
@@ -3673,7 +3673,7 @@ function bookingMenu(ev, b){
   if(!b.deleted){
     if(b.compass_status==='SENT'){
       items.push({label:'✔ COMPASS 入力済み（詳細）', fn:()=>compassInfo(b)});
-      items.push({label:'🚢 COMPASS と比べる・変更入力'+(cpDiffN(b) ? '（違い '+cpDiffN(b)+' 件）' : cpChgOf(b) ? '（変更 '+cpChgOf(b)+' 件）' : ''), fn:()=>compassUpdate(b)});
+      items.push({label:'🚢 COMPASS と比べる・変更入力・確認'+(cpDiffN(b) ? '（違い '+cpDiffN(b)+' 件）' : cpChgOf(b) ? '（変更 '+cpChgOf(b)+' 件）' : ''), fn:()=>compassUpdate(b)});
     }
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ'+(hasBkMemo(b)?'（あり）':''), fn:()=>openBookingMemo(b)});
@@ -5378,15 +5378,15 @@ async function compassCompareAll(){
   S._cmpBusy = true;
   let nr = 0;
   try{
-    const X = await cpDiffCtx();
+    const [X] = await Promise.all([cpDiffCtx(), loadCpOk()]);
     const ids = list.map(b => String(b.compass_id).toLowerCase());
     const [recs, dts] = await Promise.all([C.readMany(ids, X.sel), C.detailSummary ? C.detailSummary(ids).catch(e => { console.warn('COMPASS 明細の比較: 読めません', e); return null; }) : null]);
     const out = {}; let nd = 0, ng = 0;
     for(const b of list){
       const id = String(b.compass_id).toLowerCase(), rec = recs.get(id);
       if(rec){
-        const rows = cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id)));
-        out[b.bookkey] = {rows:rows}; if(rows.some(r => !r.soft)) nd++;
+        const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
+        out[b.bookkey] = {rows:rows}; if(rows.some(r => !r.soft && !r.okd)) nd++;
         continue;
       }
       /* COMPASS にない */
@@ -5408,11 +5408,11 @@ async function compassCompareAll(){
   if(nr) setTimeout(compassCompareAll, 1500);   /* つなぎ直したものを比べる */
 }
 const cpCmpOf = b => (b.compass_status==='SENT' && S.cpCmp && S.cpCmp[b.bookkey]) || null;
-const cpDiffN = b => { const o = cpCmpOf(b); return o && o.rows ? o.rows.filter(r => !r.soft).length : 0; };
+const cpDiffN = b => { const o = cpCmpOf(b); return o && o.rows ? o.rows.filter(r => !r.soft && !r.okd).length : 0; };
 /* セルの印: その列が COMPASS と違う時 */
 function cpCellAttr(b, k){
   const o = cpCmpOf(b); if(!o || !o.rows) return '';
-  const rs = o.rows.filter(r => r.k===k && !r.soft); if(!rs.length) return '';
+  const rs = o.rows.filter(r => r.k===k && !r.soft && !r.okd); if(!rs.length) return '';
   return ' data-cpdiff="1" title="'+esc(rs.map(r => 'COMPASS と違います — '+r.label+'\nCOMPASS: '+(r.cp || '（空）')+'\nB-06: '+(r.b06 || '（空）')).join('\n'))+'"';
 }
 function compassGoneInfo(b){
@@ -5422,39 +5422,68 @@ function compassGoneInfo(b){
     + '<div class="muted" style="margin-top:6px;font-size:12px">内容を直して入れ直す場合は「再入力」— 今の B-06 の内容で COMPASS 入力の画面を開きます。</div>',
     [{label:'閉じる', fn:c=>c()}, {label:'↻ 比べ直す', fn:c=>{ c(); compassCompareAll(); }}, {label:'🚢 再入力', pri:true, fn:c=>{ c(); compassResend(b); }}]);
 }
+/* ── COMPASS との違いの「確認」(違っていても このままで OK — 担当者が確認。ユーザー 2026-11-19) ──
+   B-06_MEMO/hist/cpok.json {map:{<bookkey>:{<行の key>:{label, cp, b06, by, at}}}}。
+   確認した時と COMPASS・B-06 の値が同じ間だけ有効 (どちらかが変わればまた違いとして出す)。確認・取消は変更履歴に残す */
+const CPOK_PATH = 'hist/cpok.json';
+async function loadCpOk(){
+  try{ const r = await memoStore().get(CPOK_PATH); S.cpOk = (r.doc && r.doc.map) || {}; }
+  catch(e){ S.cpOk = S.cpOk || {}; }
+}
+const cpRowKey = r => r.dtl ? 'dtl:'+r.k : (r.col || r.label);
+function applyCpOk(b, rows){
+  const m = (S.cpOk || {})[b.bookkey] || {};
+  rows.forEach(r => { const o = m[cpRowKey(r)]; r.okd = o && o.cp===str(r.cp) && o.b06===str(r.b06) ? o : null; });
+  return rows;
+}
+async function setCpOk(b, r, on){
+  const key = cpRowKey(r), ent = {label:r.label, cp:str(r.cp), b06:str(r.b06), by:myName() || userEmail(), at:new Date().toISOString()};
+  for(let i=0;i<4;i++){
+    const g = await memoStore().get(CPOK_PATH).catch(() => ({doc:null, etag:null}));
+    const map = (g.doc && g.doc.map) || {};
+    const m = map[b.bookkey] = map[b.bookkey] || {};
+    if(on) m[key] = ent; else { delete m[key]; if(!Object.keys(m).length) delete map[b.bookkey]; }
+    try{ await memoStore().put(CPOK_PATH, {map:map, updated_at:ent.at}, g.etag); S.cpOk = map; break; }
+    catch(e){ if(e.status!==412){ toast('確認を保存できません: '+e.message, 'warn'); return false; } if(i===3){ toast('確認を保存できません（同時に更新が重なりました）', 'warn'); return false; } }
+  }
+  r.okd = on ? ent : null;
+  logHist(b, [{lv:'B', k:'_cpok', from:'', to:(on ? 'COMPASS との違いを確認（このままで OK）' : 'COMPASS との違いの確認を取り消し')+' — '+r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')}]);
+  renderBoard();
+  return true;
+}
 async function compassUpdate(b){
   const C = S.store.compass;
   if(!C || !C.read){ toast('COMPASS に接続できません', 'danger'); return; }
   if(cpCmpOf(b) && cpCmpOf(b).gone){ compassGoneInfo(b); return; }
   LEENAI.loading.show('COMPASS を読んでいます（読み取りのみ）…');
-  let X, hist = [];
-  try{
-    X = await compassDiff(b);
-    try{ const r = await memoStore().get(histPath(b)); hist = (r.doc && r.doc.list) || []; }catch(e){}
-  }catch(e){ LEENAI.loading.hide(); modal('🚢 COMPASS に変更入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> '+esc(String(e.message || e).slice(0, 400))+'</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+  let X;
+  try{ [X] = await Promise.all([compassDiff(b), loadCpOk()]); }
+  catch(e){ LEENAI.loading.hide(); modal('🚢 COMPASS と比べる — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> '+esc(String(e.message || e).slice(0, 400))+'</div>', [{label:'閉じる', fn:c=>c()}]); return; }
   LEENAI.loading.hide();
+  applyCpOk(b, X.rows); applyCpOk(b, X.dRows);
   /* 一覧の印も今の内容に */
   S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:X.rows.concat(X.dRows)}; renderBoard();
-  const cpT = Date.parse(b.compass_at);
-  const aChg = hist.filter(e => e.lv==='A' && cpRel(e) && Date.parse(e.at) > cpT + 1000);
   const test = !CFG.COMPASS_UPDATE_WRITE && !C.demo;
   const cell = v => v ? esc(v).replace(/\n/g, '<br>') : '<span class="muted">（空）</span>';
-  let h = '';
-  if(!X.rows.length) h += '<div><span class="bdg o">✔</span> COMPASS（ヘッダー）と B-06 の内容は同じです。</div>';
-  else h += '<div style="font-size:15px;font-weight:700;margin-bottom:8px">⚠ COMPASS と次の項目が違います。変更入力しますか？</div>'
-    + '<table class="b6-s"><tr><th></th><th>項目</th><th>COMPASS（今）</th><th></th><th>B-06（変更後）</th><th></th></tr>'
-    + X.rows.map((r, i) => '<tr><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b></td>'
-      + '<td class="muted" style="font-size:11.5px">'+(r.ok ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td></tr>').join('') + '</table>';
-  /* 明細 (Packer・本数・品目) の違い — B-06 からは変えない */
-  if(X.dRows.length || aChg.length){
-    h += '<div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)"><b>明細（Packer・本数・品目）</b>'
-      + (X.dRows.length ? '<table class="b6-s" style="margin-top:4px"><tr><th>項目</th><th>COMPASS</th><th>B-06</th></tr>'+X.dRows.map(r => '<tr><td>'+esc(r.label)+'</td><td>'+cell(r.cp)+'</td><td>'+cell(r.b06)+'</td></tr>').join('')+'</table>' : '')
-      + (aChg.length ? '<div class="muted" style="font-size:11.5px;margin-top:4px">COMPASS 入力の後の Packer 行の変更 '+aChg.length+' 件:<br>'+aChg.slice(-8).map(e => esc(fmtDT(e.at)+' '+(e.row ? e.row+' ' : '')+(e.k==='_add' ? '行を追加' : (HIST_LABEL[e.k] || e.k)+': '+(e.from || '（空）')+' → '+(e.to || '（空）')))).join('<br>')+'</div>' : '')
-      + '<div style="margin-top:4px">明細は B-06 からは変えません。<b>COMPASS で直す</b>か、<b>COMPASS でブッキングを削除 → B-06 で 再入力</b>（Invoice・販売CO・品目・Packer・行の追加/削除 などは こちら）してください。</div></div>';
-  }
-  h += '<div class="muted" style="margin-top:8px;font-size:12px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・乙仲・海上運賃区分 は変えません。チェックした項目だけ送ります。</div>';
-  if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
-  const btns = [{label:'やめる', fn:c=>c()}];
+  const okCell = (r, src, i) => r.okd
+    ? '<span style="color:#15803d;font-weight:700;white-space:nowrap">✔ 確認済</span><div class="muted" style="font-size:10.5px;white-space:nowrap">'+esc(r.okd.by)+' '+esc(fmtDT(r.okd.at))+'</div><button class="b6-btn sm cpu-ok" data-src="'+src+'" data-i="'+i+'" data-on="0">取消</button>'
+    : '<button class="b6-btn sm cpu-ok" data-src="'+src+'" data-i="'+i+'" data-on="1" title="違っていても このままで OK（違いとして出さない・変更履歴に残る）">✔ 確認</button>';
+  const body = () => {
+    let h = '';
+    if(!X.rows.length) h += '<div><span class="bdg o">✔</span> COMPASS（ヘッダー）と B-06 の内容は同じです。</div>';
+    else h += '<div style="font-size:15px;font-weight:700;margin-bottom:8px">⚠ COMPASS と次の項目が違います。変更入力しますか？</div>'
+      + '<div class="muted" style="font-size:11.5px;margin:-4px 0 6px">チェックした項目を COMPASS に送ります。違っていても このままで良い時は「✔ 確認」。</div>'
+      + '<table class="b6-s"><tr><th>送る</th><th>項目</th><th>COMPASS（今）</th><th></th><th>B-06（変更後）</th><th></th><th>確認</th></tr>'
+      + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b></td>'
+        + '<td class="muted" style="font-size:11.5px">'+(r.ok || !r.note ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>';
+    /* 明細 (Packer・本数・品目): 参考のお知らせだけ — B-06 からは変えない */
+    if(X.dRows.length) h += '<div style="margin-top:10px;font-size:12.5px"><div class="muted" style="margin-bottom:2px">ℹ 明細の違い（参考 — 明細は B-06 からは変えません。COMPASS で直すか、削除 → 再入力）</div>'
+      + X.dRows.map((r, i) => '<div style="display:flex;gap:8px;align-items:center;padding:2px 0'+(r.okd ? ';opacity:.6' : '')+'"><span>・'+esc(r.label)+': COMPASS <b>'+esc(r.cp || '（空）')+'</b> / B-06 <b>'+esc(r.b06 || '（空）')+'</b></span><span style="margin-left:auto">'+okCell(r, 'd', i)+'</span></div>').join('') + '</div>';
+    h += '<div class="muted" style="margin-top:8px;font-size:11.5px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・乙仲・海上運賃区分 は変えません。</div>';
+    if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
+    return h;
+  };
+  const btns = [{label:'閉じる', fn:c=>c()}];
   if(!X.rows.some(r => r.ok) && cpChgOf(b)) btns.push({label:'↺ 変更マークを消す（確認済み）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
   let busy = false;
   if(X.rows.some(r => r.ok)) btns.push({label:'変更入力する', pri:true, fn:async c=>{
@@ -5466,7 +5495,17 @@ async function compassUpdate(b){
     catch(e){ toast(String(e.message || e).slice(0, 200), 'danger'); }
     finally{ busy = false; }
   }});
-  const pm = modal('🚢 COMPASS に変更入力 — '+esc(bkLabel(b)), h, btns, true);
+  const pm = modal('🚢 COMPASS と比べる — '+esc(bkLabel(b)), body(), btns, true);
+  pm.el.addEventListener('click', async ev => {
+    const bt = ev.target.closest('.cpu-ok'); if(!bt || busy) return;
+    const r = (bt.dataset.src==='d' ? X.dRows : X.rows)[+bt.dataset.i]; if(!r) return;
+    const keep = new Set($$('.cpu-ck', pm.el).filter(x => x.checked).map(x => x.dataset.i));
+    busy = true; bt.disabled = true;
+    try{ await setCpOk(b, r, bt.dataset.on==='1'); }finally{ busy = false; }
+    pm.body.innerHTML = body();
+    /* 確認したものはチェックを外す・ほかは そのまま */
+    $$('.cpu-ck', pm.el).forEach(x => { const rr = X.rows[+x.dataset.i]; if(!x.disabled) x.checked = keep.has(x.dataset.i) && !rr.okd; });
+  });
 }
 async function sendCompassUpdate(b, X, picked, test){
   const body = {}, allowed = new Set();
