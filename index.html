@@ -781,7 +781,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.58', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.59', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2389,10 +2389,7 @@ async function openBkHist(b){
     + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : k==='_cpin' ? 'COMPASS に入力' : k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
   x += '</div>';
   if(err) x += '<div class="muted" style="color:var(--danger)">履歴ファイルを読めませんでした: '+esc(err)+'</div>';
-  if(sent) x += '<div style="margin-bottom:6px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)">'
-    + (firstIn ? '<span class="hist-cp1">🚢 COMPASS に最初に入力: '+esc(fmtDT(firstIn.at))+'</span>（'+esc(firstIn.by)+'）<br>' : '')
-    + '最後の COMPASS 入力・変更入力: '+esc(fmtDT(b.compass_at))
-    + (nNew ? ' — その後の変更 <b>'+nNew+' 件</b>（色付きの行）。COMPASS にも反映するには「COMPASS に変更入力」' : ' — その後の変更はありません')+'</div>';
+  /* 上の COMPASS 入力の案内は 出さない (表の緑の行で分かる — ユーザー 2026-11-19) */
   x += '<div id="b6-hist-t" style="max-height:60vh;overflow:auto">'+tbl('')+'</div>';
   x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で変えた時の記録です（全項目は 2026-11-19 から・Booking no. は 2026-11-12 から）。COMPASS・取込・他のアプリでの変更は残りません。前の Booking no. で検索しても見つかります。</div>';
   const btns = [{label:'閉じる', fn:c=>c()}];
