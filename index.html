@@ -121,6 +121,11 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map .rt-hd b{color:var(--accent)}
 .b6-map .rt-x{margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px}
 .b6-map .rt-x:hover{color:var(--danger)}
+.b6-map .rt-w{position:relative;width:100%}
+.b6-map .rt-z{position:absolute;right:3px;bottom:3px;display:flex;flex-direction:column;gap:2px;z-index:2}
+.b6-map .rt-z button{width:17px;height:17px;padding:0;line-height:15px;font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;opacity:.85}
+.b6-map .rt-z button:hover{opacity:1;color:var(--accent);border-color:var(--accent)}
+.b6-map .rt-c{font-weight:400;color:var(--text3);font-size:10.5px}
 .b6-map.route svg{border-radius:5px;flex:none;width:100%;height:auto;max-height:none}
 .b6-map .sea{fill:color-mix(in srgb,var(--info) 9%,var(--read))}
 .b6-map.route .land{fill:color-mix(in srgb,var(--text3) 45%,var(--read));stroke:none}
@@ -793,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.70', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.71', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1928,6 +1933,14 @@ const POD_LL = (() => {
   Object.keys(P).forEach(name => P[name][2].split(' ').forEach(k => { m[k] = [P[name][0], P[name][1], name]; }));
   return m;
 })();
+/* POD の国 (地図の下に表示 — ユーザー 2026-11-19) */
+const POD_CTRY = (() => { const m = {}, A = {
+  '韓国':'Gwangyang Busan Incheon Pyeongtaek Ulsan', 'インドネシア':'Surabaya Jakarta Semarang Belawan',
+  'ベトナム':'Cat Lai (HCM)|SP-ITC (HCM)|Cai Mep|Haiphong|Da Nang', 'タイ':'Lat Krabang|Laem Chabang|Bangkok',
+  '台湾':'Taichung Taoyuan Kaohsiung Keelung', 'マレーシア':'Port Klang|Penang|Pasir Gudang', 'シンガポール':'Singapore',
+  'インド':'Nhava Sheva|Mundra|Chennai', 'バングラデシュ':'Chittagong', 'スリランカ':'Colombo', 'パキスタン':'Karachi',
+  '中国':'Shanghai Ningbo Qingdao Tianjin Xiamen Shenzhen', '香港':'Hong Kong|', 'フィリピン':'Manila', 'カンボジア':'Sihanoukville', 'ミャンマー':'Yangon'};
+  Object.keys(A).forEach(c => A[c].split(A[c].includes('|') ? '|' : ' ').forEach(n => { m[n] = c; })); return m; })();
 /* POD の原文 → 位置。「PUS→KWA」のような変更は最後を使う。括弧の中・空白・記号は無視 */
 function podLL(raw){
   let s = PARSE.nfkcSame(firstLine(raw)).toUpperCase().replace(/^POD\s*[:：]/,'');
@@ -2055,7 +2068,11 @@ function renderRoute(el, b){
   const RT_H = Math.max(60, Math.min(185, (S.mapH||185) - 74)), bw = el.getBoundingClientRect().width;
   const AR = Math.max(0.55, Math.min(2.4, ((bw > 50 ? bw : 158) - 12) / RT_H));
   if(w/h > AR) h = w/AR; else w = h*AR;
-  const vx = cx*k - w/2, vy = -cy - h/2;
+  /* 地図の ＋ − で拡大・縮小 (選んだブッキングの間だけ — ユーザー 2026-11-19) */
+  const z = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ.z : 1; w /= z; h /= z;
+  /* 拡大するほど 中心を POD に寄せる (真ん中のままだと 両方の港が枠の外に出る) */
+  const t = z > 1 ? 1 - 1/z : 0, zx = cx + (D[0] - cx)*t, zy = cy + (D[1] - cy)*t;
+  const vx = zx*k - w/2, vy = -zy - h/2;
   const X = lon => lon*k, Y = lat => -lat;
   const pathOf = pts => 'M'+pts.map(p => X(p[0]).toFixed(2)+','+Y(p[1]).toFixed(2)).join('L');
   const lon0 = vx/k, lon1 = (vx+w)/k, lat1 = -vy, lat0 = -(vy+h);
@@ -2065,6 +2082,7 @@ function renderRoute(el, b){
   const [px, py] = [X(P[0]), Y(P[1])], [dx, dy] = [X(D[0]), Y(D[1])];
   const lbl = (x, y, t, right, dy) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+(dy==null?1:dy)*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.2*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
   el.innerHTML = head
+    + '<div class="rt-w"><div class="rt-z"><button data-rtz="1.5" title="拡大">＋</button><button data-rtz="0.6667" title="縮小">−</button>'+(z!==1 ? '<button data-rtz="0" title="元の大きさ">↺</button>' : '')+'</div>'
     + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="height:'+RT_H+'px">'
     + '<defs><clipPath id="rtclip"><rect x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
     + '<rect class="sea" x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/>' + land
@@ -2073,9 +2091,9 @@ function renderRoute(el, b){
     + (Math.abs(px-dx) < 30*s && Math.abs(py-dy) < 10*s
         ? lbl(px, py, pol, false, -2.6) + lbl(dx, dy, D[2], false, 4.6)   /* 近い港同士: POL は上・POD は下 */
         : lbl(px, py, pol, px < dx) + lbl(dx, dy, D[2], dx < px || dx < vx + w*0.5))
-    + '</g></svg>'
+    + '</g></svg></div>'
     + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '')
-    + '<div class="cap">⚓ '+esc(D[2])+'<button class="gmap" data-gmap="1" data-q="'+esc(D[2].replace(/\s*\(.*\)$/,'')+' port')+'" title="Google マップで開く（新しいタブ） — '+esc(D[2])+'">Maps ↗</button></div>';
+    + '<div class="cap">⚓ '+esc(D[2])+(POD_CTRY[D[2]] ? '<span class="rt-c">'+esc(POD_CTRY[D[2]])+'</span>' : '')+'<button class="gmap" data-gmap="1" data-q="'+esc(D[2].replace(/\s*\(.*\)$/,'')+' port')+'" title="Google マップで開く（新しいタブ） — '+esc(D[2])+'">Maps ↗</button></div>';
   /* 日付・距離は見出しのツールチップに */
   const hd = el.querySelector('.rt-hd');
   if(hd) hd.title = (fmtMD(b.etd)||'ETD?')+' → '+(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km（目安の航路・実際の航路とは異なります）';
@@ -6519,6 +6537,9 @@ function initUI(){
   /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
   $('#b6-map').addEventListener('click', ev => {
     if(ev.target.closest('[data-rtx]')){ selectBooking(null); return; }
+    const zb = ev.target.closest('[data-rtz]');
+    if(zb){ const b = S.selBk && S.bk.get(S.selBk); if(!b) return; const f = +zb.dataset.rtz, z0 = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ.z : 1;
+      S.rtZ = {k:b.bookkey, z:f ? Math.max(0.3, Math.min(8, z0*f)) : 1}; renderMap(); return; }
     const gm = ev.target.closest('[data-gmap]');
     if(gm){ if(gm.dataset.q) window.open(gmapSearch(gm.dataset.q), '_blank', 'noopener'); else openGoogleMap(); return; }
     const d = ev.target.closest('[data-port]'); if(!d) return;
