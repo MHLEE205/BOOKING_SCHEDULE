@@ -187,7 +187,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bkh.cpd{color:#c2410c;border-color:#fb923c;background:#fff7ed;font-weight:700}
 .bkh.cpd:hover{background:#ea580c;color:#fff}
 .b6-t td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c}
-tr.hist-cp td{color:#15803d;font-weight:700}
+tr.hist-cp td{color:#15803d}
+tr.hist-cp1 td,span.hist-cp1{color:#15803d;font-weight:700}
 tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .amtg{display:inline-block;margin-left:3px;padding:0 4px;border-radius:4px;font-size:10px;font-weight:700;line-height:15px;cursor:pointer;border:1px dashed var(--border);color:var(--text3);opacity:0;transition:opacity .15s}
 .b6-t td:hover .amtg{opacity:.8}
@@ -778,7 +779,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.49', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.50', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2327,20 +2328,30 @@ async function openBkHist(b){
     const dup = list.some(e => e.k==='bkgno' && e.from===str(o.from) && e.to===str(o.to) && Math.abs(Date.parse(e.at)-Date.parse(o.at)) < 120000);
     if(!dup) list.push({at:o.at, by:o.by, lv:'B', k:'bkgno', from:str(o.from), to:str(o.to)});
   });
+  /* 最初の COMPASS 入力 (ユーザー 2026-11-19): 記録 (_cpin) が無い時 (v0.45 より前の入力) は COMPASS のレコードの作成日時から */
+  const C = S.store && S.store.compass;
+  if(b.compass_status==='SENT' && !list.some(e => e.k==='_cpin') && b.compass_id && C && C.read){
+    try{
+      const FVK = '@OData.Community.Display.V1.FormattedValue';
+      const rec = await Promise.race([C.read(b.compass_id, ['createdon', '_createdby_value']), new Promise((_, rj) => setTimeout(() => rj(new Error('timeout')), 6000))]);
+      if(rec && rec.createdon) list.push({at:rec.createdon, by:str(rec['_createdby_value'+FVK]) || '—', lv:'B', k:'_cpin', from:'', to:'COMPASS に入力しました（ID '+b.compass_id+'・COMPASS の作成日時）'});
+    }catch(e){}
+  }
   list = list.slice().sort((x, y) => str(y.at).localeCompare(str(x.at)));
+  const cpins = list.filter(e => e.k==='_cpin'), firstIn = cpins.length ? cpins[cpins.length-1] : null;
   /* COMPASS 入力済み: 入力の後の変更 (COMPASS に関係する項目) に色を付ける */
   const sent = b.compass_status==='SENT', cpT = sent ? Date.parse(b.compass_at) : NaN;
   const isNew = e => sent && !isNaN(cpT) && Date.parse(e.at) > cpT + 1000 && cpRel(e);
   const nNew = list.filter(isNew).length;
   const cell = v => v ? esc(v).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>';
-  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : e.k==='_cpin' ? 'COMPASS に入力' : e.k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[e.k] || e.k))
+  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : e.k==='_cpin' ? (e===firstIn ? 'COMPASS に最初に入力' : 'COMPASS に入力') : e.k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[e.k] || e.k))
     + (e.lv==='A' && e.row ? ' <span class="muted" style="font-size:11px">（'+esc(e.row)+'）</span>' : '');
   const keys = Array.from(new Set(list.map(e => e.k)));
   const tbl = f => {
     const ls = f ? list.filter(e => e.k===f) : list;
     return ls.length
       ? '<table class="b6-s"><tr><th>日時</th><th>項目</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
-        + ls.map(e => '<tr'+(e.k==='_cp' || e.k==='_cpin' || e.k==='_cpok' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
+        + ls.map(e => '<tr'+(e===firstIn ? ' class="hist-cp1"' : e.k==='_cp' || e.k==='_cpin' || e.k==='_cpok' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
           + (e.k.startsWith('_') ? '<td colspan="3">'+cell(e.to)+'</td>' : '<td>'+cell(e.from)+'</td><td>→</td><td>'+cell(e.to)+'</td>')
           + '<td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
       : '<div class="muted">変更の記録はありません。</div>';
@@ -2350,7 +2361,9 @@ async function openBkHist(b){
     + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : k==='_cpin' ? 'COMPASS に入力' : k==='_cpok' ? 'COMPASS 差の確認' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
   x += '</div>';
   if(err) x += '<div class="muted" style="color:var(--danger)">履歴ファイルを読めませんでした: '+esc(err)+'</div>';
-  if(sent) x += '<div style="margin-bottom:6px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)">🚢 COMPASS 入力: '+esc(fmtDT(b.compass_at))
+  if(sent) x += '<div style="margin-bottom:6px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)">'
+    + (firstIn ? '<span class="hist-cp1">🚢 COMPASS に最初に入力: '+esc(fmtDT(firstIn.at))+'</span>（'+esc(firstIn.by)+'）<br>' : '')
+    + '最後の COMPASS 入力・変更入力: '+esc(fmtDT(b.compass_at))
     + (nNew ? ' — その後の変更 <b>'+nNew+' 件</b>（色付きの行）。COMPASS にも反映するには「COMPASS に変更入力」' : ' — その後の変更はありません')+'</div>';
   x += '<div id="b6-hist-t" style="max-height:60vh;overflow:auto">'+tbl('')+'</div>';
   x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で変えた時の記録です（全項目は 2026-11-19 から・Booking no. は 2026-11-12 から）。COMPASS・取込・他のアプリでの変更は残りません。前の Booking no. で検索しても見つかります。</div>';
@@ -4547,7 +4560,7 @@ function makeMemCompass(){
     async exists(id){ return recs.some(r => r.id===id); },
     async read(id){
       const r = recs.find(x => x.id===id); if(!r){ const e = new Error('404'); e.status = 404; throw e; }
-      const o = {'@odata.etag':'W/"'+(r.v||1)+'"'};
+      const o = {'@odata.etag':'W/"'+(r.v||1)+'"', createdon:r.at};
       Object.keys(r.body).forEach(k => { const m = k.match(/^(.*)@odata\.bind$/); if(m) o['_'+m[1]+'_value'] = (String(r.body[k]).match(/\(([^)]+)\)/) || [])[1] || null; else o[k] = r.body[k]; });
       return o;
     },
