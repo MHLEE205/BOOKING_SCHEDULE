@@ -301,6 +301,8 @@ table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-co
 /* 見やすさ (2026-11-12 ユーザー): UD フォント・少し大きく・縦は中央・日付/港/承認/状態は中央・数字は桁をそろえる */
 table.b6-t{font-family:"BIZ UDPGothic","BIZ UDゴシック","Meiryo UI","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;font-size:13px;line-height:1.42;font-variant-numeric:tabular-nums}   /* 行の高さ 105% (1.35 → 1.42) — ユーザー 2026-11-16 */
 /* COMPASS 入力済み: Booking no. のセルに緑の網かけ (ユーザー 2026-11-16) */
+.b6-t td[data-f="bkgno"] .bkno{font-weight:700;font-size:13px}
+.b6-t td[data-f="bkgno"] .bdg,.b6-t td[data-f="bkgno"] .bkh{font-size:9.5px;line-height:13px;padding:0 4px;font-weight:600;margin-left:2px;vertical-align:1px}
 .b6-t td.cp-sent{background:color-mix(in srgb,#22a35a 17%,transparent)}
 /* Excel のようなセル選択 (クリック = 選択、もう一度・ダブルクリック・F2・文字を打つ = 入力・Enter = 右へ) */
 .b6-t td.ed{cursor:cell}
@@ -771,7 +773,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.46', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.47', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1402,7 +1404,7 @@ function cellHtml(col, b, a){
       return h;
     }
     if(k==='bkgno'){
-      let h = esc(v);
+      let h = '<span class="bkno">'+esc(v)+'</span>';
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
@@ -2537,7 +2539,7 @@ function invHelpHtml(X, err, val, b){
     + rows.map(r => '<tr><td><b>'+esc(r.c.name)+'</b></td><td>'+(r.items.length ? esc(r.items.join('・')) : '<span class="muted">'+(X.remain ? '—' : '…')+'</span>')+'</td>'
       + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyer || '')+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : dtlNum(r.remain)+'t')+'</td><td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
       + '<td>'+(r.last ? esc(invFmt(r.pre, r.last.seq))+'<span class="src">'+(r.last.src==='COMPASS' ? 'C' : 'B')+'</span>' : '<span class="muted">なし</span>')+'</td>'
-      + '<td>'+(r.over ? '<span class="dup" title="この契約の番号の帯を超えます">'+esc(r.next)+' ⚠</span>' : '<button class="go" data-inv="'+esc(r.next)+'">'+esc(r.next)+'</button>')+'</td></tr>').join('')
+      + '<td>'+(r.over ? '<span class="dup" title="この契約の番号の帯を超えます">'+esc(r.next)+' ⚠</span>' : '<button class="go" data-inv="'+esc(r.next)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">'+esc(r.next)+'</button>')+'</td></tr>').join('')
     + '</table>' + (hidden ? '<div class="muted" style="margin-top:4px;font-size:11px">残 0 の契約 '+hidden+' 件は非表示</div>' : '')
     + '<div class="muted" style="margin-top:3px;font-size:10.5px">番号を押すと入ります・最後: C = COMPASS / B = B-06</div>';
   return h;
@@ -2564,7 +2566,10 @@ function invHelpOpen(el, td, b, pick){
   else C.invoiceIndex().then(v => { X = S.invIdx = v; withRemain(); draw(); }).catch(e => { err = String(e.message || e).slice(0, 160); draw(); });
   el.addEventListener('input', draw);
   /* mousedown で選ぶ (入力欄の blur = 確定 を起こさない) */
-  box.addEventListener('mousedown', ev => { ev.preventDefault(); const g = ev.target.closest('[data-inv]'); if(g) pick(g.dataset.inv); });
+  box.addEventListener('mousedown', ev => { ev.preventDefault(); const g = ev.target.closest('[data-inv]'); if(!g) return;
+    /* この番号はこの販売契約 — COMPASS 入力で 販売CO を自動で選ぶのに覚える (チームで共有) */
+    if(g.dataset.co) cpMapLearn([{kind:'invco', key:invNorm(g.dataset.inv), id:g.dataset.co, name:g.dataset.con || ''}]).catch(() => {});
+    pick(g.dataset.inv); });
   const bw = $('#b6-board'); bw.addEventListener('scroll', place);
   el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
 }
@@ -2584,6 +2589,15 @@ function otsuLoad(){
     return null;
   })().catch(() => null).finally(() => { S._otsuP = null; });
   return S._otsuP;
+}
+/* ブッキングの 通関依頼 (Packer 行の最初の値。✔ などの印は除く) */
+function customsOf(b){ const a = (b.rows || []).find(x => !x.deleted && str(x.customs).trim()); return a ? str(statusOf(a.customs).memo).trim() : ''; }
+/* 乙仲の一覧 (COMPASS) から 名前 (「|」の前) が同じものを 1 件。同じ名前が複数なら POL の 搬入港 で絞る */
+function otsuByName(list, name, port){
+  const n = cpNorm(name); if(!n) return '';
+  let hit = list.filter(y => cpNorm(str(y.name).split('|')[0])===n);
+  if(hit.length > 1 && port){ const al = cpAliases('port', str(port).trim().toUpperCase()); const h2 = hit.filter(y => y.port && al.includes(cpNorm(y.port))); if(h2.length) hit = h2; }
+  return hit.length===1 ? hit[0].id : '';
 }
 function customsCands(b){
   const pol = str(b.port).trim().toUpperCase(); if(!pol) return [];
@@ -4076,9 +4090,12 @@ const DvCompass = {
     return this._meta = {entity:ed, attrs:attrs, rels:rels};
   },
   /* 一覧 (POL・POD・船社・販売CO …)。COMPASS は主の名前列が番号 (1, 10, 1000…) なので、表示名は cpNames で選んだ文字の列を使う */
-  async options(entity, parentEntity, hint){
+  options(entity, parentEntity, hint){
     const ck = entity+'|'+(parentEntity||'')+'|'+(hint||'');
-    if(this._opts[ck]) return this._opts[ck];
+    if(!this._opts[ck]){ const p = this._optionsLoad(entity, parentEntity, hint); this._opts[ck] = p; p.catch(() => { if(this._opts[ck]===p) delete this._opts[ck]; }); }
+    return this._opts[ck];
+  },
+  async _optionsLoad(entity, parentEntity, hint){
     const N = await cpNames(entity, hint);
     /* 親の一覧 (例: 販売CO の 販売先) を指す列 — あれば一緒に読んで絞り込みに使う */
     let pa = null, par = new Map();
@@ -4089,7 +4106,7 @@ const DvCompass = {
     }
     const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, port:o.port, f:o.f, parent:pa ? par.get(o.id) || null : null}))
       .sort((x, y) => x.name.localeCompare(y.name, 'ja', {numeric:true}));
-    return this._opts[ck] = {set:N.set, parentAttr:pa, nameCol:N.colLabel, portLabel:N.portLabel, list:list};
+    return {set:N.set, parentAttr:pa, nameCol:N.colLabel, portLabel:N.portLabel, list:list};
   },
   async findByBookingNo(no){
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
@@ -4688,8 +4705,12 @@ async function compassCheck(b){
         L.month = invMon; L.inv = inv; L.parentIdx = exIdx.buyer;
         const c = salecoCands(L, par ? par.sel : '');
         L.cands = c.slice(0, 15);
-        if(c.length===1){ L.sel = c[0].id; L.how = 'auto'; L.note = '自動で選択（候補が 1 件）'; }
+        const li = (learned.invco || {})[invNorm(b.invoiceno)];
+        if(li && L.list.some(x => x.id===li.id)){ L.sel = li.id; L.how = 'learn'; L.note = 'Invoice「'+invNorm(b.invoiceno)+'」の候補で選んだ契約'; if(!L.cands.some(x => x.id===li.id)) L.cands.unshift({id:li.id, name:(L.list.find(x => x.id===li.id) || {}).name || li.name}); }
+        else if(c.length===1){ L.sel = c[0].id; L.how = 'auto'; L.note = '自動で選択（Invoice「'+invNorm(b.invoiceno)+'」の契約）'; }
         else L.note = c.length ? '候補から選んでください（'+c.length+' 件）' : '候補なし — 一覧から選んでください';
+        /* 販売先が決まっていなければ 契約の販売先を */
+        if(L.sel && par && !par.sel){ const o = L.list.find(x => x.id===L.sel); if(o && o.parent && par.list.some(x => x.id===o.parent)){ par.sel = par.auto = o.parent; par.how = 'auto'; par.note = '販売CO の契約から自動で選択'; } }
       } else {
         const lr = !blank(f.key) && (learned[f.k]||{})[cpNorm(f.key)];
         /* 乙仲: 「海運貨物取扱業者」の 搬入港 が POL と同じものを候補に (1 件なら自動) */
@@ -4703,7 +4724,9 @@ async function compassCheck(b){
           L.cands = pc.map(lab);
           L.candLabel = pc.length && pc[0].carMiss ? pol+' → '+pod+' の運賃（船社 '+car+' は見つからず — 船社違い）' : [pol, pod, car].join(' → ')+' の運賃';
         }
-        if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
+        const cu = f.k==='otsu' ? otsuByName(o.list, customsOf(b), pol) : '';
+        if(cu){ L.sel = cu; L.how = 'auto'; L.note = '通関依頼「'+customsOf(b)+'」から自動で選択'; }
+        else if(lr && o.list.some(x => x.id===lr.id)){ L.sel = lr.id; L.how = 'learn'; L.note = '前回の選択（'+str(lr.by)+' '+fmtDT(lr.at)+'）'; }
         else if(pc.length===1 && !pc[0].carMiss){ L.sel = pc[0].id; L.how = 'auto'; L.note = '自動で選択（'+L.candLabel+'が 1 件）'; }
         else if(pc.length) L.note = L.candLabel+'から選んでください（'+pc.length+' 件）';
         else L.note = blank(f.key) ? '選んでください' : '選んでください — 次から「'+f.show+'」で自動'+(f.k==='otsu' ? '（搬入港 '+pol+' の乙仲が一覧にありません）' : '');
@@ -4968,7 +4991,10 @@ async function openCompass(b){
   /* COMPASS に同じ Booking no. が既にあれば 入力画面は開かない (ユーザー 2026-11-17)。B-06 を「COMPASS済」にできる */
   const C = S.store.compass;
   /* 読んでから 1 分を過ぎていたら COMPASS の一覧 (販売・購買・残・契約) を読み直してから開く */
-  if(C && !C.demo && C.fresh && (!S._cpAt || Date.now() - S._cpAt > CFG.COMPASS_FRESH_MS)) C.fresh();
+  /* 以前は 1 分を過ぎると全部読み直してから開いていた (10 秒ほど — ユーザー 2026-11-19)。今は読んである一覧ですぐ開く。
+     一覧は裏で読み直し (cpBgRefresh)・送る直前に 販売・購買 の残を COMPASS から読み直して確かめる。とても古い (10 分) 時だけ読み直す */
+  if(C && !C.demo && C.fresh && S._cpAt && Date.now() - S._cpAt > 600e3) C.fresh();
+  const t0 = Date.now();
   if(!blank(b.bkgno) && C && C.findByBookingNo){
     let dup = [];
     try{ dup = await C.findByBookingNo(firstLine(b.bkgno)); }catch(e){}
@@ -4985,7 +5011,7 @@ async function openCompass(b){
     }
   }
   let R;
-  try{ R = await compassCheck(b); }
+  try{ R = await compassCheck(b); R.ms = Date.now() - t0; console.info('COMPASS 入力: 画面まで '+R.ms+' ms'); }
   catch(e){ modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">確認に失敗</span> '+esc(e.message.slice(0,300))+'</div><div class="muted" style="margin-top:6px">COMPASS を読む権限がない場合もこの表示になります。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
   openCompassUI(b, R);
 }
@@ -5149,6 +5175,7 @@ async function compassDtlBodies(R, bkId){
 /* ③「本当に COMPASS に反映しますか？」→ ④ 送信 */
 function confirmCompass(b, R, picks){
   const body = compassBody(R, picks);
+  { const C = S.store.compass; if(C && !C.demo && C._detailsLoad && R.dtl && !R.dtl.err){ R._freshAt = Date.now(); R._freshP = C._detailsLoad(); R._freshP.catch(() => {}); } }
   const live = b.rows.filter(a=>!a.deleted), hon = live.reduce((t,a)=>t+honOf(a),0);
   const pickName = i => { const L = R.lookups[i]; const o = L.list.find(x=>x.id===picks[i]); return o ? o.name : '（送らない）'; };
   const test = !CFG.COMPASS_WRITE && !S.store.compass.demo;
@@ -5180,7 +5207,10 @@ function confirmCompass(b, R, picks){
     {label:'← 戻って直す', fn:c=>{ if(busy) return; c(); openCompassUI(b, R); }},
     {label:'反映する', pri:true, fn:async c=>{
       if(busy) return; busy = true;
-      try{ if(!(await compassDtlRecheck(R))){ busy = false; return; } await compassFillAuto(R, body, picks); await sendCompass(b, R, body, test); c(); }
+      try{ const t0 = Date.now();
+        const [ok] = await Promise.all([compassDtlRecheck(R), compassFillAuto(R, body, picks)]);
+        if(!ok){ busy = false; return; }
+        await sendCompass(b, R, body, test); c(); console.info('COMPASS 入力: 送信 '+(Date.now() - t0)+' ms'); }
       catch(e){ busy = false; toast(e.message.slice(0,160), 'danger'); }
     }}]);
 }
@@ -5192,7 +5222,10 @@ async function compassDtlRecheck(R){
   const rows = D.rows.filter(r => r.sale && r.pur && r.hon > 0);
   if(!rows.length) return true;
   let N;
-  try{ C.forget(); N = await C.details(); }
+  try{
+    N = R._freshP && Date.now() - R._freshAt < 120e3 ? await R._freshP.catch(() => null) : null;
+    if(!N){ C.forget(); N = await C.details(); }
+  }
   catch(e){ toast('COMPASS を読み直せません: '+String(e.message || e).slice(0, 120), 'danger'); return false; }
   const need = {S:new Map(), P:new Map()};
   rows.forEach(r => { need.S.set(r.sale, (need.S.get(r.sale)||0) + r.wt); need.P.set(r.pur, (need.P.get(r.pur)||0) + r.wt); });
@@ -5225,9 +5258,8 @@ async function compassFillAuto(R, body, picks){
 async function sendCompass(b, R, body, test){
   const C = S.store.compass;
   /* 直前の再確認: B-06 の状態と COMPASS の重複 */
-  const cur = await S.store.get('B', b.id);
+  const [cur, dup] = await Promise.all([S.store.get('B', b.id), C.findByBookingNo(firstLine(b.bkgno))]);
   if(cur.compass_status==='SENT') throw new Error('他の人が先に COMPASS へ入力しました（ID '+cur.compass_id+'）。画面を再読込してください');
-  const dup = await C.findByBookingNo(firstLine(b.bkgno));
   if(dup.length) throw new Error('COMPASS に同じ Booking no. が既にあります。送信を中止しました');
   if(test){
     modal('試験モード — 送信内容', '<div>COMPASS には書き込んでいません。実際に送る場合の内容です。</div><pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">POST '+esc(COMPASS.ES)+'\n'+esc(JSON.stringify(body, null, 2))+'</pre>', [{label:'閉じる', fn:c=>c()}], true);
@@ -5298,10 +5330,14 @@ async function cpDiffCtx(){
     const rel = M.rels.get(fc); let o = null; try{ o = await C.options(rel.target); }catch(e){}
     if(o) lks.push({f:f, col:fc, rel:rel, a:M.attrs.get(fc) || {}, o:o});
   }
+  /* 乙仲: COMPASS の 乙仲 一覧の名前 (「|」の前) と B-06 の 通関依頼 を比べる */
+  let otsu = null;
+  for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && /乙仲/.test(a.label) && M.rels.get(k)){
+    try{ otsu = {col:k, a:a, rel:M.rels.get(k), o:await C.options(M.rels.get(k).target, null, '乙仲')}; }catch(e){} break; } }
   const amCol = cpAmCol(M);
   let upCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /^更新日時$/.test(a.label)){ upCol = {col:k, dateOnly:a.dateOnly}; break; } }
-  return {M:M, fcols:fcols, lks:lks, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
-    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), amCol ? [amCol] : [])};
+  return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
+    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [])};
 }
 /* ヘッダーの違い (k = B-06 の列 — 画面のセルに印を付けるのに使う) */
 function cpHeaderRows(b, rec, X){
@@ -5333,6 +5369,15 @@ function cpHeaderRows(b, rec, X){
       bind:to ? {nav:x.rel.nav, set:o.set, id:to} : null, ok:!!to && x.a.updOk!==false, def:!!to,
       note:!to ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
   });
+  if(X.otsu){
+    const v = customsOf(b), cur = rec['_'+X.otsu.col+'_value'] || '';
+    const curName = str(((X.otsu.o.list.find(y => y.id===cur) || {}).name) || rec['_'+X.otsu.col+'_value'+FVK]).split('|')[0].trim();
+    if(v && cpNorm(v)!==cpNorm(curName)){
+      const to = otsuByName(X.otsu.o.list, v, b.port);
+      rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curName, b06:v, bind:to ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, id:to} : null,
+        ok:!!to && X.otsu.a.updOk!==false, def:!!to, note:!to ? '「'+v+'」の乙仲が COMPASS の一覧で 1 つに決まりません — COMPASS で直してください' : ''});
+    }
+  }
   if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
     if(v!==c) rows.push({k:'cycut', label:'AM', col:X.amCol, cp:c ? '✔ AM' : '—', b06:v ? '✔ AM' : '—', send:v, ok:(X.M.attrs.get(X.amCol)||{}).updOk!==false, def:true, note:''}); }
   return rows;
@@ -6414,6 +6459,13 @@ async function startTool(){
   await restoreMemo();
   /* COMPASS の一覧・明細を裏で先読み (権限がなければ何もしない) */
   setTimeout(() => compassWarm(), 4000);
+  /* COMPASS の一覧 (販売・購買・残・契約) を裏で 3 分ごとに読み直す — 画面が見えていて、入力画面を開いていない時だけ */
+  setInterval(() => {
+    const C = S.store && S.store.compass;
+    if(document.hidden || !S.ready || !C || C.demo || !C.fresh || S._warmP || document.querySelector('.b6-modal-bg')) return;
+    if(S._cpAt && Date.now() - S._cpAt < 180e3) return;
+    C.fresh(); compassWarm();
+  }, 60e3);
 }
 
 /* デモモード (?demo=1): 共通ファイルのログインを通さず、メモリ上の合成データで動かす */
