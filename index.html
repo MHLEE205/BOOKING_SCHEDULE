@@ -770,7 +770,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.43', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.44', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2331,7 +2331,7 @@ async function openBkHist(b){
   const sel = $('#b6-hist-f');
   if(sel) sel.addEventListener('change', () => { $('#b6-hist-t').innerHTML = tbl(sel.value); });
 }
-function updSync(){ $('#b6-sync').textContent = (S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : '') + (S.cmpInfo ? ' · '+S.cmpInfo : ''); }
+function updSync(){ $('#b6-sync').textContent = (S.lastSync ? '✔ 同期 '+new Date(S.lastSync).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+'（'+S.store.name+'）' : '') + (S.cmpInfo ? ' · '+S.cmpInfo : ''); $('#b6-sync').title = '20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト' + (S.cmpErr ? '\nCOMPASS 比較のエラー: '+S.cmpErr : ''); }
 
 /* ── 20 秒自動更新 (modifiedon 基準・編集中のセルは上書きしない・非表示タブでは停止) ── */
 async function refreshTick(){
@@ -5395,10 +5395,11 @@ async function compassCompareAll(){
         nr++;
       } else { out[b.bookkey] = {gone:true, multi:dup.length>1}; ng++; }
     }
-    S.cpCmp = out;
+    S.cpCmp = out; S.cmpErr = '';
     S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
     updSync(); renderBoard();
-  }catch(e){ console.warn('COMPASS 比較: できません', e); S.cmpInfo = 'COMPASS 比較できません'; updSync(); }
+  }catch(e){ console.warn('COMPASS 比較: できません', e); S.cmpInfo = '⚠ COMPASS 比較できません'; S.cmpErr = String(e.message || e).slice(0, 300); updSync();
+    toast('COMPASS と比較できません: '+S.cmpErr.slice(0, 160), 'warn'); }
   finally{ S._cmpBusy = false; }
   if(nr) setTimeout(compassCompareAll, 1500);   /* つなぎ直したものを比べる */
 }
