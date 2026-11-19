@@ -302,6 +302,8 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .ic{display:inline-block;font-size:.82em;margin-right:4px;vertical-align:1px;opacity:.9}
 .b6-chip .ic,.b6-mbtn .ic,.b6-pin .ic{margin-right:3px}
 /* ＋ ブッキング追加: 目立つ色 (2026-11-12 ユーザー) */
+.b6-btn.b6-allocb{margin-left:auto;font-weight:700;color:var(--accent);border-color:var(--accent)}
+.b6-btn.b6-allocb.on{background:var(--accent);color:#fff}
 .b6-btn.b6-add{background:#f76b15;border-color:#f76b15;color:#fff;font-weight:800;box-shadow:0 2px 6px rgba(247,107,21,.35)}
 .b6-btn.b6-add:hover{background:#e25a07;border-color:#e25a07;filter:none}
 table.b6-t{border-collapse:separate;border-spacing:0;font-size:12px;width:max-content}
@@ -467,6 +469,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="fg"><label title="削除したブッキング・Packer 行だけを表示（≡ / ⋮ メニューから復元できます）"><input type="checkbox" id="f-del">削除済み</label></span>
         <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="cut" selected>Cut 昇順</option><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
         <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel">
+        <button class="b6-btn b6-allocb" id="b-alloc" data-alloc="1" title="割り当て表 (販売・購買の残) を右に表示 / 閉じる">📊 割り当て</button>
       </div>
       <div class="b6-bar b6-abar">
         <div class="b6-sum" id="b6-sum"></div>
@@ -785,7 +788,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.64', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.65', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1554,8 +1557,8 @@ function renderBoard(){
     const badge = p ? '<span class="rhp"'+scStyle(portColor(p))+' title="'+esc(portStaff(p).map(staffName).join(' ／ '))+'">'+esc(p)+'</span>' : '<span class="rhp" style="--sc:#868e96">港未入力</span>';
     if(S.region==='ALL' || tabs.length>1) h += '<div class="b6-rhd" data-tk="'+esc(t.k)+'">'+badge+'<span class="rht">'+esc(t.r.tab)+'</span><span class="n">'+t.sub.filter(b=>!b.deleted && !isHidBk(b)).length+' 件</span>'
       + (tabs.length>1 ? '<span class="rmv"><button data-rmv="-1" title="この表を上へ"'+(ti===0?' disabled':'')+'>▲</button><button data-rmv="1" title="この表を下へ"'+(ti===tabs.length-1?' disabled':'')+'>▼</button></span>' : '')
-      + hidChip(t.hid) + ALLOC_LINK + '</div>';
-    else h += '<div class="b6-rhd">'+hidChip(t.hid)+ALLOC_LINK+'</div>';
+      + hidChip(t.hid) + '</div>';
+    else h += '<div class="b6-rhd">'+hidChip(t.hid)+'</div>';
     h += t.nShow ? boardTable(t.r.code, t.sub, F) : '<div class="muted" style="padding:4px 12px 8px;font-size:12px">この表のブッキングは すべて非表示です</div>';
   });
   const wrap = $('#b6-board'), st = wrap.scrollTop, sl = wrap.scrollLeft;
@@ -1571,6 +1574,8 @@ const allocPref = (k, v) => { try{ if(v===undefined) return localStorage.getItem
 function allocLinkPlace(){
   const wrap = $('#b6-board'); if(!wrap) return;
   const on = !!($('#b6-alloc') && $('#b6-alloc').classList.contains('on'));
+  /* 割り当て は 上の「📊 割り当て」ボタン 1 つに (表の見出しのリンクは やめた — ユーザー 2026-11-19) */
+  const bt = $('#b-alloc'); if(bt) bt.classList.toggle('on', on);
   $$('#b6-board .b6-rhd').forEach(hd => {
     const lk = hd.querySelector('.alk'); if(!lk) return;
     let tb = hd.nextElementSibling; while(tb && tb.tagName!=='TABLE') tb = tb.querySelector ? (tb.querySelector('table') || tb.nextElementSibling) : null;
@@ -6518,6 +6523,7 @@ function initUI(){
   /* 地域の順番: 表の見出しの ▲▼ */
   /* 割り当て: ETD・ETA の上のリンク */
   $('#b6-board').addEventListener('click', ev => { if(ev.target.closest('[data-alloc]')){ ev.stopPropagation(); allocToggle(); } }, true);
+  $('#b-alloc').addEventListener('click', () => allocToggle());
   $('#b6-board').addEventListener('scroll', () => allocLinkPlace(), {passive:true});
   window.addEventListener('resize', () => allocLinkPlace());
   $('#b6-board').addEventListener('click', ev => {
