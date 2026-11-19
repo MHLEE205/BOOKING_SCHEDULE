@@ -218,7 +218,8 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-dtl td.cp-dn{font-size:11.5px;line-height:1.5;min-width:160px}
 .bdg.cpk{cursor:pointer;font-size:7.4px;padding:0 3.5px;line-height:1.5;margin-left:auto;flex:none}   /* 今の 70% (10.5px → 7.4px) — ユーザー 2026-11-13 */
 .pkc{display:flex;align-items:center;gap:4px;text-align:left}
-.cpco{font-size:8px;line-height:1.2;color:var(--info);white-space:nowrap;font-weight:400;opacity:.9}
+.cpco{font-size:8px;line-height:1.2;color:#51cf66;white-space:nowrap;font-weight:400}
+[data-theme="light"] .cpco{color:#2f9e44}   /* 契約番号: 港の札 (OKINAWA など) と同じ緑 — ユーザー 2026-11-19 */
 .cpco.r{text-align:right}
 .pkc .pkt{flex:1 1 auto;min-width:0}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
@@ -784,7 +785,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.61', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.62', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5453,10 +5454,10 @@ async function sendCompassDetails(R, bkId){
     [{label:'閉じる', fn:c=>c()}]);
 }
 function compassInfo(b){
-  modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>入力日時</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
-    + '<div class="muted" style="margin-top:6px;font-size:12px">B-06 で変えた内容は「COMPASS に変更入力」で COMPASS のヘッダーに反映できます（COMPASS を読んで違う所を確認してから）。明細の修正・取消は COMPASS で行ってください。<br>COMPASS で削除した時は「もう一度入力」で入力し直せます（COMPASS に残っていないことを確かめてから）。</div>',
-    [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力（COMPASS で削除済み）', fn:c=>{ c(); compassResend(b); }},
-     {label:'🚢 COMPASS に変更入力…', pri:true, fn:c=>{ c(); compassUpdate(b); }}]);
+  modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>最終入力</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
+    + '<div class="muted" style="margin-top:6px;font-size:12px">・変更入力: B-06 の変更を COMPASS に反映<br>・もう一度入力: COMPASS で削除した時<br>・明細の修正は COMPASS で</div>',
+    [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力', fn:c=>{ c(); compassResend(b); }},
+     {label:'🚢 変更入力…', pri:true, fn:c=>{ c(); compassUpdate(b); }}]);
 }
 /* ══════════ COMPASS に変更入力 (2026-11-19 — ユーザーと決めた形) ══════════
    ① COMPASS の今の内容を読む → ② B-06 と違う項目を出す「COMPASS とこの部分が違います。変更入力しますか？」
