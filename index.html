@@ -215,6 +215,8 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-dtl td.cp-dn{font-size:11.5px;line-height:1.5;min-width:160px}
 .bdg.cpk{cursor:pointer;font-size:7.4px;padding:0 3.5px;line-height:1.5;margin-left:auto;flex:none}   /* 今の 70% (10.5px → 7.4px) — ユーザー 2026-11-13 */
 .pkc{display:flex;align-items:center;gap:4px;text-align:left}
+.cpco{font-size:9.5px;line-height:1.25;color:var(--text3);white-space:nowrap;font-weight:400}
+.cpco.r{text-align:right}
 .pkc .pkt{flex:1 1 auto;min-width:0}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
@@ -779,7 +781,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.55', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.56', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1395,6 +1397,29 @@ function remoteTag(lv, id, k){
   const m = Math.max(0, Math.round((Date.now()-v.at)/60000));
   return '<span class="rfx-by" title="'+esc(v.by)+' が変更（'+(m ? m+' 分前' : 'たった今')+'）">'+esc(v.by)+'</span>';
 }
+/* ══════════ COMPASS 入力済み: 販売契約 (Invoice no. の下)・購買契約 (Packer 英名の下) を小さく (列は増やさない — ユーザー 2026-11-19)
+   COMPASS の明細 1 行 = B-06 の Packer 1 行。つなぎ方: 購買アイテムの購買元 = その行の COMPASS 購買元 → 残りは 作った順 (行数が同じ時だけ) ══════════ */
+function coIdx(){
+  const DT = S.store && S.store.compass && S.store.compass._dtl; if(!DT) return null;
+  if(S._coIdx && S._coIdx.DT===DT) return S._coIdx;
+  const m = L => new Map(((L && L.items) || []).map(x => [x.id, x]));
+  return (S._coIdx = {DT:DT, sale:m(DT.sale), purch:m(DT.purch)});
+}
+function cpContracts(b){
+  const o = cpCmpOf(b), d = o && o.dt, I = d && d.rows && d.rows.length ? coIdx() : null; if(!I) return null;
+  if(b._co && b._co.d===d && b._co.I===I && b._co.n===b.rows.length) return b._co.v;
+  const coOf = (M, id) => { const x = id && M.get(id); return x ? str(x.co).trim() : ''; };
+  const sale = Array.from(new Set(d.rows.map(r => coOf(I.sale, r.s)).filter(Boolean)));
+  const live = b.rows.filter(a => !a.deleted), left = d.rows.slice(), byRow = new Map();
+  live.forEach(a => { const c = cpkOf(a); if(!c) return;
+    const hit = left.filter(r => { const x = r.p && I.purch.get(r.p); return x && x.partyId===c.id; });
+    if(hit.length){ byRow.set(a.id, hit[0]); left.splice(left.indexOf(hit[0]), 1); } });
+  if(live.length===d.rows.length) live.forEach(a => { if(!byRow.has(a.id) && left.length) byRow.set(a.id, left.shift()); });
+  const purch = new Map(); byRow.forEach((r, k) => { const c = coOf(I.purch, r.p); if(c) purch.set(k, c); });
+  const v = {sale:sale, purch:purch};
+  b._co = {d:d, I:I, n:b.rows.length, v:v};
+  return v;
+}
 function cellHtml(col, b, a){
   const k = col.k;
   if(col.lv==='B'){
@@ -1424,6 +1449,8 @@ function cellHtml(col, b, a){
       return h;
     }
     if(k==='carrier' && S.hasQty) return esc(carrierText(b)) + ' ' + qtyBadge(b);
+    if(k==='invoiceno'){ const co = cpContracts(b);
+      return esc(v) + (co && co.sale.length ? '<div class="cpco" title="COMPASS の販売契約">販 '+esc(co.sale.join('・'))+'</div>' : ''); }
     return esc(v);
   }
   const v = a[k];
@@ -1446,7 +1473,8 @@ function cellHtml(col, b, a){
     if(S.hasCpk){ const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), nm = o ? o.name : c && c.name;
       h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(nm)+(o && o.alt.length ? '（'+esc(o.alt[0])+'）' : '')+' — クリックで変更">'+esc(nm)+'</span>'
              : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
-    return '<div class="pkc">'+h+'</div>';
+    const co = cpContracts(b), pc = co && co.purch.get(a.id);
+    return '<div class="pkc">'+h+'</div>' + (pc ? '<div class="cpco r" title="COMPASS の購買契約">購 '+esc(pc)+'</div>' : '');
   }
   if(col.st && col.k==='customs'){
     /* 通関依頼 = 乙仲の名前。押すと選択リスト */
@@ -4257,19 +4285,25 @@ const DvCompass = {
     const D = await cpEntMeta(k.ReferencingEntity);
     const bk = '_'+k.ReferencingAttribute+'_value', hon = cpCol(D, /本数/, 'num'), item = cpCol(D, /品目/, 'lk');
     const nm = item ? await cpNameOf(item) : null;
-    const sel = [bk].concat(hon ? [hon.col] : [], item ? ['_'+item.col+'_value'] : []).join(',');
+    /* 販売・購買のアイテムを指す列 (_detailsLoad と同じ探し方) — 表に 契約番号 を出すため (ユーザー 2026-11-19) */
+    const lks = D.cols.filter(c => c.rel && c.rel.target!==M.entity.LogicalName && !/^(systemuser|team|businessunit|owner|transactioncurrency)$/.test(c.rel.target));
+    const side = (re, reT) => { const c = lks.filter(x => re.test(x.label) || reT.test(x.rel.target));
+      return c.find(x => /ID|明細|アイテム|item|detail/i.test(x.label+' '+x.rel.target)) || c[0] || null; };
+    const sL = side(/販売/, /sale|sell/i), pL = side(/購買|仕入/, /purchas|buy/i);
+    const sel = [bk, 'createdon'].concat(hon ? [hon.col] : [], item ? ['_'+item.col+'_value'] : [], sL ? ['_'+sL.col+'_value'] : [], pL ? ['_'+pL.col+'_value'] : []).join(',');
     const out = new Map();
-    ids.forEach(id => out.set(id, {n:0, hon:0, items:[]}));
+    ids.forEach(id => out.set(id, {n:0, hon:0, items:[], rows:[]}));
     for(let i=0; i<ids.length; i+=20){
       const f = ids.slice(i, i+20).filter(x => /^[0-9a-f-]{36}$/i.test(x)).map(x => bk+' eq '+x).join(' or ');
       if(!f) continue;
       (await dvGetAll(D.entity.EntitySetName+'?$select='+sel+'&$filter='+encodeURIComponent('statecode eq 0 and ('+f+')'))).forEach(r => {
         const o = out.get(String(r[bk]).toLowerCase()); if(!o) return;
         o.n++; o.hon += hon ? (+r[hon.col] || 0) : 0;
+        o.rows.push({s:sL ? r['_'+sL.col+'_value'] || null : null, p:pL ? r['_'+pL.col+'_value'] || null : null, at:r.createdon || ''});
         if(item){ const v = (nm && nm(r['_'+item.col+'_value'])) || str(r['_'+item.col+'_value@OData.Community.Display.V1.FormattedValue']); if(v) o.items.push(v); }
       });
     }
-    out.forEach(o => { o.hon = Math.round(o.hon*100)/100; });
+    out.forEach(o => { o.hon = Math.round(o.hon*100)/100; o.rows.sort((x, y) => str(x.at).localeCompare(str(y.at))); });
     return out;
   },
   /* 変更入力: 決めた列だけ・If-Match (読んだ後に COMPASS で変わっていたら 412)・新規作成はしない (If-Match があるので upsert にならない) */
@@ -4550,7 +4584,7 @@ function makeMemCompass(){
     sale:{target:'demo_sale_item', set:'demo', cols:{item:dcol('x','品目'), co:dcol('x','販売CO'), party:dcol('x','販売先'), remain:dcol('x','残')}, items:saleItems},
     purch:{target:'demo_pur_item', set:'demo', cols:{item:dcol('x','品目'), co:dcol('x','購買CO'), party:dcol('x','購買元'), remain:dcol('x','残')}, items:purItems}};
   return {
-    demo:true,
+    demo:true, _dtl:dtl,
     async details(){ return dtl; },
     async packers(){ return ['SAMPLE','TEST','デモ再生','みほん商事','レイ紙材','ナゾ紙業'].map(n => ({id:'PK-'+n, name:n, alt:[]})); },
     async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
@@ -4578,6 +4612,13 @@ function makeMemCompass(){
     async invoiceIndex(){ return {at:Date.now(), contracts:opts.demo_saleco.list.map(o => ({id:o.id, name:o.name, buyer:(opts.demo_buyer.list.find(x => x.id===o.parent) || {}).name || '', last:''})),
       inv:recs.map(r => ({no:str(r.body.cr49f_invoice_no).trim(), co:null})).filter(x => x.no)}; },
     async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
+    async detailSummary(ids){
+      const out = new Map(); ids.forEach(id => out.set(id, {n:0, hon:0, items:[], rows:[]}));
+      const v = (body, re) => { const k = Object.keys(body).find(x => re.test(x)); return k ? (String(body[k]).match(/\(([^)]+)\)/) || [])[1] || null : null; };
+      recs.filter(r => r.id.startsWith('DEMO-D-')).forEach(r => { const bk = v(r.body, /booking.*@odata\.bind$/i); const o = bk && out.get(bk.toLowerCase()); if(!o) return;
+        o.n++; o.rows.push({s:v(r.body, /sale.*@odata\.bind$/i), p:v(r.body, /purch.*@odata\.bind$/i), at:r.at}); });
+      return out;
+    },
   };
 }
 
@@ -5540,7 +5581,7 @@ async function compassCompareAll(){
       const id = String(b.compass_id).toLowerCase(), rec = recs.get(id);
       if(rec){
         const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
-        out[b.bookkey] = {rows:rows}; if(rows.some(r => !r.soft && !r.okd)) nd++;
+        out[b.bookkey] = {rows:rows, dt:dts && dts.get(id)}; if(rows.some(r => !r.soft && !r.okd)) nd++;
         continue;
       }
       /* COMPASS にない */
@@ -5554,6 +5595,8 @@ async function compassCompareAll(){
       } else { out[b.bookkey] = {gone:true, multi:dup.length>1}; ng++; }
     }
     S.cpCmp = out; S.cmpErr = '';
+    /* 契約番号の表示: 販売・購買のアイテム一覧 (先読み済みのことが多い) を待ってから 描き直す */
+    if(C.details && !C._dtl) C.details().then(() => { S._coIdx = null; renderBoard(); }).catch(() => {});
     cpLearnFromCompass(list, recs, X).then(n => { if(n) console.info('COMPASS 実績から学習: '+n+' 件'); }).catch(e => console.warn('COMPASS 実績の学習', e));
     S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
     updSync(); renderBoard();
