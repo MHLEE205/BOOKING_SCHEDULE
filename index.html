@@ -788,7 +788,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.66', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.67', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4271,6 +4271,9 @@ const DvCompass = {
       return new Set(Array.from(m).filter(([, o]) => o.s===o.n).map(([k]) => k)); };
     out.sale.shutCo = shutCos(out.sale); out.purch.shutCo = shutCos(out.purch);
     out.purch.shutN = out.purch.items.filter(x => x.shut).length;
+    /* 隠した購買も 理由つきで残す (〆 を外したのに出ない・残 0 などを 画面で確かめられるように — ユーザー 2026-11-19) */
+    out.purch.hid = out.purch.items.filter(x => x.shut || !(x.remain==null || x.remain>0))
+      .map(x => Object.assign({}, x, {why:x.shut ? '〆（'+(out.purch.cols.shut ? out.purch.cols.shut.on : '')+'）' : '残 '+dtlNum(x.remain)}));
     out.purch.items = out.purch.items.filter(x => !x.shut && (x.remain==null || x.remain>0));
     out.sale.shutN = out.sale.items.filter(x => x.shut).length;
     out.sale.items = out.sale.items.filter(x => !x.shut);
@@ -5165,13 +5168,20 @@ function dtlHtml(D, coId, coName){
   const pL = dtlPurShown(D);
   const pOk = dtlPurAllowed(D, cur);
   const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
+  /* 隠した購買 (〆・残なし) のうち 今の条件 (購買元・品目) に合うもの */
+  const pH = (D.purch.hid || []).filter(x => (!cur || !cur.sup.list.length || cur.sup.list.includes(x.party)) && (!D.fPp || x.party===D.fPp) && (!D.fPi || x.item===D.fPi)).slice(0, 50);
   h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
+    + (S.store.compass.demo ? '' : ' <button class="b6-btn sm cp-dreload" title="COMPASS の 販売・購買（〆・残）を今すぐ読み直す">⟳</button>')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th><th title="購買の本数 − 明細で使った本数（本数が空の明細は N/W から推定 ≈）— 割り当て パネルと同じ">残本数</th></tr>'
     + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td><button class="b6-btn sm cp-padd" data-id="'+esc(x.id)+'"'+(cur ? '' : ' disabled')+'>add</button></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
       + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td>'
       + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+(x.nEst ? '≈' : '')+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+'</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
-    + (pL.length ? '' : '<tr><td colspan="8" class="muted">該当なし — 品目・購買元を変えてください</td></tr>') + '</table>'
+    + (pL.length ? '' : '<tr><td colspan="8" class="muted">該当なし — 品目・購買元を変えてください</td></tr>')
+    + (D.showHidP ? pH.map(x => '<tr style="opacity:.55" title="この購買は使えません: '+esc(x.why)+'"><td><span class="ng" style="font-size:10.5px;white-space:nowrap">'+esc(x.why)+'</span></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
+      + '<td class="n">'+esc(x.unit)+'</td><td class="n">'+dtlNum(x.remain)+'</td><td class="n muted">—</td></tr>').join('') : '') + '</table>'
+    + (pH.length ? '<div style="font-size:11px;margin-top:3px"><span class="muted">この条件で 使えない購買（〆・残なし）'+pH.length+' 件 </span><button class="b6-btn sm cp-phid">'+(D.showHidP ? '隠す' : '表示')+'</button>'
+      + ' <span class="muted">— COMPASS で 〆 を外した直後なら ⟳ で読み直してください</span></div>' : '')
     + (pL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目・購買元で絞り込んでください）</div>' : '') + '</div>';
   return h;
 }
@@ -5297,6 +5307,14 @@ function openCompassUI(b, R){
     if(pa && r){ if(!dtlPurAllowed(D, r).some(x => x.id===pa.dataset.id)){ toast('この行の購買元（'+r.sup.list.join('・')+'）の購買契約だけ入れられます', 'warn'); return; }
       r.pur = pa.dataset.id; r.howP = 'man'; dtlPaint(); return; }
     if(t.closest('.cp-fsall')){ D.fS = ''; dtlPaint(); return; }
+    if(t.closest('.cp-phid')){ D.showHidP = !D.showHidP; dtlPaint(); return; }
+    const rl = t.closest('.cp-dreload');
+    if(rl){ if(rl.disabled) return; rl.disabled = true; rl.textContent = '…';
+      const C = S.store.compass;
+      (async () => { try{ C.forget(); const N = await C.details(); S._cpAt = Date.now(); D.sale = N.sale; D.purch = N.purch;
+          const co = coSel(m.el); D.rows.forEach(r => dtlAuto(D, r, co)); dtlFocus(D, D.cur); dtlPaint(); toast('COMPASS の 販売・購買 を読み直しました', 'info'); }
+        catch(e){ rl.disabled = false; rl.textContent = '⟳'; toast('COMPASS を読み直せません: '+String(e.message || e).slice(0, 120), 'danger'); } })();
+      return; }
     const tr = t.closest('tr.cp-dr');
     if(tr && !t.closest('input,button,select')){ dtlFocus(D, +tr.dataset.r); dtlPaint(); }
   });
