@@ -785,7 +785,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.63', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.64', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1414,12 +1414,17 @@ function cpContracts(b){
   if(b._co && b._co.d===d && b._co.I===I && b._co.n===b.rows.length) return b._co.v;
   const coOf = (M, id) => { const x = id && M.get(id); return x ? str(x.co).trim() : ''; };
   const sale = Array.from(new Set(d.rows.map(r => coOf(I.sale, r.s)).filter(Boolean)));
-  const live = b.rows.filter(a => !a.deleted), left = d.rows.slice(), byRow = new Map();
-  live.forEach(a => { const c = cpkOf(a); if(!c) return;
-    const hit = left.filter(r => { const x = r.p && I.purch.get(r.p); return x && x.partyId===c.id; });
-    if(hit.length){ byRow.set(a.id, hit[0]); left.splice(left.indexOf(hit[0]), 1); } });
-  if(live.length===d.rows.length) live.forEach(a => { if(!byRow.has(a.id) && left.length) byRow.set(a.id, left.shift()); });
-  const purch = new Map(); byRow.forEach((r, k) => { const c = coOf(I.purch, r.p); if(c) purch.set(k, c); });
+  /* 購買元が同じ明細を その行に (1 つの Packer で日付ごとに明細が分かれていても 全部)。購買元は ID か 名前 (COMPASS 購買元・Packer の文字) で合わせる。
+     v0.56 は アイテムに購買元の列がある時 ID が入っておらず 合わなかった (行数が同じ時だけ 順番で出ていた — 2026-11-19) */
+  const live = b.rows.filter(a => !a.deleted), used = new Set(), byRow = new Map();
+  const names = a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id);
+    return new Set([c && c.name, o && o.name].concat(o && o.alt || [], [a.packer]).map(cpNorm).filter(Boolean)); };
+  live.forEach(a => { const c = cpkOf(a), nm = names(a);
+    const hit = d.rows.filter(r => { const x = r.p && I.purch.get(r.p); return x && ((c && x.partyId && x.partyId===c.id) || (x.party && nm.has(cpNorm(x.party)))); });
+    if(hit.length){ byRow.set(a.id, hit); hit.forEach(r => used.add(r)); } });
+  const left = d.rows.filter(r => !used.has(r));
+  if(live.length===d.rows.length) live.forEach(a => { if(!byRow.has(a.id) && left.length) byRow.set(a.id, [left.shift()]); });
+  const purch = new Map(); byRow.forEach((rs, k) => { const c = Array.from(new Set(rs.map(r => coOf(I.purch, r.p)).filter(Boolean))).join('・'); if(c) purch.set(k, c); });
   const v = {sale:sale, purch:purch};
   b._co = {d:d, I:I, n:b.rows.length, v:v};
   return v;
@@ -4500,7 +4505,7 @@ async function cpLoadItems(target, onlyRemain){
   const N = (r, c) => c && r[c.col]!=null ? +r[c.col] : null;
   const items = rows.map(r => ({id:r[pid], name:str(r[pn]), item:F(r, C.item, 'item'), itemId:C.item && C.item.rel ? r['_'+C.item.col+'_value'] || null : null,
     co:F(r, C.co, 'co'), coId:C.co ? r['_'+C.co.col+'_value'] || null : null,
-    party:F(r, C.party, 'party'), remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), hon:N(r, C.hon), unit:F(r, C.unit), note:F(r, C.note), tol:F(r, C.tol)}));
+    party:F(r, C.party, 'party'), partyId:C.party && C.party.rel ? r['_'+C.party.col+'_value'] || null : null, remain:N(r, C.remain), alloc:N(r, C.alloc), wt:N(r, C.wt), hon:N(r, C.hon), unit:F(r, C.unit), note:F(r, C.note), tol:F(r, C.tol)}));
   /* 残の列がない時は 重量 − 割当量 */
   if(!C.remain && C.wt && C.alloc){ items.forEach(x => { if(x.wt!=null) x.remain = Math.round((x.wt - (x.alloc||0))*100)/100; }); C.remain = {label:C.wt.label+'−'+C.alloc.label, col:'calc', calc:true}; }
   /* 販売先・購買元がアイテムになく、契約 (CO) の方にある時は契約から引く */
