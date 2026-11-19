@@ -262,6 +262,9 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .inv-help td.by{max-width:90px;overflow:hidden;text-overflow:ellipsis}
 .inv-help .src{font-size:9px;color:var(--text3);margin-left:2px}
 .inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:3px;padding:0 5px;font:inherit;font-size:11px;font-weight:700;line-height:1.4}
+.pod-help .pod-o{padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;font-size:11.5px}
+.pod-help .pod-o:hover{background:var(--surface2)}
+.pod-help .pod-o.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-weight:700}
 .inv-help .dup{color:var(--danger);font-weight:700;margin-top:4px}
 .cp-more{margin-top:12px;font-size:11.5px;color:var(--text2)}
 .cp-more summary{cursor:pointer}
@@ -788,7 +791,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.67', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.68', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2665,6 +2668,71 @@ function invHelpOpen(el, td, b, pick){
   const bw = $('#b6-board'); bw.addEventListener('scroll', place);
   el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
 }
+/* ══════════ POD のセル: COMPASS の POD 一覧を候補に出す (打つと絞り込み・選ぶとその行を置き換え — ユーザー 2026-11-19)
+   今カーソルがある行の文字で探す (「JKT」の下の行「11/10まで」は 候補なし → いつもどおり)。
+   ↑↓ で選ぶ・Enter / クリックで入れる。候補が 1 つ目から合っている時 (前方一致) は Enter でそれを入れる ══════════ */
+function podNamesLoad(){
+  if(S.podNames) return Promise.resolve(S.podNames);
+  if(S._podP) return S._podP;
+  S._podP = (async () => {
+    const C = S.store && S.store.compass; if(!C || !C.meta) return [];
+    const M = await C.meta(), f = COMPASS.LOOKUPS.find(x => x.k==='pod');
+    const fc = f && [].concat(f.col).find(c => M.rels.get(c)); if(!fc) return [];
+    const o = await C.options(M.rels.get(fc).target);
+    return S.podNames = dtlUniq(((o && o.list) || []).map(x => str(x.name).trim()));
+  })().catch(() => []).finally(() => { S._podP = null; });
+  return S._podP;
+}
+function podHelpOpen(el, td, b){
+  const C = S.store && S.store.compass; if(!C || !C.meta) return;
+  const box = document.createElement('div'); box.className = 'inv-help pod-help'; document.body.appendChild(box);
+  let L = S.podNames || null, cands = [], hi = -1, moved = false;
+  const lineAt = () => { const v = el.value, p = el.selectionStart==null ? v.length : el.selectionStart;
+    const s = v.lastIndexOf('\n', p - 1) + 1, e0 = v.indexOf('\n', p); return {s:s, e:e0<0 ? v.length : e0, t:v.slice(s, e0<0 ? v.length : e0)}; };
+  const place = () => { const r = td.getBoundingClientRect(), h = el.getBoundingClientRect();
+    box.style.left = Math.max(8, Math.min(r.left, innerWidth - box.offsetWidth - 8))+'px';
+    const below = Math.max(r.bottom, h.bottom) + 2; box.style.top = (below + box.offsetHeight > innerHeight - 8 ? Math.max(8, r.top - box.offsetHeight - 2) : below)+'px'; };
+  const find = q => {
+    const k = cpNorm(q); if(!L) return [];
+    if(!k) return L.slice();
+    const out = [], add = n => { if(n && L.includes(n) && !out.includes(n)) out.push(n); };
+    if(POD_CP[k]) add(POD_CP[k]);
+    const lr = cpLearnedOf(S.cpMap, 'pod', b, q); if(lr) add(str(lr.name).trim());
+    L.filter(n => cpNorm(n).startsWith(k)).forEach(add);
+    L.filter(n => cpNorm(n).includes(k)).forEach(add);
+    return out;
+  };
+  const draw = () => {
+    if(!box.isConnected) return;
+    if(!L){ box.innerHTML = '<div class="t">COMPASS の POD</div><div class="muted">読み込み中…</div>'; place(); return; }
+    const q = lineAt().t.trim();
+    cands = find(q);
+    if(!moved) hi = q && cands.length && (cpNorm(cands[0]).startsWith(cpNorm(q)) || POD_CP[cpNorm(q)] || cpLearnedOf(S.cpMap, 'pod', b, q)) ? 0 : -1;
+    if(hi >= cands.length) hi = cands.length - 1;
+    if(!cands.length){ box.style.display = 'none'; return; }
+    box.style.display = '';
+    box.innerHTML = '<div class="t">COMPASS の POD <span class="muted" style="font-weight:400">↑↓ Enter で入れる'+(q ? '' : '・打つと絞り込み')+'</span></div>'
+      + cands.slice(0, 60).map((n, i) => '<div class="pod-o'+(i===hi ? ' on' : '')+'" data-pod="'+esc(n)+'">'+esc(n)+'</div>').join('');
+    place();
+    const on = box.querySelector('.pod-o.on'); if(on) on.scrollIntoView({block:'nearest'});
+  };
+  const put = n => { const ln = lineAt(); el.value = el.value.slice(0, ln.s) + n + el.value.slice(ln.e); const p = ln.s + n.length; try{ el.setSelectionRange(p, p); }catch(e){} moved = false; };
+  draw();
+  if(!L) podNamesLoad().then(v => { L = v; if(!L.length){ box.remove(); return; } draw(); });
+  el.addEventListener('input', () => { moved = false; draw(); });
+  el.addEventListener('click', draw);
+  /* 選択中の候補があれば ↑↓ Enter は候補の操作 (それ以外は いつもどおり確定) */
+  el.addEventListener('keydown', ev => {
+    if(!box.isConnected || box.style.display==='none' || !cands.length || ev.isComposing) return;
+    if(ev.key==='ArrowDown' || ev.key==='ArrowUp'){ ev.preventDefault(); ev.stopImmediatePropagation(); moved = true;
+      hi = ev.key==='ArrowDown' ? Math.min(cands.length - 1, Math.min(59, hi + 1)) : Math.max(-1, hi - 1); draw(); }
+    else if(ev.key==='Enter' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && hi>=0 && cands[hi] && cands[hi]!==lineAt().t.trim()){
+      ev.preventDefault(); ev.stopImmediatePropagation(); put(cands[hi]); draw(); }
+  }, true);
+  box.addEventListener('mousedown', ev => { ev.preventDefault(); const g = ev.target.closest('[data-pod]'); if(!g) return; put(g.dataset.pod); draw(); });
+  const bw = $('#b6-board'); bw.addEventListener('scroll', place);
+  el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
+}
 /* 通関依頼の候補: POL の 乙仲 (COMPASS の 乙仲 一覧で 搬入港 = POL — COMPASS 入力の 乙仲 候補と同じ)。
    COMPASS を読めない時は forwarder マスターの pol。並びは B-06 でその POL に使った回数の多い順 (ユーザー 2026-11-17) */
 function otsuLoad(){
@@ -2826,6 +2894,7 @@ function startEdit(td, opt){
   };
   el.addEventListener('blur', () => { if(!picking) finish(true); });
   if(k==='invoiceno' && lv==='B') invHelpOpen(el, td, b, v => { el.value = v; finish(true); });
+  if(k==='pod' && lv==='B') podHelpOpen(el, td, b);
   el.addEventListener('change', () => { if(el.tagName==='SELECT') finish(true); });
   el.addEventListener('keydown', ev => {
     if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
