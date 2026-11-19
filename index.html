@@ -187,6 +187,7 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bkh.cpd{color:#c2410c;border-color:#fb923c;background:#fff7ed;font-weight:700}
 .bkh.cpd:hover{background:#ea580c;color:#fff}
 .b6-t td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c}
+tr.hist-cp td{color:#15803d;font-weight:700}
 tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .amtg{display:inline-block;margin-left:3px;padding:0 4px;border-radius:4px;font-size:10px;font-weight:700;line-height:15px;cursor:pointer;border:1px dashed var(--border);color:var(--text3);opacity:0;transition:opacity .15s}
 .b6-t td:hover .amtg{opacity:.8}
@@ -770,7 +771,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.44', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.45', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2304,21 +2305,21 @@ async function openBkHist(b){
   const isNew = e => sent && !isNaN(cpT) && Date.parse(e.at) > cpT + 1000 && cpRel(e);
   const nNew = list.filter(isNew).length;
   const cell = v => v ? esc(v).replace(/\n/g,'<br>') : '<span class="muted">（空）</span>';
-  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : (HIST_LABEL[e.k] || e.k))
+  const item = e => esc(e.k==='_add' ? 'Packer 行を追加' : e.k==='_new' ? 'ブッキングを作成' : e.k==='_cp' ? 'COMPASS に変更入力' : e.k==='_cpin' ? 'COMPASS に入力' : (HIST_LABEL[e.k] || e.k))
     + (e.lv==='A' && e.row ? ' <span class="muted" style="font-size:11px">（'+esc(e.row)+'）</span>' : '');
   const keys = Array.from(new Set(list.map(e => e.k)));
   const tbl = f => {
     const ls = f ? list.filter(e => e.k===f) : list;
     return ls.length
       ? '<table class="b6-s"><tr><th>日時</th><th>項目</th><th>変更前</th><th></th><th>変更後</th><th>変更した人</th></tr>'
-        + ls.map(e => '<tr'+(isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
+        + ls.map(e => '<tr'+(e.k==='_cp' || e.k==='_cpin' ? ' class="hist-cp"' : isNew(e) ? ' class="hist-new"' : '')+'><td style="white-space:nowrap">'+esc(fmtDT(e.at))+'</td><td>'+item(e)+'</td>'
           + (e.k.startsWith('_') ? '<td colspan="3">'+cell(e.to)+'</td>' : '<td>'+cell(e.from)+'</td><td>→</td><td>'+cell(e.to)+'</td>')
           + '<td>'+esc(e.by)+'</td></tr>').join('') + '</table>'
       : '<div class="muted">変更の記録はありません。</div>';
   };
   let x = '<div style="margin-bottom:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span>今の Booking no.: <b>'+esc(b.bkgno || '（空）')+'</b></span>';
   if(keys.length > 1) x += '<label>項目 <select id="b6-hist-f"><option value="">すべて（'+list.length+'）</option>'
-    + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
+    + keys.map(k => '<option value="'+esc(k)+'">'+esc(k==='_add' ? 'Packer 行を追加' : k==='_new' ? 'ブッキングを作成' : k==='_cp' ? 'COMPASS に変更入力' : k==='_cpin' ? 'COMPASS に入力' : (HIST_LABEL[k] || k))+'（'+list.filter(e=>e.k===k).length+'）</option>').join('') + '</select></label>';
   x += '</div>';
   if(err) x += '<div class="muted" style="color:var(--danger)">履歴ファイルを読めませんでした: '+esc(err)+'</div>';
   if(sent) x += '<div style="margin-bottom:6px;padding:6px 8px;border-radius:6px;background:color-mix(in srgb,var(--warn) 12%,transparent)">🚢 COMPASS 入力: '+esc(fmtDT(b.compass_at))
@@ -4978,6 +4979,7 @@ async function openCompass(b){
         [{label:'閉じる', fn:c=>c()},
          {label:'B-06 を「COMPASS済」にする', pri:true, fn:async c=>{ c();
            await saveBooking(b, {compass_id:String(dup[0].id), compass_status:'SENT', compass_at:dup[0].at || new Date().toISOString()}, 'bkgno');
+           logHist(b, [{lv:'B', k:'_cpin', from:'', to:'COMPASS済 にしました（COMPASS に既にあった ID '+dup[0].id+'）'}]);
            toast('「COMPASS済」にしました（'+bkLabel(b)+'）', 'ok'); }}]);
       return;
     }
@@ -5239,6 +5241,7 @@ async function sendCompass(b, R, body, test){
     return;
   }
   await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
+  logHist(b, [{lv:'B', k:'_cpin', from:'', to:'COMPASS に入力しました（ID '+id+'）'}]);
   toast('COMPASS に入力しました（'+bkLabel(b)+' / ID '+id+'）', 'ok');
   await sendCompassDetails(R, id);
   /* 割当量・Invoice の一覧が変わったので 次は読み直す */
@@ -5306,7 +5309,8 @@ function cpHeaderRows(b, rec, X){
   const same = (x, y) => PARSE.nfkcSame(str(x)).replace(/\s+/g, ' ').trim() === PARSE.nfkcSame(str(y)).replace(/\s+/g, ' ').trim();
   X.fcols.forEach(x => {
     const f = x.f, v06 = f.date ? str(b[f.k]).slice(0, 10) : f.val(b), vcp = rec[x.col]==null ? '' : f.date ? jstDay(rec[x.col]) : str(rec[x.col]);
-    if(same(v06, vcp)) return;
+    /* 本船名: COMPASS 側も 括弧の前だけで比べる (括弧を送らない規則 2026-11-17 より前に入力したものは COMPASS に (1ST) などが残っている — ユーザー 2026-11-19) */
+    if(same(v06, vcp) || (f.k==='vessel' && same(v06, vesselForCompass(vcp)))) return;
     const r = {k:f.k, label:f.label, col:x.col, cp:f.date ? vcp.replace(/-/g, '/') : vcp, b06:f.date ? v06.replace(/-/g, '/') : v06,
       send:blank(v06) ? null : f.date ? compassDate(v06, x.a.dateOnly) : v06, ok:x.a.updOk!==false, def:!blank(v06), note:''};
     if(!r.ok) r.note = 'COMPASS で更新できない列';
