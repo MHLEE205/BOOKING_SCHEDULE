@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.95', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.96', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5998,17 +5998,19 @@ function cpPairNote(b, rows){
   [rB, rI].forEach(r => { if(!r) return; r.tip = [w, pair].filter(Boolean).join('\n'); r.note = [r.note, w, pair].filter(Boolean).join(' ／ '); });
 }
 /* 決まらなかった一覧の項目を 画面で選ぶ <select>。上に 候補 (名前が似ている・乙仲は POL の搬入港が同じ)、下に 全部 */
+/* 一覧の名前を全部見せる (乙仲は 同じ会社でも 区分 0/1/2・通関料・手数料 が違う — ユーザー 2026-11-25)。例 ABC ｜ 1 ｜ 通関 ¥0,000 ｜ 手数料 ¥0,000 */
+const cpFullTxt = v => str(v).split('|').map(x => x.trim()).filter(Boolean).join(' ｜ ');
 function cpPickSel(r, i){
   const P = r.pick, nm = o => str(o.name).split('|')[0].trim();
   const sc = new Map(cpMatch(P.list.map(o => ({id:o.id, name:nm(o), alt:o.alt})), cpAliases(P.kind==='customs' ? 'otsu' : P.kind, P.key)).map(x => [x.id, x.s]));
   const al = P.port ? cpAliases('port', str(P.port).trim().toUpperCase()) : [];
   const atPort = o => al.length && o.port && al.includes(cpNorm(o.port));
-  const lbl = o => nm(o)+(o.port ? '（'+o.port+'）' : '')+(o.id===P.cur ? ' ← 今の COMPASS' : '');
+  const lbl = o => cpFullTxt(o.name)+(o.port ? '（'+o.port+'）' : '')+(o.id===P.cur ? ' ← 今の COMPASS' : '');
   const cand = P.list.filter(o => sc.has(o.id) || atPort(o))
-    .sort((a, b) => (sc.get(b.id)||0)-(sc.get(a.id)||0) || (atPort(b)?1:0)-(atPort(a)?1:0) || nm(a).localeCompare(nm(b), 'ja'));
-  const rest = P.list.filter(o => !cand.includes(o)).sort((a, b) => nm(a).localeCompare(nm(b), 'ja'));
+    .sort((a, b) => (sc.get(b.id)||0)-(sc.get(a.id)||0) || (atPort(b)?1:0)-(atPort(a)?1:0) || str(a.name).localeCompare(str(b.name), 'ja'));
+  const rest = P.list.filter(o => !cand.includes(o)).sort((a, b) => str(a.name).localeCompare(str(b.name), 'ja'));
   const opt = o => '<option value="'+esc(o.id)+'"'+(r.picked && r.picked.id===o.id ? ' selected' : '')+'>'+esc(lbl(o))+'</option>';
-  return '<div style="margin-top:3px"><select class="cpu-pick" data-i="'+i+'" style="max-width:260px;font-size:12px"><option value="">— COMPASS の一覧から選ぶ —</option>'
+  return '<div style="margin-top:3px"><select class="cpu-pick" data-i="'+i+'" style="max-width:440px;font-size:12px"><option value="">— COMPASS の一覧から選ぶ —</option>'
     + (cand.length ? '<optgroup label="候補">'+cand.map(opt).join('')+'</optgroup>' : '')
     + '<optgroup label="すべて（名前順）">'+rest.map(opt).join('')+'</optgroup></select></div>';
 }
@@ -6054,8 +6056,9 @@ function cpHeaderRows(b, rec, X){
     const L = X.otsu.o.list, lr = v ? cpLearnedOf(X.learned, 'customs', b, v) : null;
     const to = !v ? '' : lr && L.some(y => y.id===lr.id) ? lr.id : otsuByName(L, v, b.port);
     if(v && cpNorm(v)!==cpNorm(curName) && !(to && to===cur)){
-      const upd = X.otsu.a.updOk!==false, toName = to ? str((L.find(y => y.id===to) || {}).name).split('|')[0].trim() : '';
-      rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curName, b06:to && cpNorm(toName)!==cpNorm(v) ? toName+'（B-06: '+v+'）' : v,
+      const upd = X.otsu.a.updOk!==false, toFull = to ? str((L.find(y => y.id===to) || {}).name) : '';
+      const curFull = cpFullTxt((L.find(y => y.id===cur) || {}).name || curName);
+      rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curFull, b06:to ? cpFullTxt(toFull)+(cpNorm(toFull.split('|')[0])!==cpNorm(v) ? '（B-06: '+v+'）' : '') : v,
         bind:to ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, id:to} : null, ok:!!to && upd, def:!!to,
         pick:!to && upd ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, list:L, kind:'customs', key:v, cur:cur, port:b.port} : null,
         note:!to ? 'COMPASS の乙仲一覧で 1 つに決まりません — '+(upd ? '一覧から選んでください' : 'COMPASS で直してください') : !upd ? 'COMPASS で更新できない列' : ''});
@@ -6292,7 +6295,7 @@ async function compassUpdate(b){
     const sl = ev.target.closest('.cpu-pick'); if(!sl) return;
     const r = X.rows[+sl.dataset.i]; if(!r || !r.pick) return;
     const o = sl.value ? r.pick.list.find(y => y.id===sl.value) : null;
-    r.picked = o ? {id:o.id, name:str(o.name).split('|')[0].trim()} : null;
+    r.picked = o ? {id:o.id, name:cpFullTxt(o.name)} : null;
     r.bind = o ? {nav:r.pick.nav, set:r.pick.set, id:o.id} : null;
     r.ok = r.def = !!o;
     r.note = o ? (o.id===r.pick.cur ? '今の COMPASS と同じ項目です' : '「'+r.picked.name+'」を送ります（次からは自動で選びます）') : '一覧から COMPASS の項目を選んでください';
