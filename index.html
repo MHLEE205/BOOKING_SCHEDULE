@@ -811,7 +811,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.85', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.86', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5613,7 +5613,19 @@ function openCompassUI(b, R){
       ss.closest('tr').classList.toggle('cp-need', !ss.value);
     }
   });
-  if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
+  /* 進めない理由を ボタンの横に出す (上の ✕ は スクロールすると見えない — ユーザー 2026-11-24) */
+  if(R.blocks.length){
+    const bt = m.el.querySelector('.ft .pri'); bt.disabled = true;
+    const emp = R.blocks.filter(x => / が空です$/.test(x)).map(x => x.replace(/ が空です$/, ''));
+    const msg = (emp.length ? [emp.join('・')+' が空です（B-06 の表で入れてから 開き直してください）'] : []).concat(R.blocks.filter(x => !/ が空です$/.test(x))).join(' ／ ');
+    bt.title = '進めません: '+msg;
+    const why = document.createElement('div');
+    why.style.cssText = 'margin-right:auto;align-self:center;color:var(--danger);font-weight:700;font-size:12.5px;cursor:pointer;max-width:70%';
+    why.title = 'クリックで 上の ✕ の項目へ';
+    why.textContent = '✕ 進めません: '+msg;
+    why.addEventListener('click', () => { const bd = m.el.querySelector('.bd'); if(bd) bd.scrollTop = 0; });
+    bt.parentNode.insertBefore(why, bt.parentNode.firstChild);
+  }
 }
 /* 明細の画面 (dtlHtml) の操作 — COMPASS 入力 と 明細の変更入力 で共通。coId() = 今の 販売CO・paint() = 描き直し */
 function dtlWire(m, D, coId, paint){
