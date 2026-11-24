@@ -811,7 +811,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.86', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.87', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5732,17 +5732,37 @@ function confirmCompass(b, R, picks){
   h += '<div class="muted" style="margin-top:8px;font-size:12px">反映後の修正・取消は COMPASS で行います（B-06 からは COMPASS を変更・削除できません）。</div>';
   if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「反映する」を押しても COMPASS には書き込みません（送信内容の確認まで）</div>';
   let busy = false;
-  modal('⚠ COMPASS への反映の確認', h, [
-    {label:'やめる', fn:c=>c()},
+  const cm = modal('⚠ COMPASS への反映の確認', h, [
+    {label:'やめる', fn:c=>{ if(busy) return; c(); }},
     {label:'← 戻って直す', fn:c=>{ if(busy) return; c(); openCompassUI(b, R); }},
     {label:'反映する', pri:true, fn:async c=>{
       if(busy) return; busy = true;
-      try{ const t0 = Date.now();
+      /* 押した後 止まって見えた (ユーザー 2026-11-24): ボタンを止めて 今の段階と経過秒を出す */
+      const btns = $$('.ft button', cm.el), pri = cm.el.querySelector('.ft .pri'), lbl0 = pri.textContent;
+      btns.forEach(x => x.disabled = true);
+      const t0 = Date.now();
+      const tick = setInterval(() => { pri.textContent = '送信中… '+Math.round((Date.now() - t0)/1000)+' 秒'; cpProg(); }, 500);
+      cpProg('① COMPASS の 販売・購買（残）を確かめています…');
+      try{
+        const tA = Date.now();
         const [ok] = await Promise.all([compassDtlRecheck(R), compassFillAuto(R, body, picks)]);
-        if(!ok){ busy = false; return; }
-        await sendCompass(b, R, body, test); c(); console.info('COMPASS 入力: 送信 '+(Date.now() - t0)+' ms'); }
-      catch(e){ busy = false; toast(e.message.slice(0,160), 'danger'); }
+        console.info('COMPASS 入力: ① 確認 '+(Date.now() - tA)+' ms');
+        if(!ok) return;
+        await sendCompass(b, R, body, test); c(); console.info('COMPASS 入力: 合計 '+(Date.now() - t0)+' ms'); }
+      catch(e){ toast(e.message.slice(0,160), 'danger'); }
+      finally{ clearInterval(tick); cpProg(null); busy = false; if(cm.el.isConnected){ btns.forEach(x => x.disabled = false); pri.textContent = lbl0; } }
     }}]);
+}
+/* 送信中の段階の表示 (画面の上に小さく)。null で消す */
+function cpProg(msg){
+  let el = $('#cp-prog');
+  if(msg===null){ if(el) el.remove(); S._cpProg = null; return; }
+  if(msg!==undefined) S._cpProg = {msg:msg, at:Date.now()};
+  if(!S._cpProg) return;
+  if(!el){ el = document.createElement('div'); el.id = 'cp-prog';
+    el.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:3000;background:var(--surface);color:var(--text);border:2px solid var(--accent);border-radius:8px;padding:8px 16px;font-weight:700;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+    document.body.appendChild(el); }
+  el.textContent = '⏳ '+S._cpProg.msg+'（'+Math.round((Date.now() - S._cpProg.at)/1000)+' 秒）— 画面を閉じずに お待ちください';
 }
 /* 送る直前に COMPASS の 販売・購買 を読み直して確かめる: 選んだアイテムがまだあるか (購買は 〆 でないか)・残が足りるか。
    入力画面を開いた後に ほかの人が COMPASS で使った分も入る (ユーザー 2026-11-17)。問題があれば止めて知らせる */
@@ -5796,7 +5816,8 @@ async function sendCompass(b, R, body, test){
     return;
   }
   let id;
-  try{ id = await C.create(body, R.allowed); }
+  cpProg('② ヘッダーを COMPASS に作成しています…'); const tH = Date.now();
+  try{ id = await C.create(body, R.allowed); console.info('COMPASS 入力: ② ヘッダー '+(Date.now() - tH)+' ms'); }
   catch(e){
     await saveBooking(b, {compass_status:'ERROR', compass_at:new Date().toISOString()}, 'bkgno');
     modal('COMPASS への入力に失敗', '<div><span class="bdg d">失敗</span> '+esc(e.message.slice(0,500))+'</div><div class="muted" style="margin-top:6px">COMPASS には作成されていません。内容を直してもう一度お試しください。</div>', [{label:'閉じる', fn:c=>c()}]);
@@ -5805,7 +5826,7 @@ async function sendCompass(b, R, body, test){
   await saveBooking(b, {compass_id:String(id), compass_status:'SENT', compass_at:new Date().toISOString()}, 'bkgno');
   logHist(b, [{lv:'B', k:'_cpin', from:'', to:'COMPASS に入力しました（ID '+id+'）'}]);
   toast('COMPASS に入力しました（'+bkLabel(b)+' / ID '+id+'）', 'ok');
-  await sendCompassDetails(R, id);
+  cpProg('③ 明細を COMPASS に作成しています…'); { const tD = Date.now(); await sendCompassDetails(R, id); console.info('COMPASS 入力: ③ 明細 '+(Date.now() - tD)+' ms'); }
   /* 割当量・Invoice の一覧が変わったので 次は読み直す */
   if(C.forget) C.forget();
 }
