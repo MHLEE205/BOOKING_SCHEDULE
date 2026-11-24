@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.72', date:'2026-11-19', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.73', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -816,6 +816,8 @@ const CFG = {
   COMPASS_DTL_WRITE: true,      /* 明細 (cr49f_booking_details) を作るか — 2026-11-16 ABCD0000000001 の試験 JSON をユーザーと確認して true */
   /* COMPASS 入力済みのブッキングの 変更入力 (ヘッダーの PATCH)。false の間は 違い・送る内容を見せるだけ (2026-11-19 — 試験 JSON を確認してから true) */
   COMPASS_UPDATE_WRITE: true,   /* 2026-11-19 ユーザー「추천하는대로 진행」で true (ヘッダーのみ・明細は変えない) */
+  /* 明細の変更入力 (本数・販売・購買の PATCH / 足りない明細の POST)。false の間は 送る内容を見せるだけ。明細の削除は B-06 からはしない (COMPASS で) — 2026-11-24 */
+  COMPASS_DTL_UPDATE_WRITE: false,
   COMPASS_TON_PER_HON: 23,     /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
@@ -3875,6 +3877,7 @@ function bookingMenu(ev, b){
   if(!b.deleted){
     if(b.compass_status==='SENT'){
       items.push({label:'✔ COMPASS 詳細', fn:()=>compassInfo(b)});
+      items.push({label:'📦 COMPASS 明細の変更入力', fn:()=>compassDtlUpdate(b)});
       items.push({label:'🚢 COMPASS 変更入力'+(cpDiffN(b) ? '（違い '+cpDiffN(b)+'）' : cpChgOf(b) ? '（変更 '+cpChgOf(b)+'）' : ''), fn:()=>compassUpdate(b)});
     }
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
@@ -4467,6 +4470,23 @@ const DvCompass = {
     const r = await dvFetch(D.set+'?$select='+pid, {method:'POST', headers:{'Content-Type':'application/json','Prefer':'return=representation'}, body:JSON.stringify(body)});
     return (await r.json())[pid];
   },
+  /* 明細の変更入力用: 1 ブッキングの明細 (有効なものだけ・作成順・@odata.etag 付き) — 読み取りのみ */
+  async detailRows(bkId){
+    const D = await this.details(), c = D.cols;
+    if(!c.bk) throw new Error('明細テーブルに ブッキング を指す列が見つかりません');
+    const E = await cpEntMeta(D.ent), pid = E.entity.PrimaryIdAttribute;
+    const sel = [pid, 'createdon', '_'+c.sale.col+'_value', '_'+c.purch.col+'_value'].concat(c.hon ? [c.hon.col] : [], c.wt ? [c.wt.col] : []).join(',');
+    const rows = await dvGetAll(D.set+'?$select='+sel+'&$filter='+encodeURIComponent('_'+c.bk.col+'_value eq '+bkId+' and statecode eq 0'));
+    return rows.map(r => ({id:r[pid], etag:r['@odata.etag'] || '*', s:r['_'+c.sale.col+'_value'] || '', p:r['_'+c.purch.col+'_value'] || '',
+      hon:c.hon ? +r[c.hon.col] || 0 : 0, wt:c.wt ? +r[c.wt.col] || 0 : 0, at:r.createdon || ''})).sort((x, y) => str(x.at).localeCompare(str(y.at)));
+  },
+  /* 明細の変更入力: 決めた列だけ・If-Match。明細の削除はしない (COMPASS で — ユーザー 2026-11-24) */
+  async updateDetail(id, body, allowed, etag){
+    const D = await this.details();
+    const bad = Object.keys(body).filter(k => !allowed.has(k));
+    if(bad.length) throw new Error('write blocked (明細の列): '+bad.join(', '));
+    await dvFetch(D.set+'('+id+')', {method:'PATCH', headers:{'Content-Type':'application/json', 'If-Match':etag || '*'}, body:JSON.stringify(body)});
+  },
 };
 DvStore.compass = DvCompass;
 const DTL_NUM = new Set(['Integer','Decimal','Double','Money','BigInt']);
@@ -4738,6 +4758,17 @@ function makeMemCompass(){
     async invoiceIndex(){ return {at:Date.now(), contracts:opts.demo_saleco.list.map(o => ({id:o.id, name:o.name, buyer:(opts.demo_buyer.list.find(x => x.id===o.parent) || {}).name || '', last:''})),
       inv:recs.map(r => ({no:str(r.body.cr49f_invoice_no).trim(), co:null})).filter(x => x.no)}; },
     async createDetail(body){ const id = 'DEMO-D-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
+    async detailRows(bkId){
+      const v = (body, re) => { const k = Object.keys(body).find(x => re.test(x)); return k ? (String(body[k]).match(/\(([^)]+)\)/) || [])[1] || '' : ''; };
+      return recs.filter(r => r.id.startsWith('DEMO-D-') && v(r.body, /booking.*@odata\.bind$/i).toLowerCase()===String(bkId).toLowerCase())
+        .map(r => ({id:r.id, etag:'W/"'+(r.v||1)+'"', s:v(r.body, /sale.*@odata\.bind$/i), p:v(r.body, /purch.*@odata\.bind$/i), hon:+r.body.cr49f_quantity || 0, wt:+r.body.cr49f_weight || 0, at:r.at}));
+    },
+    async updateDetail(id, body, allowed, etag){
+      const bad = Object.keys(body).filter(k => !allowed.has(k)); if(bad.length) throw new Error('write blocked (明細の列): '+bad.join(', '));
+      const r = recs.find(x => x.id===id); if(!r){ const e = new Error('404'); e.status = 404; throw e; }
+      if(etag && etag!=='*' && etag!=='W/"'+(r.v||1)+'"'){ const e = new Error('412'); e.status = 412; throw e; }
+      Object.assign(r.body, body); r.v = (r.v||1) + 1;
+    },
     async detailSummary(ids){
       const out = new Map(); ids.forEach(id => out.set(String(id).toLowerCase(), {n:0, hon:0, items:[], rows:[]}));
       const v = (body, re) => { const k = Object.keys(body).find(x => re.test(x)); return k ? (String(body[k]).match(/\(([^)]+)\)/) || [])[1] || null : null; };
@@ -5390,42 +5421,12 @@ function openCompassUI(b, R){
   const dtlPaint = () => { const y = m.body.scrollTop; dw.innerHTML = dtlHtml(D, coSel(m.el), coNm(m.el)); m.body.scrollTop = y; };
   const dtlReAuto = () => { if(!hasD) return; const co = coSel(m.el); D.rows.forEach(r => dtlAuto(D, r, co)); dtlFocus(D, D.cur); dtlPaint(); };
   m.el.addEventListener('click', ev => {
-    const t = ev.target;
-    const ncb = t.closest('.cp-nc'); if(ncb){ cpNameColPick(ncb.dataset.ent, ncb.dataset.t, () => { m.close(); openCompass(b); }); return; }
-    if(!hasD) return;
-    const dx = t.closest('.cp-dx');
-    if(dx){ D.rows.splice(+dx.dataset.r, 1); D.cur = Math.min(D.cur, D.rows.length-1); dtlFocus(D, D.cur); dtlPaint(); return; }
-    if(t.closest('.cp-dadd')){ const base = D.rows[D.cur];
-      D.rows.push({packer:'', grade:base ? base.grade : '', hon:1, sale:'', pur:'', howS:'man', howP:'man', sup:{list:[], how:''}, wt:D.ton}); dtlFocus(D, D.rows.length-1); dtlPaint(); return; }
-    const sa = t.closest('.cp-sadd'), r = D.rows[D.cur];
-    if(sa && r){ r.sale = sa.dataset.id; r.howS = 'man'; if(r.howP!=='man') dtlAuto(D, r, coSel(m.el)); dtlFocus(D, D.cur); dtlPaint(); return; }
-    const pa = t.closest('.cp-padd');
-    if(pa && r){ if(!dtlPurAllowed(D, r).some(x => x.id===pa.dataset.id)){ toast('この行の購買元（'+r.sup.list.join('・')+'）の購買契約だけ入れられます', 'warn'); return; }
-      r.pur = pa.dataset.id; r.howP = 'man'; dtlPaint(); return; }
-    if(t.closest('.cp-fsall')){ D.fS = ''; dtlPaint(); return; }
-    if(t.closest('.cp-phid')){ D.showHidP = !D.showHidP; dtlPaint(); return; }
-    const rl = t.closest('.cp-dreload');
-    if(rl){ if(rl.disabled) return; rl.disabled = true; rl.textContent = '…';
-      const C = S.store.compass;
-      (async () => { try{ C.forget(); const N = await C.details(); S._cpAt = Date.now(); D.sale = N.sale; D.purch = N.purch;
-          const co = coSel(m.el); D.rows.forEach(r => dtlAuto(D, r, co)); dtlFocus(D, D.cur); dtlPaint(); toast('COMPASS の 販売・購買 を読み直しました', 'info'); }
-        catch(e){ rl.disabled = false; rl.textContent = '⟳'; toast('COMPASS を読み直せません: '+String(e.message || e).slice(0, 120), 'danger'); } })();
-      return; }
-    const tr = t.closest('tr.cp-dr');
-    if(tr && !t.closest('input,button,select')){ dtlFocus(D, +tr.dataset.r); dtlPaint(); }
+    const ncb = ev.target.closest('.cp-nc'); if(ncb){ cpNameColPick(ncb.dataset.ent, ncb.dataset.t, () => { m.close(); openCompass(b); }); }
   });
-  m.el.addEventListener('input', ev => {
-    const t = ev.target; if(!hasD || !t.classList.contains('cp-dh')) return;
-    const r = D.rows[+t.dataset.r]; r.hon = Math.max(0, +t.value || 0); r.wt = Math.round(r.hon * D.ton * 100) / 100;
-    t.closest('tr').querySelector('.cp-dwt').textContent = dtlNum(r.wt);
-  });
+  if(hasD) dtlWire(m, D, () => coSel(m.el), dtlPaint);
   m.el.addEventListener('change', ev => {
     const t = ev.target; if(!hasD) return;
-    if(t.classList.contains('cp-dh')) dtlPaint();
-    else if(t.classList.contains('cp-fs')){ D.fS = t.value; dtlPaint(); }
-    else if(t.classList.contains('cp-fpi')){ D.fPi = t.value; if(D.fPp && !D.purch.items.some(x => x.party===D.fPp && (!D.fPi || x.item===D.fPi))) D.fPp = ''; dtlPaint(); }
-    else if(t.classList.contains('cp-fpp')){ D.fPp = t.value; dtlPaint(); }
-    else if(t.classList.contains('cp-pick') && scI>=0 && (+t.dataset.i===scI || R.lookups[+t.dataset.i].kind==='buyer')) setTimeout(dtlReAuto, 0);
+    if(t.classList.contains('cp-pick') && scI>=0 && (+t.dataset.i===scI || R.lookups[+t.dataset.i].kind==='buyer')) setTimeout(dtlReAuto, 0);
   });
   /* 絞り込み: 入力した文字を含む項目だけ */
   m.el.addEventListener('input', ev => {
@@ -5454,6 +5455,45 @@ function openCompassUI(b, R){
     }
   });
   if(R.blocks.length){ const bt = m.el.querySelector('.ft .pri'); bt.disabled = true; bt.title = '✕ の項目を解決してください'; }
+}
+/* 明細の画面 (dtlHtml) の操作 — COMPASS 入力 と 明細の変更入力 で共通。coId() = 今の 販売CO・paint() = 描き直し */
+function dtlWire(m, D, coId, paint){
+  m.el.addEventListener('click', ev => {
+    const t = ev.target;
+    const dx = t.closest('.cp-dx');
+    if(dx){ D.rows.splice(+dx.dataset.r, 1); D.cur = Math.min(D.cur, D.rows.length-1); dtlFocus(D, D.cur); paint(); return; }
+    if(t.closest('.cp-dadd')){ const base = D.rows[D.cur];
+      D.rows.push({packer:'', grade:base ? base.grade : '', hon:1, sale:'', pur:'', howS:'man', howP:'man', sup:{list:[], how:''}, wt:D.ton}); dtlFocus(D, D.rows.length-1); paint(); return; }
+    const sa = t.closest('.cp-sadd'), r = D.rows[D.cur];
+    if(sa && r){ r.sale = sa.dataset.id; r.howS = 'man'; if(r.howP!=='man') dtlAuto(D, r, coId()); dtlFocus(D, D.cur); paint(); return; }
+    const pa = t.closest('.cp-padd');
+    if(pa && r){ if(!dtlPurAllowed(D, r).some(x => x.id===pa.dataset.id)){ toast('この行の購買元（'+r.sup.list.join('・')+'）の購買契約だけ入れられます', 'warn'); return; }
+      r.pur = pa.dataset.id; r.howP = 'man'; paint(); return; }
+    if(t.closest('.cp-fsall')){ D.fS = ''; paint(); return; }
+    if(t.closest('.cp-phid')){ D.showHidP = !D.showHidP; paint(); return; }
+    const rl = t.closest('.cp-dreload');
+    if(rl){ if(rl.disabled) return; rl.disabled = true; rl.textContent = '…';
+      const C = S.store.compass;
+      (async () => { try{ C.forget(); const N = await C.details(); S._cpAt = Date.now();
+          if(D.onReload) D.onReload(N); else { D.sale = N.sale; D.purch = N.purch; }
+          const co = coId(); D.rows.forEach(r => dtlAuto(D, r, co)); dtlFocus(D, D.cur); paint(); toast('COMPASS の 販売・購買 を読み直しました', 'info'); }
+        catch(e){ rl.disabled = false; rl.textContent = '⟳'; toast('COMPASS を読み直せません: '+String(e.message || e).slice(0, 120), 'danger'); } })();
+      return; }
+    const tr = t.closest('tr.cp-dr');
+    if(tr && !t.closest('input,button,select')){ dtlFocus(D, +tr.dataset.r); paint(); }
+  });
+  m.el.addEventListener('input', ev => {
+    const t = ev.target; if(!t.classList.contains('cp-dh')) return;
+    const r = D.rows[+t.dataset.r]; r.hon = Math.max(0, +t.value || 0); r.wt = Math.round(r.hon * D.ton * 100) / 100;
+    t.closest('tr').querySelector('.cp-dwt').textContent = dtlNum(r.wt);
+  });
+  m.el.addEventListener('change', ev => {
+    const t = ev.target;
+    if(t.classList.contains('cp-dh')) paint();
+    else if(t.classList.contains('cp-fs')){ D.fS = t.value; paint(); }
+    else if(t.classList.contains('cp-fpi')){ D.fPi = t.value; if(D.fPp && !D.purch.items.some(x => x.party===D.fPp && (!D.fPi || x.item===D.fPi))) D.fPp = ''; paint(); }
+    else if(t.classList.contains('cp-fpp')){ D.fPp = t.value; paint(); }
+  });
 }
 
 /* 明細 1 行 → cr49f_booking_details 1 件の中身 (ユーザー 2026-11-16 承認)。
@@ -5855,13 +5895,14 @@ async function compassUpdate(b){
       + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b></td>'
         + '<td class="muted" style="font-size:11.5px">'+(r.ok || !r.note ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>';
     /* 明細 (Packer・本数・品目): 参考のお知らせだけ — B-06 からは変えない */
-    if(X.dRows.length) h += '<div style="margin-top:10px;font-size:12.5px"><div class="muted" style="margin-bottom:2px">ℹ 明細の違い（参考 — 明細は B-06 からは変えません。COMPASS で直すか、削除 → 再入力）</div>'
+    if(X.dRows.length) h += '<div style="margin-top:10px;font-size:12.5px"><div class="muted" style="margin-bottom:2px">ℹ 明細の違い — 「📦 明細を変更入力…」で 本数・販売・購買 の変更と 足りない明細の追加ができます（明細の削除は COMPASS で）</div>'
       + X.dRows.map((r, i) => '<div style="display:flex;gap:8px;align-items:center;padding:2px 0'+(r.okd ? ';opacity:.6' : '')+'"><span>・'+esc(r.label)+': COMPASS <b>'+esc(r.cp || '（空）')+'</b> / B-06 <b>'+esc(r.b06 || '（空）')+'</b></span><span style="margin-left:auto">'+okCell(r, 'd', i)+'</span></div>').join('') + '</div>';
     h += '<div class="muted" style="margin-top:8px;font-size:11.5px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・海上運賃区分 は変えません。ETD・ETA は比べません。</div>';
     if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
     return h;
   };
   const btns = [{label:'閉じる', fn:c=>c()}];
+  if(C.detailRows) btns.push({label:'📦 明細を変更入力…', fn:c=>{ c(); compassDtlUpdate(b); }});
   if(!X.rows.some(r => r.ok) && cpChgOf(b)) btns.push({label:'↺ 変更マークを消す（確認済み）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
   let busy = false;
   if(X.rows.some(r => r.ok)) btns.push({label:'変更入力する', pri:true, fn:async c=>{
@@ -5884,6 +5925,157 @@ async function compassUpdate(b){
     /* 確認したものはチェックを外す・ほかは そのまま */
     $$('.cpu-ck', pm.el).forEach(x => { const rr = X.rows[+x.dataset.i]; if(!x.disabled) x.checked = keep.has(x.dataset.i) && !rr.okd; });
   });
+}
+/* ══════════ 明細の変更入力 (2026-11-24 — ユーザー「명세 변경입력도 추가・시험 모드・명세 삭제는 콤파스에서만」) ══════════
+   B-06 の Packer 行 ↔ COMPASS の明細 を対応させる (購買元・品目・本数で自動 — 画面で変えられる)。
+   対応あり: 本数・販売・購買 が違えば PATCH (If-Match) / B-06 にだけある行: POST / COMPASS にだけある明細: 表示だけ — 削除は COMPASS で。
+   CFG.COMPASS_DTL_UPDATE_WRITE が false の間は 送る内容を見せるだけ */
+async function compassDtlUpdate(b){
+  const C = S.store.compass;
+  if(!C || !C.detailRows || !b.compass_id){ toast('この接続では 明細の変更入力 ができません', 'warn'); return; }
+  LEENAI.loading.show('COMPASS の明細を読んでいます（読み取りのみ）…');
+  let N, cps;
+  try{ [N, cps] = await Promise.all([C.details(), C.detailRows(b.compass_id)]); }
+  catch(e){ LEENAI.loading.hide(); modal('📦 明細の変更入力 — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> '+esc(String(e.message || e).slice(0, 400))+'</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+  LEENAI.loading.hide();
+  const test = !CFG.COMPASS_DTL_UPDATE_WRITE && !C.demo;
+  const D = Object.assign({}, N); D.ton = CFG.COMPASS_TON_PER_HON; D.b = b;
+  /* 今の明細が使っている 販売・購買 は 〆・残 0 でも一覧に入れ、その明細の分だけ 残 を戻す (自分の分で「残を超えます」と出ないように) */
+  const prep = L0 => {
+    const fix = (L, key) => { const items = L.items.slice(), cl = new Map();
+      cps.forEach(cp => { const id = cp[key]; if(!id) return;
+        let x = cl.get(id);
+        if(!x){ const src = items.find(y => y.id===id) || (L.every || []).find(y => y.id===id); if(!src) return;
+          x = Object.assign({}, src); cl.set(id, x); const i = items.indexOf(src); if(i>=0) items[i] = x; else items.push(x); }
+        if(x.remain!=null) x.remain = Math.round((x.remain + cp.wt)*100)/100;
+        if(x.remainHon!=null) x.remainHon += cp.hon;
+      });
+      return Object.assign({}, L, {items:items}); };
+    D.sale = fix(L0.sale, 's'); D.purch = fix(L0.purch, 'p');
+  };
+  prep(N); D.onReload = prep;
+  const seen = new Set(); D.parties = [];
+  D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, pid:x.partyId || null, alt:x.partyAlt || []}); } });
+  const cs0 = cps.map(cp => D.sale.items.find(x => x.id===cp.s)).find(Boolean);
+  const coId = cs0 ? cs0.coId || '' : '', coName = cs0 ? cs0.co || '' : '';
+  D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), gw:gradeWants(b, a.grade), hon:honOf(a), cpk:cpkOf(a),
+    sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0, cp:null}));
+  D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); });
+  const setCp = (r, cp) => {
+    r.cp = cp || null;
+    if(cp){ r.sale = cp.s; r.pur = cp.p; r.howS = 'man'; r.howP = 'man'; r.wt = Math.round(r.hon * D.ton * 100) / 100; }
+    else { r.sale = ''; r.pur = ''; r.howS = ''; r.howP = ''; dtlAuto(D, r, coId); }
+  };
+  /* 自動の対応: 購買元 (Packer) > 品目 > 本数。点の高い組から決める。同点は 上から順に */
+  const score = (r, cp) => { const pi = D.purch.items.find(x => x.id===cp.p), si = D.sale.items.find(x => x.id===cp.s); let s = 0;
+    if(pi && r.sup.list.includes(pi.party)) s += 4;
+    if(si && dtlItemScore(si.item, r.gw || [cpNorm(r.grade)])>0) s += 2;
+    if(Math.round(cp.hon*100)===Math.round(r.hon*100)) s += 1;
+    return s; };
+  const pairs = []; D.rows.forEach((r, i) => cps.forEach((cp, j) => pairs.push({i:i, j:j, s:score(r, cp)})));
+  pairs.sort((x, y) => y.s - x.s || x.i - y.i || x.j - y.j);
+  const uR = new Set(), uC = new Set();
+  pairs.forEach(p => { if(uR.has(p.i) || uC.has(p.j)) return; uR.add(p.i); uC.add(p.j); setCp(D.rows[p.i], cps[p.j]); });
+  D.rows.forEach(r => { if(!r.cp) setCp(r, null); });
+  D.fS = ''; dtlFocus(D, 0);
+
+  const nmS = id => { const x = D.sale.items.find(y => y.id===id); return x ? [x.item, x.co].filter(Boolean).join(' ') : id ? '（一覧にない）' : '（なし）'; };
+  const nmP = id => { const x = D.purch.items.find(y => y.id===id); return x ? [x.party, x.co].filter(Boolean).join(' ') : id ? '（一覧にない）' : '（なし）'; };
+  const cpName = cp => '#'+(cps.indexOf(cp)+1)+' '+nmS(cp.s)+' / '+nmP(cp.p)+' / '+cp.hon+' 本';
+  const chg = r => { if(!r.cp) return null; const o = [];
+    if(r.sale!==r.cp.s) o.push('販売: '+nmS(r.cp.s)+' → '+nmS(r.sale));
+    if(r.pur!==r.cp.p) o.push('購買: '+nmP(r.cp.p)+' → '+nmP(r.pur));
+    if(Math.round(r.hon*100)!==Math.round(r.cp.hon*100)) o.push('本数: '+r.cp.hon+' → '+r.hon+' 本');
+    return o; };
+  const html = () => {
+    let h = '<style>.cp-du .cp-dx,.cp-du .cp-dadd{display:none}</style>';
+    if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">試験モード: 「明細を変更入力する」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
+    h += '<div class="cp-h">B-06 の Packer 行 ↔ COMPASS の明細</div><table class="b6-s"><tr><th>B-06 Packer 行</th><th>COMPASS の明細</th><th>送る内容</th></tr>';
+    D.rows.forEach((r, i) => {
+      const c = chg(r), si = D.sale.items.find(x => x.id===r.sale);
+      const gNote = si && r.grade && !(dtlItemScore(si.item, r.gw || [cpNorm(r.grade)])>0) ? '<div class="muted" style="font-size:11px">品目: COMPASS '+esc(si.item)+' / B-06 Grade '+esc(r.grade)+' — 変える時は 下の 販売 の表で add</div>' : '';
+      const what = !r.cp ? (r.sale && r.pur && r.hon>0 ? '<b>＋ 追加</b>（COMPASS に新しく作る）' : '<span class="ng">＋ 追加 — 販売・購買を選んでください（下の表で add）</span>')
+        : c.length ? '<b>変更</b><br>'+c.map(esc).join('<br>') : '<span class="muted">変更なし</span>';
+      h += '<tr><td>'+esc(r.packer || '（行 '+(i+1)+'）')+' <span class="muted" style="font-size:11px">'+esc(r.grade)+' · '+r.hon+' 本</span></td>'
+        + '<td><select class="b6-sel cpd-map" data-r="'+i+'"><option value="">＋ 新しく追加</option>'
+        + cps.map((cp, j) => '<option value="'+j+'"'+(r.cp===cp ? ' selected' : '')+'>'+esc(cpName(cp))+'</option>').join('')+'</select></td>'
+        + '<td style="font-size:12px">'+what+gNote+'</td></tr>';
+    });
+    h += '</table>';
+    const only = cps.filter(cp => !D.rows.some(r => r.cp===cp));
+    if(only.length) h += '<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fffbeb;font-size:12.5px"><span class="bdg w">⚠</span> COMPASS にだけある明細 '+only.length+' 件 — <b>削除は COMPASS で</b>（B-06 からは明細を削除しません）<br>'
+      + only.map(cp => '・'+esc(cpName(cp))).join('<br>')+'</div>';
+    h += '<div class="muted" style="font-size:11.5px;margin:6px 0 10px">行を選んで 下の 販売・購買 の表の add で入れ替え、本数は下の明細の表で直せます。予想重量 = 本数 × '+D.ton+' t。</div>';
+    h += '<div class="cp-du">'+dtlHtml(D, coId, coName)+'</div>';
+    return h;
+  };
+  let busy = false;
+  const m = modal('📦 COMPASS の明細を変更入力 — '+esc(bkLabel(b)), html(), [
+    {label:'閉じる', fn:c=>c()},
+    {label:'明細を変更入力する', pri:true, fn:async c=>{
+      if(busy) return; busy = true;
+      try{ if(await sendDtlUpdate()) c(); }
+      catch(e){ toast(String(e.message || e).slice(0, 200), 'danger'); }
+      finally{ busy = false; }
+    }}], true);
+  const paint = () => { const y = m.body.scrollTop; m.body.innerHTML = html(); m.body.scrollTop = y; };
+  dtlWire(m, D, () => coId, paint);
+  m.el.addEventListener('change', ev => {
+    const s = ev.target.closest('.cpd-map'); if(!s) return;
+    const r = D.rows[+s.dataset.r], cp = s.value==='' ? null : cps[+s.value];
+    /* ほかの行がその明細を使っていたら そちらは「新しく追加」に */
+    if(cp) D.rows.forEach(o => { if(o!==r && o.cp===cp) setCp(o, null); });
+    setCp(r, cp); dtlFocus(D, +s.dataset.r); paint();
+  });
+
+  async function sendDtlUpdate(){
+    const c = D.cols, kb = col => col && col.rel ? (col.rel.nav || col.col)+'@odata.bind' : null;
+    const patch = [], post = [], skip = [];
+    for(const r of D.rows){
+      const ch = chg(r);
+      if(r.cp && !ch.length) continue;
+      const X = await compassDtlBodies({dtl:Object.assign({}, D, {b:null, rows:[r]})}, b.compass_id);
+      if(X.err){ skip.push(X.err); continue; }
+      if(!X.list.length){ skip.push(X.skip.join('、') || (r.packer || '行')); continue; }
+      const full = X.list[0].body;
+      if(!r.cp){ post.push({label:X.list[0].label, body:full, allowed:X.allowed}); continue; }
+      const body = {}, allowed = new Set();
+      const take = ks => ks.forEach(k => { if(k && k in full){ body[k] = full[k]; allowed.add(k); } });
+      if(r.sale!==r.cp.s) take([kb(c.sale), kb(c.saleCo), kb(c.item)]);
+      if(r.pur!==r.cp.p) take([kb(c.purch), kb(c.purCo)]);
+      if(Math.round(r.hon*100)!==Math.round(r.cp.hon*100)) take([c.hon && c.hon.col, c.wt && c.wt.col]);
+      patch.push({label:(r.packer || '行')+' — '+cpName(r.cp), ch:ch, id:r.cp.id, etag:r.cp.etag, body:body, allowed:allowed});
+    }
+    const only = cps.filter(cp => !D.rows.some(r => r.cp===cp));
+    const skipH = skip.length ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> 送らない行: '+esc(skip.join('、'))+'</div>' : '';
+    const onlyH = only.length ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> COMPASS にだけある明細 '+only.length+' 件はそのまま — 削除は COMPASS で</div>' : '';
+    if(!patch.length && !post.length){ toast('送る変更がありません'+(skip.length ? '（'+skip.join('、')+'）' : ''), 'warn'); return false; }
+    const pre = x => '<pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px;margin:2px 0">'+esc(x)+'</pre>';
+    if(test){
+      modal('試験モード — 明細の変更入力の内容', '<div>COMPASS には書き込んでいません。実際に送る場合の内容です。</div>'
+        + patch.map(x => '<div style="margin-top:8px;font-weight:600">変更: '+esc(x.label)+'</div><div style="font-size:12px">'+x.ch.map(esc).join('<br>')+'</div>'
+          + pre('PATCH '+D.set+'('+x.id+')\nIf-Match: '+x.etag+'\n'+JSON.stringify(x.body, null, 2))).join('')
+        + post.map(x => '<div style="margin-top:8px;font-weight:600">追加: '+esc(x.label)+'</div>'+pre('POST '+D.set+'\n'+JSON.stringify(x.body, null, 2))).join('')
+        + skipH + onlyH, [{label:'閉じる', fn:c=>c()}], true);
+      return false;   /* 変更入力の画面は開いたまま */
+    }
+    const ok = [], ng = [];
+    for(const x of patch){
+      try{ await C.updateDetail(x.id, x.body, x.allowed, x.etag); ok.push('変更 '+x.label+'（'+x.ch.join('・')+'）'); }
+      catch(e){ ng.push('変更 '+x.label+' — '+(e.status===412 ? '読んだ後に COMPASS で変更がありました（送っていません）' : String(e.message || e).slice(0, 200))); }
+    }
+    for(const x of post){
+      try{ await C.createDetail(x.body, x.allowed); ok.push('追加 '+x.label); }
+      catch(e){ ng.push('追加 '+x.label+' — '+String(e.message || e).slice(0, 200)); }
+    }
+    if(ok.length) logHist(b, [{lv:'B', k:'_cp', from:'', to:'COMPASS の明細を変更入力\n'+ok.join('\n')}]);
+    if(C.forget) C.forget();
+    setTimeout(compassCompareAll, 500);
+    modal('明細の変更入力の結果', (ok.length ? '<div><span class="bdg o">✔</span> '+ok.map(esc).join('<br>')+'</div>' : '')
+      + (ng.length ? '<div style="margin-top:6px"><span class="bdg d">✕</span> 失敗 — COMPASS で確認してください:<br>'+ng.map(esc).join('<br>')+'</div>' : '') + skipH + onlyH,
+      [{label:'閉じる', fn:c=>c()}]);
+    return true;
+  }
 }
 async function sendCompassUpdate(b, X, picked, test){
   const body = {}, allowed = new Set();
