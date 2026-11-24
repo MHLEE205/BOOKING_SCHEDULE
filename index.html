@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.79', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.80', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1469,9 +1469,10 @@ function cellHtml(col, b, a){
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
       if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
       else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
-      const hs = bkHistOf(b), cpn = cpChgOf(b);
+      /* 青の ↺ (Booking no. の変更回数) は やめた — ほとんど変わらない (ユーザー 2026-11-24)。履歴は メニューの「↺ 変更履歴」で見られる。
+         COMPASS の Booking no. と違う時は 上の「COMPASS差」とセルの枠で出る */
+      const cpn = cpChgOf(b);
       if(cpn) h += ' <span class="bkh cp" data-bkh="1" title="'+esc('COMPASS 入力（'+fmtDT(b.compass_at)+'）の後に '+cpn+' 件の変更\n— クリックで変更履歴・COMPASS に変更入力')+'">↺'+cpn+'</span>';
-      else if(hs.length) h +=' <span class="bkh" data-bkh="1" title="'+esc('Booking no. の変更 '+hs.length+' 回\n'+hs.slice(-3).map(e => fmtDT(e.at)+'  '+(e.from||'（空）').replace(/\n/g,' ')+' → '+(e.to||'（空）').replace(/\n/g,' ')+'  ('+e.by+')').join('\n')+'\n— クリックで履歴')+'">↺'+hs.length+'</span>';
       h += hasBkMemo(b) ? memoIcon(bkMemoId(b), 'data-memo="1"')
                         : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
       return h;
