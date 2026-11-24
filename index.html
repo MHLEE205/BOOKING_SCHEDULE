@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.73', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.74', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1419,7 +1419,8 @@ function remoteTag(lv, id, k){
 /* ══════════ COMPASS 入力済み: 販売契約 (Invoice no. の下)・購買契約 (Packer 英名の下) を小さく (列は増やさない — ユーザー 2026-11-19)
    COMPASS の明細 1 行 = B-06 の Packer 1 行。つなぎ方: 購買アイテムの購買元 = その行の COMPASS 購買元 → 残りは 作った順 (行数が同じ時だけ) ══════════ */
 function coIdx(){
-  const DT = S.store && S.store.compass && S.store.compass._dtl; if(!DT) return null;
+  /* 3 分ごとの読み直しで _dtl が空になる間も 前回の一覧で表示する (読み直し中に描くと 契約番号が全部消えていた — ユーザー 2026-11-24) */
+  const C = S.store && S.store.compass, DT = C && (C._dtl || C._dtlShow); if(!DT) return null;
   if(S._coIdx && S._coIdx.DT===DT) return S._coIdx;
   const m = L => new Map(((L && (L.every || L.items)) || []).map(x => [String(x.id).toLowerCase(), x]));
   return (S._coIdx = {DT:DT, sale:m(DT.sale), purch:m(DT.purch)});
@@ -4373,6 +4374,8 @@ const DvCompass = {
     out.purch.items = out.purch.items.filter(x => !x.shut && (x.remain==null || x.remain>0));
     out.sale.shutN = out.sale.items.filter(x => x.shut).length;
     out.sale.items = out.sale.items.filter(x => !x.shut);
+    /* 表示 (契約番号) 用に 前回読めたものを残す — forget()・読み直し中・失敗でも 契約番号が消えないように (2026-11-24) */
+    this._dtlShow = out;
     return this._dtl = out;
   },
   async create(body, allowed){
@@ -7027,7 +7030,7 @@ async function startTool(){
     const C = S.store && S.store.compass;
     if(document.hidden || !S.ready || !C || C.demo || !C.fresh || S._warmP || document.querySelector('.b6-modal-bg')) return;
     if(S._cpAt && Date.now() - S._cpAt < 180e3) return;
-    C.fresh(); compassWarm();
+    C.fresh(); compassWarm().then(() => { S._coIdx = null; renderBoard(); });   /* 新しい一覧で 契約番号を描き直す */
   }, 60e3);
 }
 
