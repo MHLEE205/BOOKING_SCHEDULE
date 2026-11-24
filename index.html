@@ -814,7 +814,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.89', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.90', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1480,6 +1480,12 @@ function cellHtml(col, b, a){
     }
     if(k==='bkgno'){
       let h = '<span class="bkno">'+esc(v)+'</span>';
+      /* 同じ Booking no. のブッキングが B-06 にほかにもある (ユーザー 2026-11-24)。Invoice no. も同じなら 赤、違えば 黄 (分割かも) */
+      const dps = bkDupOf(b);
+      if(dps.length){ const sameInv = dps.some(x => cpInvSame(x.invoiceno, b.invoiceno));
+        h += ' <span class="bdg '+(sameInv ? 'd' : 'w')+'" data-bkdup="1" style="cursor:pointer" title="'+esc('同じ Booking no. が ほかに '+dps.length+' 件'
+          + (sameInv ? '（Invoice no. も同じ — 二重登録かも）' : '（Invoice no. は違う — 分割なら OK）')+'\n'
+          + dps.map(x => '・'+cpPairTxt(x.bkgno, x.invoiceno)+'  '+str(x.port)+(x.compass_status==='SENT' ? '  COMPASS済' : '')).join('\n')+'\n— クリックで そのブッキングへ')+'">重複'+(dps.length > 1 ? ' '+(dps.length+1) : '')+'</span>'; }
       if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
@@ -1553,6 +1559,7 @@ function setHidBk(b, on){
   toast(on ? 'ブッキング「'+firstLine(b.bkgno || '（番号なし）')+'」を非表示にしました（見出しの「🙈 非表示」で表示）' : '再表示しました', 'ok');
 }
 function renderBoard(){
+  S._dupRev = (S._dupRev || 0) + 1;   /* 重複 Booking no. の索引を 描くたびに 1 回だけ作り直す */
   if(S.editing){ S.renderPending = true; return; }
   const F = filt();
   renderChips();
@@ -2269,6 +2276,15 @@ async function openSiteSearch(q){
   setTimeout(() => document.addEventListener('click', closeMenu, {once:true}), 0);
 }
 /* ── ブッキングの選択 (表は作り直さずにクラスだけ付け替える — 編集中のセルを壊さない) ── */
+/* 同じ Booking no. のほかのブッキング (削除済みは除く)。描くたびに作り直さないよう 一覧が変わった時だけ索引を作る */
+function bkDupOf(b){
+  const key = cpNorm(firstLine(b.bkgno)); if(!key || b.deleted) return [];
+  let I = S._dupIdx;
+  const sig = S.bk.size+'|'+S._dupRev;
+  if(!I || I.sig!==sig){ I = S._dupIdx = {sig:sig, m:new Map()};
+    S.bk.forEach(x => { if(x.deleted) return; const kk = cpNorm(firstLine(x.bkgno)); if(!kk) return; (I.m.get(kk) || I.m.set(kk, []).get(kk)).push(x); }); }
+  return (I.m.get(key) || []).filter(x => x!==b);
+}
 function selectBooking(k){
   S.selBk = k || null;
   $$('#b6-board tr.bsel').forEach(tr => tr.classList.remove('bsel'));
@@ -7097,6 +7113,15 @@ function initUI(){
     if(bh){ const b = S.bk.get(bh.closest('tr').dataset.k); if(b) openBkHist(b); return; }
     const cpd = ev.target.closest('[data-cpd]');
     if(cpd){ const b = S.bk.get(cpd.closest('tr').dataset.k); if(b) compassUpdate(b); return; }
+    const bd = ev.target.closest('[data-bkdup]');
+    if(bd){ const b = S.bk.get(bd.closest('tr').dataset.k), ds = b ? bkDupOf(b) : [];
+      if(ds.length){ const all = [b].concat(ds).sort((x, y) => str(x.bookkey).localeCompare(str(y.bookkey)));
+        const nx = all[(all.indexOf(b) + 1) % all.length];
+        if(S.hidBk && S.hidBk.has && S.hidBk.has(nx.bookkey)) toast('そのブッキングは 非表示です', 'warn');
+        const tr = document.querySelector('#b6-board tr[data-k="'+CSS.escape(nx.bookkey)+'"]');
+        if(tr){ selectBooking(nx.bookkey); tr.scrollIntoView({block:'center'}); }
+        else toast('同じ Booking no. の '+cpPairTxt(nx.bkgno, nx.invoiceno)+' は 今の表示（地域・期間・絞り込み）にありません', 'info'); }
+      return; }
     const cpg = ev.target.closest('[data-cpg]');
     if(cpg){ const b = S.bk.get(cpg.closest('tr').dataset.k); if(b) compassGoneInfo(b); return; }
     const am = ev.target.closest('[data-am]');
@@ -7124,7 +7149,7 @@ function initUI(){
   });
   $('#b6-board').addEventListener('dblclick', ev => {
     const td = ev.target.closest('td.ed');
-    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && td.dataset.f!=='approval' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-cpd],[data-cpg],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
+    if(td && !td.classList.contains('stcell') && td.dataset.f!=='customs' && td.dataset.f!=='approval' && !td.querySelector('input,textarea,select') && !ev.target.closest('[data-cmemo],[data-bkh],[data-bkdup],[data-cpd],[data-cpg],[data-am],[data-bq],[data-cpk],[data-memo],.tg,.ob')) startEdit(td);
   });
   /* 表の外を押したら選択を外す (選んだまま ほかで文字を打って書き換わらないように) */
   document.addEventListener('mousedown', ev => { if(S.cellSel && !S.editing && !ev.target.closest('#b6-board')) setCellSel(null); });
