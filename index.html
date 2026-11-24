@@ -72,6 +72,17 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 #b6-alloc iframe{flex:1;border:0;width:100%;background:var(--surface)}
 #b6-alloc .rz{position:absolute;left:-5px;top:0;bottom:0;width:9px;cursor:ew-resize}
 #b6-alloc.drag iframe{pointer-events:none}
+/* 自由に動かす (ユーザー 2026-11-24): 見出しをドラッグ → 浮かぶ窓。⇥ で右に戻す */
+#b6-alloc .ah{cursor:move;user-select:none}
+#b6-alloc .ah button{cursor:pointer}
+#b6-alloc.fl{right:auto;bottom:auto;border:2px solid var(--accent);border-radius:8px;box-shadow:0 12px 36px rgba(0,0,0,.28);overflow:hidden}
+#b6-alloc.fl .rz{left:0;width:6px}
+#b6-alloc .rc{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;display:none;background:linear-gradient(135deg,transparent 50%,var(--accent) 50%);opacity:.6;z-index:1}
+#b6-alloc.fl .rc{display:block}
+#b6-alloc .rb{position:absolute;left:16px;right:16px;bottom:0;height:6px;cursor:ns-resize;display:none}
+#b6-alloc.fl .rb{display:block}
+#b6-alloc [data-ad]{display:none}
+#b6-alloc.fl [data-ad]{display:inline-block}
 /* セル書式 (右クリック) — 色は明暗どちらのテーマでも読める濃さ */
 .fc-red{color:#e5484d!important}.fc-blue{color:#3b82f6!important}.fc-green{color:#22a35a!important}.fc-orange{color:#e8890c!important}.fc-purple{color:#9b6cf6!important}
 .b6-t td.fs-S{font-size:10.5px}.b6-t td.fs-L{font-size:14px}.b6-t td.fs-XL{font-size:17px}
@@ -800,7 +811,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.83', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.84', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1613,8 +1624,23 @@ function allocWidth(){
   if(!w){ const pk = $('#b6-board th[data-f="packer"]'); w = pk ? W - pk.getBoundingClientRect().left : W/2; }
   return Math.round(Math.min(Math.max(w, 360), W - 160));
 }
+/* 浮かぶ窓の位置・大きさ (人ごとに記憶)。画面の外に出ないように */
+function allocFloatRect(){
+  let r = null; try{ r = JSON.parse(allocPref('rect') || 'null'); }catch(e){}
+  const W = innerWidth, H = innerHeight;
+  if(!r || !(r.w > 0)) r = {w:Math.min(760, W - 40), h:Math.min(620, H - 80), x:0, y:0, def:true};
+  r.w = Math.round(Math.min(Math.max(r.w, 360), W - 16)); r.h = Math.round(Math.min(Math.max(r.h, 220), H - 16));
+  if(r.def){ r.x = W - r.w - 24; r.y = 80; delete r.def; }
+  r.x = Math.round(Math.min(Math.max(r.x, 8 - r.w + 120), W - 120)); r.y = Math.round(Math.min(Math.max(r.y, 0), H - 40));
+  return r;
+}
+function allocApplyRect(p, r){ Object.assign(p.style, {left:r.x+'px', top:r.y+'px', width:r.w+'px', height:r.h+'px'}); }
+function allocSaveRect(p){ const b = p.getBoundingClientRect(); allocPref('rect', JSON.stringify({x:Math.round(b.left), y:Math.round(b.top), w:Math.round(b.width), h:Math.round(b.height)})); }
 function allocLayout(){
   const p = $('#b6-alloc'); if(!p) return;
+  const fl = allocPref('float')==='1'; p.classList.toggle('fl', fl);
+  if(fl){ allocApplyRect(p, allocFloatRect()); return; }
+  p.style.left = ''; p.style.height = '';
   const wrap = $('#b6-board'), top = wrap ? Math.max(0, wrap.getBoundingClientRect().top) : 120;
   p.style.top = top+'px'; p.style.width = allocWidth()+'px';
 }
@@ -1748,8 +1774,8 @@ function allocOpen(){
     p = document.createElement('div'); p.id = 'b6-alloc';
     p.innerHTML = '<div class="rz" title="ドラッグで幅を変える (ダブルクリックで元に戻す)"></div>'
       + '<div class="ah"><b>割り当て</b><button data-az="-0.1" title="小さく">−</button><span class="zm"></span><button data-az="0.1" title="大きく">＋</button>'
-      + '<button data-ar="1" title="読み直す">↻</button><button data-ao="1" title="CLEARANCE_COMPASS を新しいタブで開く">↗</button><button data-ax="1" title="閉じる">✕</button></div>'
-      + '<iframe title="割り当て"></iframe>';
+      + '<button data-ad="1" title="右に戻す（固定）">⇥</button><button data-ar="1" title="読み直す">↻</button><button data-ao="1" title="CLEARANCE_COMPASS を新しいタブで開く">↗</button><button data-ax="1" title="閉じる">✕</button></div>'
+      + '<iframe title="割り当て"></iframe><div class="rb" title="ドラッグで高さを変える"></div><div class="rc" title="ドラッグで大きさを変える"></div>';
     document.body.appendChild(p);
     const fr = p.querySelector('iframe');
     let tries = 0;
@@ -1762,16 +1788,50 @@ function allocOpen(){
       else if(b.dataset.ar){ try{ fr.contentWindow.location.reload(); }catch(e){ fr.src = ALLOC_URL; } }
       else if(b.dataset.ao) window.open(ALLOC_URL, '_blank');
       else if(b.dataset.ax) allocClose();
+      else if(b.dataset.ad){ allocPref('float', '0'); allocLayout(); }
     });
+    /* 見出しをドラッグ → 自由に移動 (右に固定の時は その場で浮かぶ窓に)。ダブルクリック = 浮かぶ ⇔ 右に固定 */
+    const ah = p.querySelector('.ah');
+    const drag = (el, ev, mv) => {
+      ev.preventDefault(); el.setPointerCapture(ev.pointerId); p.classList.add('drag');
+      const move = e => mv(e), up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+        p.classList.remove('drag'); if(p.classList.contains('fl')) allocSaveRect(p); };
+      el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    };
+    const toFloat = () => { if(p.classList.contains('fl')) return; const b = p.getBoundingClientRect();
+      allocPref('float', '1'); p.classList.add('fl'); allocApplyRect(p, {x:b.left, y:b.top, w:b.width, h:b.height}); };
+    ah.addEventListener('pointerdown', ev => {
+      if(ev.button!==0 || ev.target.closest('button')) return;
+      const sx = ev.clientX, sy = ev.clientY; let b0 = null;
+      drag(ah, ev, e => {
+        if(!b0){ if(Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) < 4) return; toFloat(); b0 = p.getBoundingClientRect(); }
+        const x = Math.min(Math.max(b0.left + e.clientX - sx, 8 - b0.width + 120), innerWidth - 120), y = Math.min(Math.max(b0.top + e.clientY - sy, 0), innerHeight - 40);
+        p.style.left = Math.round(x)+'px'; p.style.top = Math.round(y)+'px';
+      });
+    });
+    ah.addEventListener('dblclick', ev => { if(ev.target.closest('button')) return; allocPref('float', p.classList.contains('fl') ? '0' : '1'); allocLayout(); });
+    /* 浮かぶ窓: 右下の角・下の端で大きさ */
+    const sizer = (el, wOn, hOn) => el.addEventListener('pointerdown', ev => {
+      const b0 = p.getBoundingClientRect(), sx = ev.clientX, sy = ev.clientY;
+      drag(el, ev, e => {
+        if(wOn) p.style.width = Math.round(Math.min(Math.max(b0.width + e.clientX - sx, 360), innerWidth - b0.left - 4))+'px';
+        if(hOn) p.style.height = Math.round(Math.min(Math.max(b0.height + e.clientY - sy, 220), innerHeight - b0.top - 4))+'px';
+      });
+    });
+    sizer(p.querySelector('.rc'), true, true); sizer(p.querySelector('.rb'), false, true);
     /* 左の端をドラッグで幅を変える */
     const rz = p.querySelector('.rz');
     rz.addEventListener('pointerdown', ev => {
       ev.preventDefault(); rz.setPointerCapture(ev.pointerId); p.classList.add('drag');
-      const mv = e => { const w = Math.min(Math.max(window.innerWidth - e.clientX, 360), window.innerWidth - 160); p.style.width = w+'px'; };
-      const up = e => { rz.removeEventListener('pointermove', mv); rz.removeEventListener('pointerup', up); p.classList.remove('drag'); allocPref('w', String(parseInt(p.style.width))); };
+      const fl = p.classList.contains('fl'), b0 = p.getBoundingClientRect();
+      const mv = e => {
+        if(fl){ const x = Math.min(Math.max(e.clientX, 0), b0.right - 360); p.style.left = Math.round(x)+'px'; p.style.width = Math.round(b0.right - x)+'px'; return; }
+        const w = Math.min(Math.max(window.innerWidth - e.clientX, 360), window.innerWidth - 160); p.style.width = w+'px'; };
+      const up = e => { rz.removeEventListener('pointermove', mv); rz.removeEventListener('pointerup', up); p.classList.remove('drag');
+        if(fl) allocSaveRect(p); else allocPref('w', String(parseInt(p.style.width))); };
       rz.addEventListener('pointermove', mv); rz.addEventListener('pointerup', up);
     });
-    rz.addEventListener('dblclick', () => { try{ localStorage.removeItem('b6_alloc_w'); }catch(e){} allocLayout(); });
+    rz.addEventListener('dblclick', () => { try{ localStorage.removeItem(p.classList.contains('fl') ? 'b6_alloc_rect' : 'b6_alloc_w'); }catch(e){} allocLayout(); });
     window.addEventListener('resize', () => { if(p.classList.contains('on')) allocLayout(); });
   }
   p.classList.add('on'); allocLayout(); allocZoom(0); allocLinkPlace();
