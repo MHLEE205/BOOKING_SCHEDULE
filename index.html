@@ -140,6 +140,8 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map.route svg{border-radius:5px;flex:none;width:100%;height:auto;max-height:none}
 .b6-map .sea{fill:color-mix(in srgb,var(--info) 9%,var(--read))}
 .b6-map.route .land{fill:color-mix(in srgb,var(--text3) 45%,var(--read));stroke:none}
+.b6-map .bd{fill:none;stroke:color-mix(in srgb,var(--read) 55%,var(--text3));stroke-linejoin:round;stroke-linecap:round}
+.b6-map .rt-cn{fill:color-mix(in srgb,var(--text3) 75%,var(--read));font-weight:500;letter-spacing:.02em;pointer-events:none}
 .b6-map .rt{fill:none;stroke:#e5484d;stroke-linecap:round;stroke-linejoin:round}
 .b6-map .rt-pol{fill:var(--accent);stroke:#fff;stroke-width:.3}
 .b6-map .rt-pod{fill:#e5484d;stroke:#fff;stroke-width:.3}
@@ -814,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.92', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.93', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2096,7 +2098,7 @@ function kmOf(pts){
   return t;
 }
 /* 世界の陸地 (TopoJSON を自前で展開 — ライブラリなし) */
-const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json';
+const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json'   /* 陸 (land) + 国境 (countries) — 2026-11-25 */;
 async function loadWorld(){
   if(S.world || S.worldErr) return;
   if(S.worldLoading) return S.worldLoading;
@@ -2112,14 +2114,27 @@ async function loadWorld(){
         else if(g.type==='Polygon') g.arcs.forEach(r => rings.push(ring(r)));
         else if(g.type==='MultiPolygon') g.arcs.forEach(p => p.forEach(r => rings.push(ring(r))));
       };
-      Object.values(t.objects).forEach(geom);
-      S.world = rings.map(pts => { let a=180,b=90,c=-180,d=-90; pts.forEach(([x,y]) => { a=Math.min(a,x); b=Math.min(b,y); c=Math.max(c,x); d=Math.max(d,y); }); return {pts:pts, bb:[a,b,c,d]}; });
+      geom(t.objects.land || t.objects.countries);
+      const bbOf = pts => { let a=180,b=90,c=-180,d=-90; pts.forEach(([x,y]) => { a=Math.min(a,x); b=Math.min(b,y); c=Math.max(c,x); d=Math.max(d,y); }); return [a,b,c,d]; };
+      S.world = rings.map(pts => ({pts:pts, bb:bbOf(pts)}));
+      /* 国境 = 2 つの国が共有する線 (海岸線は 1 国だけ) */
+      const use = new Map();
+      ((t.objects.countries||{}).geometries||[]).forEach((g, gi) => {
+        const seen = new Set(), walk = a => Array.isArray(a) ? a.forEach(walk) : seen.add(a<0 ? ~a : a);
+        walk(g.arcs||[]); seen.forEach(i => use.set(i, (use.get(i)||0)+1));
+      });
+      S.borders = [...use].filter(([i, n]) => n >= 2).map(([i]) => ({pts:arcs[i], bb:bbOf(arcs[i])}));
     }catch(e){ S.worldErr = String(e.message||e); }
     S.worldLoading = null;
     renderMap();
   })();
   return S.worldLoading;
 }
+/* 航路地図の国名 [名前, 経度, 緯度] (ラベルの置き場所。国の真ん中付近の陸の上) */
+const CTRY_LBL = [['日本',138.6,36.9],['韓国',128.1,36.4],['北朝鮮',127.2,40.3],['中国',110,32],['モンゴル',103,46.5],['ロシア',132,51],
+  ['台湾',121,23.6],['フィリピン',122.6,11.6],['ベトナム',105.9,16.3],['ラオス',102.7,19.6],['タイ',101,15.9],['カンボジア',104.9,12.8],
+  ['ミャンマー',96.1,21.6],['マレーシア',102.3,4.4],['インドネシア',113.6,-0.8],['インド',78.5,21.5],['バングラデシュ',90.2,24.1],
+  ['スリランカ',80.7,7.6],['パキスタン',69.4,29.6],['ネパール',84,28.3],['パプアニューギニア',144,-6.3],['オーストラリア',134,-25]];
 function renderRoute(el, b){
   const pol = str(b.port).trim().toUpperCase(), P = POL_LL[pol], D = podLL(b.pod);
   const podTxt = firstLine(b.pod) || '—';
@@ -2153,9 +2168,19 @@ function renderRoute(el, b){
   const pathOf = pts => 'M'+pts.map(p => X(p[0]).toFixed(2)+','+Y(p[1]).toFixed(2)).join('L');
   const lon0 = vx/k, lon1 = (vx+w)/k, lat1 = -vy, lat0 = -(vy+h);
   let land = '';
-  (S.world||[]).forEach(r => { const [a,bb,c,d] = r.bb; if(c<lon0 || a>lon1 || d<lat0 || bb>lat1) return; land += '<path class="land" d="'+pathOf(r.pts)+'Z"/>'; });
+  const inView = bb => !(bb[2]<lon0 || bb[0]>lon1 || bb[3]<lat0 || bb[1]>lat1);
+  (S.world||[]).forEach(r => { if(inView(r.bb)) land += '<path class="land" d="'+pathOf(r.pts)+'Z"/>'; });
   const s = w/100;   /* 線・文字の太さを範囲に合わせる */
   const [px, py] = [X(P[0]), Y(P[1])], [dx, dy] = [X(D[0]), Y(D[1])];
+  /* 国境 (薄い線) と 国名 (港の名前と重なる所は出さない) — ユーザー 2026-11-25 */
+  const bd = (S.borders||[]).filter(r => inView(r.bb)).map(r => pathOf(r.pts)).join('');
+  if(bd) land += '<path class="bd" d="'+bd+'" style="stroke-width:'+(0.45*s).toFixed(3)+'px"/>';
+  const near = (x, y) => [[px, py], [dx, dy]].some(([qx, qy]) => Math.abs(qx-x) < 16*s && Math.abs(qy-y) < 5*s);
+  if(S.world) CTRY_LBL.forEach(([n, lon, lat]) => {
+    const x = X(lon), y = Y(lat);
+    if(x < vx+6*s || x > vx+w-6*s || y < vy+3*s || y > vy+h-2*s || near(x, y)) return;
+    land += '<text class="rt-cn" x="'+x.toFixed(2)+'" y="'+y.toFixed(2)+'" text-anchor="middle" style="font-size:'+(3.4*s).toFixed(2)+'px">'+n+'</text>';
+  });
   const lbl = (x, y, t, right, dy) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+(dy==null?1:dy)*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.2*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
   el.innerHTML = head
     + '<div class="rt-w"><div class="rt-z"><button data-rtz="1.5" title="拡大">＋</button><button data-rtz="0.6667" title="縮小">−</button>'+(z!==1 ? '<button data-rtz="0" title="元の大きさ">↺</button>' : '')+'</div>'
