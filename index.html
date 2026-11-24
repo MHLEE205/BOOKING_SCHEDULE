@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.94', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.95', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6045,7 +6045,7 @@ function cpHeaderRows(b, rec, X){
     rows.push({k:x.f.k, label:x.f.label, col:x.col, cp:curName, b06:to ? toName+(cpNorm(toName)!==cpNorm(key) ? '（B-06: '+key+'）' : '') : key,
       bind:to ? {nav:x.rel.nav, set:o.set, id:to} : null, ok:!!to && x.a.updOk!==false, def:!!to,
       pick:!to && x.a.updOk!==false ? {nav:x.rel.nav, set:o.set, list:o.list, kind:x.f.k, key:key, cur:cur} : null,
-      note:!to ? (x.a.updOk===false ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : '「'+key+'」に合う一覧の項目が決まりません — 左の一覧から選んでください') : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
+      note:!to ? (x.a.updOk===false ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : 'COMPASS の一覧で 1 つに決まりません — 一覧から選んでください') : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
   });
   if(X.otsu){
     const v = customsOf(b), cur = rec['_'+X.otsu.col+'_value'] || '';
@@ -6058,7 +6058,7 @@ function cpHeaderRows(b, rec, X){
       rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curName, b06:to && cpNorm(toName)!==cpNorm(v) ? toName+'（B-06: '+v+'）' : v,
         bind:to ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, id:to} : null, ok:!!to && upd, def:!!to,
         pick:!to && upd ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, list:L, kind:'customs', key:v, cur:cur, port:b.port} : null,
-        note:!to ? '「'+v+'」の乙仲が COMPASS の一覧で 1 つに決まりません — '+(upd ? '左の一覧から選んでください' : 'COMPASS で直してください') : !upd ? 'COMPASS で更新できない列' : ''});
+        note:!to ? 'COMPASS の乙仲一覧で 1 つに決まりません — '+(upd ? '一覧から選んでください' : 'COMPASS で直してください') : !upd ? 'COMPASS で更新できない列' : ''});
     }
   }
   if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
@@ -6243,32 +6243,41 @@ async function compassUpdate(b){
   const okCell = (r, src, i) => r.okd
     ? '<span style="color:#15803d;font-weight:700;white-space:nowrap">✔ 確認済</span><div class="muted" style="font-size:10.5px;white-space:nowrap">'+esc(r.okd.by)+' '+esc(fmtDT(r.okd.at))+'</div><button class="b6-btn sm cpu-ok" data-src="'+src+'" data-i="'+i+'" data-on="0">取消</button>'
     : '<button class="b6-btn sm cpu-ok" data-src="'+src+'" data-i="'+i+'" data-on="1" title="違っていても このままで OK（COMPASS には送らない・違いとして出さない・変更履歴に残る）">このままで OK</button>';
+  /* 状態 (送れる・選ぶ・COMPASS で直す・確認済) + 短い説明 (長い説明はマウスを乗せると出る) */
+  const stCell = r => (r.okd ? '<span class="bdg o">✔ 確認済</span>' : r.ok ? '<span class="bdg o">送れます</span>' : r.pick ? '<span class="bdg w">一覧から選ぶ</span>' : '<span class="bdg m">COMPASS で直す</span>')
+    + (r.note && !r.okd ? '<div class="muted" style="font-size:11px;margin-top:2px;max-width:280px" title="'+esc(r.tip || r.note)+'">'+esc(str(r.note).split(' ／ ')[0])+'</div>' : '');
   const body = () => {
-    /* ① ヘッダー ② 明細 に分けて、それぞれ「COMPASS に送る」ボタンを その場所に (どれを押せばよいか分かりにくい — ユーザー 2026-11-24) */
-    const sec = t => '<div style="font-size:14px;font-weight:700;margin:4px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--line, #ddd)">'+t+'</div>';
-    let h = sec('① ヘッダー <span class="muted" style="font-size:11.5px;font-weight:400">Booking no.・本船・CY・POL・POD・船社 など</span>');
-    if(!X.rows.length) h += '<div><span class="bdg o">✔</span> COMPASS と同じです — 送るものはありません。</div>';
-    else h += '<div style="font-weight:700;margin-bottom:4px">⚠ COMPASS と違います</div>'
-      + '<div class="muted" style="font-size:11.5px;margin:0 0 6px">チェックした項目を 下の「① ヘッダーを COMPASS に送る」で送ります。違っていても このままで良い時は「このままで OK」。</div>'
-      + '<table class="b6-s"><tr><th>送る</th><th>項目</th><th>COMPASS（今）</th><th></th><th>B-06（変更後）</th><th></th><th>確認</th></tr>'
-      + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b>'+(r.pick ? cpPickSel(r, i) : '')+'</td>'
-        + '<td class="muted cpu-nt" style="font-size:11.5px">'+(r.ok || !r.note ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>';
-    /* ② 明細 (Packer・本数・品目) — 送るのは 明細の変更入力の画面で */
-    h += '<div style="margin-top:14px">'+sec('② 明細 <span class="muted" style="font-size:11.5px;font-weight:400">Packer 行・本数・販売・購買</span>');
-    if(!X.dRows.length) h += '<div><span class="bdg o">✔</span> COMPASS と同じです（行数・本数）。</div>';
-    else h += '<div style="font-weight:700;margin-bottom:4px">⚠ COMPASS と違います</div>'
-      + X.dRows.map((r, i) => '<div style="display:flex;gap:8px;align-items:center;padding:2px 0'+(r.okd ? ';opacity:.6' : '')+'"><span>・'+esc(r.label)+': COMPASS <b>'+esc(r.cp || '（空）')+'</b> → B-06 <b>'+esc(r.b06 || '（空）')+'</b></span><span style="margin-left:auto">'+okCell(r, 'd', i)+'</span></div>').join('');
-    if(C.detailRows) h += '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="b6-btn'+(X.dRows.some(r => !r.okd) ? ' pri' : '')+' cpu-dtl">📦 ② 明細を COMPASS に送る →</button>'
-      + '<span class="muted" style="font-size:11.5px">次の画面で 行の対応・送る内容を確かめてから送ります（本数・販売・購買 の変更／足りない明細の追加）。明細の削除は COMPASS で。</span></div>';
+    /* 他の担当者にも分かりやすく: 何が違うか・何を送れるか だけを見せ、COMPASS ID などは「詳細」に畳む (ユーザー 2026-11-25) */
+    const nH = X.rows.filter(r => !r.okd).length, nD = X.dRows.filter(r => !r.okd).length;
+    const box = (c, t) => '<div style="padding:8px 12px;border-radius:8px;margin-bottom:12px;font-size:13.5px;background:color-mix(in srgb,var(--'+c+') 12%,transparent);border:1px solid color-mix(in srgb,var(--'+c+') 35%,transparent)">'+t+'</div>';
+    const sec = (t, sub) => '<div style="font-size:14px;font-weight:700;margin:4px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--border)">'+t+' <span class="muted" style="font-size:11.5px;font-weight:400">'+sub+'</span></div>';
+    let h = !nH && !nD ? box('ok', '✔ <b>COMPASS と同じです。</b>送るものはありません。')
+      : box('warn', '⚠ COMPASS と違うところが <b>'+(nH+nD)+' 件</b> あります'+(nH && nD ? '（ヘッダー '+nH+'・明細 '+nD+'）' : '')+'。<span class="muted" style="font-size:12px">B-06 の内容で COMPASS を直すか、このままで良ければ「このままで OK」を押してください。</span>');
+    h += sec('① ヘッダー', '本船・CY・POL・POD・船社・乙仲 など');
+    if(!X.rows.length) h += '<div style="margin-bottom:10px"><span class="bdg o">✔</span> 同じです</div>';
+    else h += '<table class="b6-s" style="width:100%"><tr><th style="text-align:center">送る</th><th>項目</th><th>COMPASS の今</th><th></th><th>B-06（送る内容）</th><th>状態</th><th></th></tr>'
+      + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td style="text-align:center;vertical-align:middle"><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td>'
+        + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td><s class="muted">'+cell(r.cp)+'</s></td><td style="color:var(--text3)">→</td>'
+        + '<td><b>'+cell(r.b06)+'</b>'+(r.pick ? cpPickSel(r, i) : '')+'</td>'
+        + '<td class="cpu-nt">'+stCell(r)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>'
+      + '<div class="muted" style="font-size:11.5px;margin:4px 0 0">☑ を付けた項目を、下の「<b>☑ の項目を COMPASS に送る</b>」で COMPASS に上書きします。</div>';
+    h += '<div style="margin-top:16px">'+sec('② 明細', 'Packer 行・本数・販売・購買');
+    if(!X.dRows.length) h += '<div><span class="bdg o">✔</span> 同じです（行数・本数）</div>';
+    else h += X.dRows.map((r, i) => '<div style="display:flex;gap:8px;align-items:center;padding:3px 0'+(r.okd ? ';opacity:.6' : '')+'"><span><b>'+esc(r.label)+'</b>：COMPASS <s class="muted">'+esc(r.cp || '（空）')+'</s> → B-06 <b>'+esc(r.b06 || '（空）')+'</b></span><span style="margin-left:auto">'+okCell(r, 'd', i)+'</span></div>').join('');
+    if(C.detailRows) h += '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="b6-btn'+(nD ? ' pri' : '')+' cpu-dtl">📦 明細を確かめて COMPASS に送る →</button>'
+      + '<span class="muted" style="font-size:11.5px">次の画面で 送る内容を確認してから送ります</span></div>';
     h += '</div>';
-    h += '<div class="muted" style="margin-top:8px;font-size:11.5px">COMPASS ID '+esc(X.id)+'・COMPASS 入力 '+esc(fmtDT(b.compass_at))+'。販売先・販売CO・海上運賃区分 は変えません。ETD・ETA は比べません。</div>';
-    if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:8px">試験モード: 「① ヘッダーを COMPASS に送る」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
+    if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:10px">試験モード: 送るボタンを押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
+    const tips = Array.from(new Set(X.rows.map(r => str(r.tip)).filter(Boolean)));
+    h += '<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
+      + 'COMPASS ID: '+esc(X.id)+'<br>COMPASS 入力: '+esc(fmtDT(b.compass_at))+'<br>送らない項目: 販売先・販売CO・海上運賃区分<br>比べない項目: ETD・ETA（入力後に COMPASS とずれることが多いため）<br>明細の削除は COMPASS で行ってください'
+      + tips.map(t => '<br>'+esc(t).replace(/\n/g, '<br>')).join('')+'</div></details>';
     return h;
   };
   const btns = [{label:'閉じる', fn:c=>c()}];
   if(!X.rows.some(r => r.ok) && cpChgOf(b)) btns.push({label:'↺ マークだけ消す（COMPASS には送らない）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
   let busy = false;
-  if(X.rows.some(r => r.ok || r.pick)) btns.push({label:'① ヘッダーを COMPASS に送る', pri:true, fn:async c=>{
+  if(X.rows.some(r => r.ok || r.pick)) btns.push({label:'☑ の項目を COMPASS に送る', pri:true, fn:async c=>{
     if(busy) return;
     const picked = $$('.cpu-ck', pm.el).filter(x => x.checked).map(x => X.rows[+x.dataset.i]);
     if(!picked.length){ toast('送る項目にチェックしてください', 'warn'); return; }
@@ -6286,10 +6295,10 @@ async function compassUpdate(b){
     r.picked = o ? {id:o.id, name:str(o.name).split('|')[0].trim()} : null;
     r.bind = o ? {nav:r.pick.nav, set:r.pick.set, id:o.id} : null;
     r.ok = r.def = !!o;
-    r.note = o ? (o.id===r.pick.cur ? '今の COMPASS と同じ項目です' : '「'+r.picked.name+'」を送ります（次から「'+r.pick.key+'」は自動でこれを選びます）') : '「'+r.pick.key+'」— 左の一覧から選んでください';
+    r.note = o ? (o.id===r.pick.cur ? '今の COMPASS と同じ項目です' : '「'+r.picked.name+'」を送ります（次からは自動で選びます）') : '一覧から COMPASS の項目を選んでください';
     const tr = sl.closest('tr'), ck = tr.querySelector('.cpu-ck'), nt = tr.querySelector('.cpu-nt');
     if(ck){ ck.disabled = !o; ck.checked = !!o && o.id!==r.pick.cur; }
-    if(nt) nt.innerHTML = (o ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note);
+    if(nt) nt.innerHTML = stCell(r);
   });
   pm.el.addEventListener('click', async ev => {
     if(ev.target.closest('.cpu-dtl')){ pm.close(); compassDtlUpdate(b); return; }
