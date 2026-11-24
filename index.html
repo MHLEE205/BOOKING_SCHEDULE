@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.80', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.81', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1468,7 +1468,7 @@ function cellHtml(col, b, a){
       if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
       if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
-      else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
+      else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')+(r.tip ? '\n  '+r.tip.replace(/\n/g, '\n  ') : '')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
       /* 青の ↺ (Booking no. の変更回数) は やめた — ほとんど変わらない (ユーザー 2026-11-24)。履歴は メニューの「↺ 変更履歴」で見られる。
          COMPASS の Booking no. と違う時は 上の「COMPASS差」とセルの枠で出る */
       const cpn = cpChgOf(b);
@@ -4318,8 +4318,8 @@ const DvCompass = {
   },
   async findByBookingNo(no){
     const M = await this.meta(), pid = M.entity.PrimaryIdAttribute;
-    const rows = await dvGetAll(COMPASS.ES+'?$select='+pid+',cr49f_booking_no,createdon&$filter='+encodeURIComponent('cr49f_booking_no eq '+qk(no))+'&$top=5');
-    return rows.map(r=>({id:r[pid], at:r.createdon}));
+    const rows = await dvGetAll(COMPASS.ES+'?$select='+pid+',cr49f_booking_no,cr49f_invoice_no,createdon&$filter='+encodeURIComponent('cr49f_booking_no eq '+qk(no))+'&$top=20');
+    return rows.map(r=>({id:r[pid], at:r.createdon, inv:str(r.cr49f_invoice_no)}));
   },
   /* 明細 (読み取りのみ): 明細テーブルの列と、販売・購買のアイテム一覧。列は表示名で探す (列名を推測しない) */
   /* 読み込み中に もう一度呼ばれても 同じ読み込みを待つ (先読みと画面を開く時が重なっても 2 回読まない) */
@@ -4754,7 +4754,7 @@ function makeMemCompass(){
     async packers(){ return ['SAMPLE','TEST','デモ再生','みほん商事','レイ紙材','ナゾ紙業'].map(n => ({id:'PK-'+n, name:n, alt:[]})); },
     async meta(){ return {entity:{LogicalName:COMPASS.LOGICAL, EntitySetName:COMPASS.ES, PrimaryIdAttribute:'cr49f_bookingid', PrimaryNameAttribute:'cr49f_name'}, attrs:attrs, rels:rels}; },
     async options(entity){ return opts[entity]; },
-    async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at})); },
+    async findByBookingNo(no){ return recs.filter(r=>r.body.cr49f_booking_no===no).map(r=>({id:r.id, at:r.at, inv:str(r.body.cr49f_invoice_no)})); },
     async create(body, allowed){ compassGuard(COMPASS.ES, body, allowed); const id = 'DEMO-'+uuid().slice(0,8); recs.push({id:id, body:body, at:new Date().toISOString()}); return id; },
     async exists(id){ return recs.some(r => r.id===id); },
     async read(id){
@@ -4972,8 +4972,9 @@ async function compassCheck(b){
   const M = R.meta = await C.meta();
   /* 重複: COMPASS に同じ Booking no. */
   if(!blank(b.bkgno)){
-    const dup = await C.findByBookingNo(firstLine(b.bkgno));
-    if(dup.length) R.blocks.push('COMPASS に同じ Booking no. が既にあります（'+dup.length+' 件 — '+dup.map(d=>fmtDT(d.at)).join(', ')+'）');
+    const P = cpPairSplit(await C.findByBookingNo(firstLine(b.bkgno)), b);
+    if(P.same.length) R.blocks.push('COMPASS に同じ Booking no.・Invoice no. が既にあります（'+P.same.length+' 件 — '+P.same.map(d=>cpPairTxt(b.bkgno, d.inv)+' '+fmtDT(d.at)).join(', ')+'）');
+    if(P.other.length) R.warns.push('COMPASS に同じ Booking no. で Invoice no. が違うブッキングがあります（'+P.other.map(d=>cpPairTxt(b.bkgno, d.inv)).join('、')+'）— 別のブッキングとして入力します');
   }
   COMPASS.FIELDS.forEach(f => {
     /* 列名が違っていても表示名で探す */
@@ -5367,10 +5368,10 @@ async function openCompass(b){
   const t0 = Date.now();
   if(!blank(b.bkgno) && C && C.findByBookingNo){
     let dup = [];
-    try{ dup = await C.findByBookingNo(firstLine(b.bkgno)); }catch(e){}
+    try{ dup = cpPairSplit(await C.findByBookingNo(firstLine(b.bkgno)), b).same; }catch(e){}
     if(dup.length){
       modal('✔ COMPASS に入力済み — '+esc(bkLabel(b)),
-        '<div><span class="bdg o">✔</span> COMPASS に同じ Booking no.（<b>'+esc(firstLine(b.bkgno))+'</b>）が既にあります（'+dup.length+' 件 — '+esc(dup.map(d => fmtDT(d.at)).join(', '))+'）。</div>'
+        '<div><span class="bdg o">✔</span> COMPASS に同じ Booking no.・Invoice no.（<b>'+esc(cpPairTxt(b.bkgno, b.invoiceno))+'</b>）が既にあります（'+dup.length+' 件 — '+esc(dup.map(d => cpPairTxt(b.bkgno, d.inv)+' '+fmtDT(d.at)).join(', '))+'）。</div>'
         + '<div class="muted" style="margin-top:6px;font-size:12px">二重に入力しないよう、入力画面は開きません。B-06 の表示を「COMPASS済」にできます（COMPASS には何も書き込みません）。</div>',
         [{label:'閉じる', fn:c=>c()},
          {label:'B-06 を「COMPASS済」にする', pri:true, fn:async c=>{ c();
@@ -5656,7 +5657,7 @@ async function sendCompass(b, R, body, test){
   /* 直前の再確認: B-06 の状態と COMPASS の重複 */
   const [cur, dup] = await Promise.all([S.store.get('B', b.id), C.findByBookingNo(firstLine(b.bkgno))]);
   if(cur.compass_status==='SENT') throw new Error('他の人が先に COMPASS へ入力しました（ID '+cur.compass_id+'）。画面を再読込してください');
-  if(dup.length) throw new Error('COMPASS に同じ Booking no. が既にあります。送信を中止しました');
+  if(cpPairSplit(dup, b).same.length) throw new Error('COMPASS に同じ Booking no.・Invoice no. が既にあります。送信を中止しました');
   if(test){
     modal('試験モード — 送信内容', '<div>COMPASS には書き込んでいません。実際に送る場合の内容です。</div><pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">POST '+esc(COMPASS.ES)+'\n'+esc(JSON.stringify(body, null, 2))+'</pre>', [{label:'閉じる', fn:c=>c()}], true);
     return;
@@ -5735,6 +5736,38 @@ async function cpDiffCtx(){
   return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
     sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [])};
 }
+/* ══ Booking no. は 1 文字だけ違うもの・同じ番号 (分割) もあるので、COMPASS と比べる時は いつも
+   Booking no.＋Invoice no. の ペア で見る (ユーザー 2026-11-24) ══ */
+const cpInvSame = (x, y) => cpNorm(firstLine(x))===cpNorm(firstLine(y));
+const cpPairTxt = (bk, inv) => (firstLine(bk) || '（空）')+' / '+(firstLine(inv) || '（空）');
+/* COMPASS の同じ Booking no. の一覧を分ける: same = Invoice no. も同じ（どちらかが空なら「同じかも」で same）/ other = Invoice no. が違う＝別のブッキング */
+function cpPairSplit(dup, b){
+  const inv = firstLine(b.invoiceno), same = [], other = [];
+  dup.forEach(d => (blank(inv) || blank(d.inv) || cpInvSame(inv, d.inv) ? same : other).push(d));
+  return {same:same, other:other};
+}
+/* 1 文字だけ違う (打ち間違い・末尾 1 桁違い) */
+function cpOneOff(x, y){
+  const a = cpNorm(firstLine(x)), c = cpNorm(firstLine(y));
+  if(!a || !c || a===c || Math.abs(a.length - c.length) > 1) return false;
+  if(a.length===c.length){ let n = 0; for(let i = 0; i < a.length; i++) if(a[i]!==c[i]) n++; return n===1; }
+  const [s, l] = a.length < c.length ? [a, c] : [c, a];
+  for(let i = 0; i < l.length; i++) if(l.slice(0, i) + l.slice(i+1)===s) return true;
+  return false;
+}
+/* Booking no.・Invoice no. のどちらかが違う時: 両方の行に ペア と注意を付ける */
+function cpPairNote(b, rows){
+  const rB = rows.find(r => r.k==='bkgno'), rI = rows.find(r => r.k==='invoiceno');
+  if(!rB && !rI) return;
+  const cpB = rB ? rB.cp : firstLine(b.bkgno), cpI = rI ? rI.cp : firstLine(b.invoiceno);
+  const pair = 'ペア — COMPASS: '+cpPairTxt(cpB, cpI)+' ／ B-06: '+cpPairTxt(b.bkgno, b.invoiceno);
+  let w = '';
+  if(rB && rI){ w = '⚠ Booking no. と Invoice no. の両方が違います — 別のブッキングにつながっている かもしれません。COMPASS で確かめてください';
+    rB.def = false; rI.def = false; }   /* 両方違う時は 自動でチェックしない (担当者が確かめてから) */
+  else if(rB && cpOneOff(cpB, b.bkgno)) w = '⚠ Booking no. が 1 文字だけ違います（Invoice no. は同じ）— 打ち間違いでないか確かめてください';
+  else if(rI && cpOneOff(cpI, b.invoiceno)) w = '⚠ Invoice no. が 1 文字だけ違います（Booking no. は同じ）— 打ち間違いでないか確かめてください';
+  [rB, rI].forEach(r => { if(!r) return; r.tip = [w, pair].filter(Boolean).join('\n'); r.note = [r.note, w, pair].filter(Boolean).join(' ／ '); });
+}
 /* ヘッダーの違い (k = B-06 の列 — 画面のセルに印を付けるのに使う) */
 function cpHeaderRows(b, rec, X){
   const rows = [], FVK = '@OData.Community.Display.V1.FormattedValue';
@@ -5780,6 +5813,7 @@ function cpHeaderRows(b, rec, X){
   }
   if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
     if(v!==c) rows.push({k:'cycut', label:'AM', col:X.amCol, cp:c ? '✔ AM' : '—', b06:v ? '✔ AM' : '—', send:v, ok:(X.M.attrs.get(X.amCol)||{}).updOk!==false, def:true, note:''}); }
+  cpPairNote(b, rows);
   return rows;
 }
 /* 明細の違い (行数・本数の合計 — 正確 / 品目 — 参考)。B-06 からは明細を変えない */
@@ -5805,7 +5839,9 @@ async function compassDiff(b){
   for(const r of rows){
     if(r.k==='bkgno' && !blank(r.b06) && r.ok){
       const dup = (await C.findByBookingNo(r.b06).catch(() => [])).filter(d => String(d.id).toLowerCase()!==String(id).toLowerCase());
-      if(dup.length){ r.ok = false; r.def = false; r.note = 'COMPASS に同じ Booking no. の別のブッキングがあります（'+dup.length+' 件）— 変更できません'; }
+      const P = cpPairSplit(dup, b);
+      if(P.same.length){ r.ok = false; r.def = false; r.note = 'COMPASS に同じ Booking no.・Invoice no.（'+cpPairTxt(r.b06, b.invoiceno)+'）の別のブッキングがあります（'+P.same.length+' 件）— 変更できません'; }
+      else if(P.other.length) r.note = [r.note, 'COMPASS に同じ Booking no. で Invoice no. が違う 別のブッキングがあります（'+P.other.map(d => cpPairTxt(r.b06, d.inv)).join('、')+'）'].filter(Boolean).join(' ／ ');
     }
   }
   let dRows = [];
@@ -5837,6 +5873,8 @@ async function compassCompareAll(){
       /* COMPASS にない */
       let dup = [];
       if(!blank(b.bkgno)){ try{ dup = await C.findByBookingNo(firstLine(b.bkgno)); }catch(e){ continue; } }
+      /* つなぎ直すのは Booking no.＋Invoice no. の ペアが 1 件だけ合う時 (Booking no. だけでは 分割・別のブッキングと間違える) */
+      dup = dup.filter(d => cpInvSame(b.invoiceno, d.inv));
       if(dup.length===1){
         await saveBooking(b, {compass_id:String(dup[0].id), compass_at:dup[0].at || new Date().toISOString()}, 'bkgno');
         logHist(b, [{lv:'B', k:'_cp', from:'', to:'COMPASS で再登録されたのを検出 — 新しい COMPASS ID に つなぎ直しました（前 '+id+'）'}]);
@@ -5861,7 +5899,7 @@ const cpDiffN = b => { const o = cpCmpOf(b); return o && o.rows ? o.rows.filter(
 function cpCellAttr(b, k){
   const o = cpCmpOf(b); if(!o || !o.rows) return '';
   const rs = o.rows.filter(r => r.k===k && !r.soft && !r.okd); if(!rs.length) return '';
-  return ' data-cpdiff="1" title="'+esc(rs.map(r => 'COMPASS と違います — '+r.label+'\nCOMPASS: '+(r.cp || '（空）')+'\nB-06: '+(r.b06 || '（空）')).join('\n'))+'"';
+  return ' data-cpdiff="1" title="'+esc(rs.map(r => 'COMPASS と違います — '+r.label+'\nCOMPASS: '+(r.cp || '（空）')+'\nB-06: '+(r.b06 || '（空）')+(r.tip ? '\n'+r.tip : '')).join('\n'))+'"';
 }
 function compassGoneInfo(b){
   const o = cpCmpOf(b) || {};
@@ -6154,9 +6192,9 @@ async function sendCompassUpdate(b, X, picked, test){
 async function compassResend(b){
   const C = S.store.compass;
   try{
-    const dup = await C.findByBookingNo(firstLine(b.bkgno));
+    const dup = cpPairSplit(await C.findByBookingNo(firstLine(b.bkgno)), b).same;
     const still = b.compass_id && C.exists ? await C.exists(b.compass_id) : false;
-    if(dup.length || still){ modal('COMPASS にまだ残っています', '<div><span class="bdg d">✕</span> COMPASS に '+(dup.length ? '同じ Booking no.（'+esc(firstLine(b.bkgno))+'）' : '前回の ID（'+esc(b.compass_id)+'）')+' のブッキングがあります。</div><div class="muted" style="margin-top:6px">先に COMPASS で削除してから、もう一度押してください。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
+    if(dup.length || still){ modal('COMPASS にまだ残っています', '<div><span class="bdg d">✕</span> COMPASS に '+(dup.length ? '同じ Booking no.・Invoice no.（'+esc(cpPairTxt(b.bkgno, b.invoiceno))+'）' : '前回の ID（'+esc(b.compass_id)+'）')+' のブッキングがあります。</div><div class="muted" style="margin-top:6px">先に COMPASS で削除してから、もう一度押してください。</div>', [{label:'閉じる', fn:c=>c()}]); return; }
   }catch(e){ toast('COMPASS を確認できません: '+String(e.message || e).slice(0, 140), 'danger'); return; }
   await saveBooking(b, {compass_id:'', compass_status:'', compass_at:new Date().toISOString()}, 'bkgno');
   openCompass(b);
