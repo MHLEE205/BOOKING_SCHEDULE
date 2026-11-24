@@ -206,6 +206,9 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .bkh.cpd{color:#c2410c;border-color:#fb923c;background:#fff7ed;font-weight:700}
 .bkh.cpd:hover{background:#ea580c;color:#fff}
 .b6-t td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c}
+/* 選んだブッキング・並び替えで動いた行 でも COMPASS 差の枠を消さない (行の色も box-shadow なので 重ねる — ユーザー 2026-11-24) */
+.b6-t tr.bsel td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c,inset 0 0 0 999px color-mix(in srgb,var(--accent) 9%,transparent)}
+.b6-t tr.moved td[data-cpdiff]{box-shadow:inset 0 0 0 2px #fb923c,inset 0 0 0 999px color-mix(in srgb,#f59e0b 14%,transparent)}
 tr.hist-cp td{color:#15803d}
 tr.hist-cp1 td,span.hist-cp1{color:#15803d;font-weight:700}
 tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
@@ -811,7 +814,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.87', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.88', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
