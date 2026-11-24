@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.93', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.94', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5997,6 +5997,21 @@ function cpPairNote(b, rows){
   else if(rI && cpOneOff(cpI, b.invoiceno)) w = '⚠ Invoice no. が 1 文字だけ違います（Booking no. は同じ）— 打ち間違いでないか確かめてください';
   [rB, rI].forEach(r => { if(!r) return; r.tip = [w, pair].filter(Boolean).join('\n'); r.note = [r.note, w, pair].filter(Boolean).join(' ／ '); });
 }
+/* 決まらなかった一覧の項目を 画面で選ぶ <select>。上に 候補 (名前が似ている・乙仲は POL の搬入港が同じ)、下に 全部 */
+function cpPickSel(r, i){
+  const P = r.pick, nm = o => str(o.name).split('|')[0].trim();
+  const sc = new Map(cpMatch(P.list.map(o => ({id:o.id, name:nm(o), alt:o.alt})), cpAliases(P.kind==='customs' ? 'otsu' : P.kind, P.key)).map(x => [x.id, x.s]));
+  const al = P.port ? cpAliases('port', str(P.port).trim().toUpperCase()) : [];
+  const atPort = o => al.length && o.port && al.includes(cpNorm(o.port));
+  const lbl = o => nm(o)+(o.port ? '（'+o.port+'）' : '')+(o.id===P.cur ? ' ← 今の COMPASS' : '');
+  const cand = P.list.filter(o => sc.has(o.id) || atPort(o))
+    .sort((a, b) => (sc.get(b.id)||0)-(sc.get(a.id)||0) || (atPort(b)?1:0)-(atPort(a)?1:0) || nm(a).localeCompare(nm(b), 'ja'));
+  const rest = P.list.filter(o => !cand.includes(o)).sort((a, b) => nm(a).localeCompare(nm(b), 'ja'));
+  const opt = o => '<option value="'+esc(o.id)+'"'+(r.picked && r.picked.id===o.id ? ' selected' : '')+'>'+esc(lbl(o))+'</option>';
+  return '<div style="margin-top:3px"><select class="cpu-pick" data-i="'+i+'" style="max-width:260px;font-size:12px"><option value="">— COMPASS の一覧から選ぶ —</option>'
+    + (cand.length ? '<optgroup label="候補">'+cand.map(opt).join('')+'</optgroup>' : '')
+    + '<optgroup label="すべて（名前順）">'+rest.map(opt).join('')+'</optgroup></select></div>';
+}
 /* ヘッダーの違い (k = B-06 の列 — 画面のセルに印を付けるのに使う) */
 function cpHeaderRows(b, rec, X){
   const rows = [], FVK = '@OData.Community.Display.V1.FormattedValue';
@@ -6029,15 +6044,21 @@ function cpHeaderRows(b, rec, X){
     const toName = to ? (o.list.find(y => y.id===to) || {}).name || '' : '';
     rows.push({k:x.f.k, label:x.f.label, col:x.col, cp:curName, b06:to ? toName+(cpNorm(toName)!==cpNorm(key) ? '（B-06: '+key+'）' : '') : key,
       bind:to ? {nav:x.rel.nav, set:o.set, id:to} : null, ok:!!to && x.a.updOk!==false, def:!!to,
-      note:!to ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
+      pick:!to && x.a.updOk!==false ? {nav:x.rel.nav, set:o.set, list:o.list, kind:x.f.k, key:key, cur:cur} : null,
+      note:!to ? (x.a.updOk===false ? '「'+key+'」に合う一覧の項目が決まりません — COMPASS で直してください' : '「'+key+'」に合う一覧の項目が決まりません — 左の一覧から選んでください') : x.a.updOk===false ? 'COMPASS で更新できない列' : ''});
   });
   if(X.otsu){
     const v = customsOf(b), cur = rec['_'+X.otsu.col+'_value'] || '';
     const curName = str(((X.otsu.o.list.find(y => y.id===cur) || {}).name) || rec['_'+X.otsu.col+'_value'+FVK]).split('|')[0].trim();
-    if(v && cpNorm(v)!==cpNorm(curName)){
-      const to = otsuByName(X.otsu.o.list, v, b.port);
-      rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curName, b06:v, bind:to ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, id:to} : null,
-        ok:!!to && X.otsu.a.updOk!==false, def:!!to, note:!to ? '「'+v+'」の乙仲が COMPASS の一覧で 1 つに決まりません — COMPASS で直してください' : ''});
+    /* 手で選んだ対応 (学習) → 名前の一致。決まらない時は 画面の一覧から選ぶ (ユーザー 2026-11-25) */
+    const L = X.otsu.o.list, lr = v ? cpLearnedOf(X.learned, 'customs', b, v) : null;
+    const to = !v ? '' : lr && L.some(y => y.id===lr.id) ? lr.id : otsuByName(L, v, b.port);
+    if(v && cpNorm(v)!==cpNorm(curName) && !(to && to===cur)){
+      const upd = X.otsu.a.updOk!==false, toName = to ? str((L.find(y => y.id===to) || {}).name).split('|')[0].trim() : '';
+      rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:curName, b06:to && cpNorm(toName)!==cpNorm(v) ? toName+'（B-06: '+v+'）' : v,
+        bind:to ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, id:to} : null, ok:!!to && upd, def:!!to,
+        pick:!to && upd ? {nav:X.otsu.rel.nav, set:X.otsu.o.set, list:L, kind:'customs', key:v, cur:cur, port:b.port} : null,
+        note:!to ? '「'+v+'」の乙仲が COMPASS の一覧で 1 つに決まりません — '+(upd ? '左の一覧から選んでください' : 'COMPASS で直してください') : !upd ? 'COMPASS で更新できない列' : ''});
     }
   }
   if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
@@ -6230,8 +6251,8 @@ async function compassUpdate(b){
     else h += '<div style="font-weight:700;margin-bottom:4px">⚠ COMPASS と違います</div>'
       + '<div class="muted" style="font-size:11.5px;margin:0 0 6px">チェックした項目を 下の「① ヘッダーを COMPASS に送る」で送ります。違っていても このままで良い時は「このままで OK」。</div>'
       + '<table class="b6-s"><tr><th>送る</th><th>項目</th><th>COMPASS（今）</th><th></th><th>B-06（変更後）</th><th></th><th>確認</th></tr>'
-      + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b></td>'
-        + '<td class="muted" style="font-size:11.5px">'+(r.ok || !r.note ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>';
+      + X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'><td><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def && !r.okd ? ' checked' : '')+(r.ok ? '' : ' disabled')+'></td><td><b>'+esc(r.label)+'</b></td><td>'+cell(r.cp)+'</td><td>→</td><td><b>'+cell(r.b06)+'</b>'+(r.pick ? cpPickSel(r, i) : '')+'</td>'
+        + '<td class="muted cpu-nt" style="font-size:11.5px">'+(r.ok || !r.note ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note)+'</td><td style="text-align:center">'+okCell(r, 'h', i)+'</td></tr>').join('') + '</table>';
     /* ② 明細 (Packer・本数・品目) — 送るのは 明細の変更入力の画面で */
     h += '<div style="margin-top:14px">'+sec('② 明細 <span class="muted" style="font-size:11.5px;font-weight:400">Packer 行・本数・販売・購買</span>');
     if(!X.dRows.length) h += '<div><span class="bdg o">✔</span> COMPASS と同じです（行数・本数）。</div>';
@@ -6247,7 +6268,7 @@ async function compassUpdate(b){
   const btns = [{label:'閉じる', fn:c=>c()}];
   if(!X.rows.some(r => r.ok) && cpChgOf(b)) btns.push({label:'↺ マークだけ消す（COMPASS には送らない）', fn:async c=>{ c(); await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno'); toast('変更マークを消しました', 'ok'); }});
   let busy = false;
-  if(X.rows.some(r => r.ok)) btns.push({label:'① ヘッダーを COMPASS に送る', pri:true, fn:async c=>{
+  if(X.rows.some(r => r.ok || r.pick)) btns.push({label:'① ヘッダーを COMPASS に送る', pri:true, fn:async c=>{
     if(busy) return;
     const picked = $$('.cpu-ck', pm.el).filter(x => x.checked).map(x => X.rows[+x.dataset.i]);
     if(!picked.length){ toast('送る項目にチェックしてください', 'warn'); return; }
@@ -6257,6 +6278,19 @@ async function compassUpdate(b){
     finally{ busy = false; }
   }});
   const pm = modal('🚢 COMPASS と比べる — '+esc(bkLabel(b)), body(), btns, true);
+  /* 一覧から選ぶ (決まらなかった項目) → チェックを入れて送れるように */
+  pm.el.addEventListener('change', ev => {
+    const sl = ev.target.closest('.cpu-pick'); if(!sl) return;
+    const r = X.rows[+sl.dataset.i]; if(!r || !r.pick) return;
+    const o = sl.value ? r.pick.list.find(y => y.id===sl.value) : null;
+    r.picked = o ? {id:o.id, name:str(o.name).split('|')[0].trim()} : null;
+    r.bind = o ? {nav:r.pick.nav, set:r.pick.set, id:o.id} : null;
+    r.ok = r.def = !!o;
+    r.note = o ? (o.id===r.pick.cur ? '今の COMPASS と同じ項目です' : '「'+r.picked.name+'」を送ります（次から「'+r.pick.key+'」は自動でこれを選びます）') : '「'+r.pick.key+'」— 左の一覧から選んでください';
+    const tr = sl.closest('tr'), ck = tr.querySelector('.cpu-ck'), nt = tr.querySelector('.cpu-nt');
+    if(ck){ ck.disabled = !o; ck.checked = !!o && o.id!==r.pick.cur; }
+    if(nt) nt.innerHTML = (o ? '' : '<span class="bdg w">⚠</span> ')+esc(r.note);
+  });
   pm.el.addEventListener('click', async ev => {
     if(ev.target.closest('.cpu-dtl')){ pm.close(); compassDtlUpdate(b); return; }
     const bt = ev.target.closest('.cpu-ok'); if(!bt || busy) return;
@@ -6444,6 +6478,11 @@ async function sendCompassUpdate(b, X, picked, test){
     if(e.status===412){ toast('COMPASS を読んだ後に COMPASS で変更がありました。もう一度「COMPASS に変更入力」を開いてください（何も送っていません）', 'warn'); return true; }
     throw new Error('COMPASS への変更入力に失敗: '+String(e.message || e).slice(0, 300));
   }
+  /* 画面で選んだ対応を覚える (担当ごと + 全員) — 次から自動で選ぶ */
+  const st = bkStaff(b), lrn = [];
+  picked.forEach(r => { if(!r.picked || !r.pick) return; const k = cpNorm(r.pick.key), it = {key:k, id:r.picked.id, name:r.picked.name};
+    lrn.push(Object.assign({kind:r.pick.kind}, it)); if(st) lrn.push(Object.assign({kind:r.pick.kind+'@'+st}, it)); });
+  if(lrn.length) cpMapLearn(lrn).catch(() => {});
   const labels = picked.map(r => r.label).join('・');
   logHist(b, [{lv:'B', k:'_cp', from:'', to:picked.map(r => r.label+': '+(r.cp || '（空）')+' → '+(r.b06 || '（空）')).join('\n')}]);
   await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno');
