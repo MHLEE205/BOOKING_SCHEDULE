@@ -811,7 +811,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.84', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.85', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2761,14 +2761,25 @@ function invHelpHtml(X, err, val, b){
   let h = '<div class="t">Invoice の次の番号</div>';
   const dup = invDup(val, b);
   if(dup.length) h += '<div class="dup">⚠ '+esc(t)+' はもう使われています（'+esc(dup.join('・'))+'）</div>';
-  if(!m) return h + '<div class="muted">販売先コードを入れてください（例: NXX）— その販売契約ごとに 最後の番号と次の番号を出します</div>';
+  /* 販売先の名前でも探す (ユーザー 2026-11-24): 「HANKU」→ 販売先の名前に含む契約の コード (NXX) の番号を出す */
+  const q = cpNorm(firstLine(val));
+  if(!m && q.length < 2) return h + '<div class="muted">販売先コード（例: NXX）か 販売先の名前を入れてください — その販売契約ごとに 最後の番号と次の番号を出します</div>';
   if(err) return h + '<div class="muted">COMPASS を読めません: '+esc(err)+'</div>';
   if(!X) return h + '<div class="muted">COMPASS の販売契約を読み込み中…</div>';
-  let rows = invRowsFor(X, m[1], b);
-  if(m[2]) rows = rows.filter(r => r.p.yymm.startsWith(m[2]));
+  let rows = m ? invRowsFor(X, m[1], b) : [];
+  if(m && m[2]) rows = rows.filter(r => r.p.yymm.startsWith(m[2]));
+  let byName = false;
+  if(!rows.length && q.length >= 2 && !(m && m[2])){
+    const codes = new Set();
+    X.contracts.forEach(c => { const p = coParse(c.name); if(p && cpNorm(c.buyer).includes(q)) codes.add(p.code); });
+    if(codes.size){ byName = true;
+      rows = Array.from(codes).flatMap(code => invRowsFor(X, code, b)).sort((x, y) => y.p.yymm.localeCompare(x.p.yymm) || x.p.k - y.p.k); }
+    else if(!m) return h + '<div class="muted">「'+esc(firstLine(val))+'」を名前に含む販売先が見つかりません — 販売先コード（例: NXX）か 名前の一部を入れてください</div>';
+  }
+  if(byName) h += '<div class="muted" style="font-size:10.5px;margin-bottom:2px">販売先の名前「'+esc(firstLine(val))+'」で検索 — 番号を押すと入ります</div>';
   const hidden = rows.filter(r => r.remain!=null && r.remain <= 0).length;
   rows = rows.filter(r => !(r.remain!=null && r.remain <= 0)).slice(0, 12);
-  if(!rows.length) return h + '<div class="muted">「'+esc(m[1])+'」の販売契約が見つかりません'+(hidden ? '（残 0 の契約 '+hidden+' 件は非表示）' : '')+'</div>';
+  if(!rows.length) return h + '<div class="muted">「'+esc(m && !byName ? m[1] : firstLine(val))+'」の販売契約が見つかりません'+(hidden ? '（残 0 の契約 '+hidden+' 件は非表示）' : '')+'</div>';
   const md = d => d ? d.slice(5).replace('-', '/') : '—';
   h += '<table><tr><th>販売契約</th><th>品目</th><th>販売先</th><th class="n">残</th><th>船積期限</th><th>最後</th><th>次</th></tr>'
     + rows.map(r => '<tr><td><b>'+esc(r.c.name)+'</b></td><td>'+(r.items.length ? esc(r.items.join('・')) : '<span class="muted">'+(X.remain ? '—' : '…')+'</span>')+'</td>'
