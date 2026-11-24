@@ -814,7 +814,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.91', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.92', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2257,7 +2257,8 @@ async function openSiteSearch(q){
     x += '<div class="ps-list">';
     if(looksAddr) x += row('入力した住所', q, '住所');
     x += res.map(y => row(y.name, y.addr, y.src)).join('');
-    if(!looksAddr && !res.length) x += row(q, '', '候補なし — 名前で検索');
+    /* 住所らしくなくても・候補があっても 入力したまま 経路を出す (ユーザー 2026-11-24: 好きな住所から港までの距離を見たい) */
+    if(!looksAddr) x += row('入力した住所', q, '住所');
     x += '</div>';
     if(cp.note) x += '<div class="muted" style="font-size:10.5px;margin-top:4px">'+esc(cp.note)+'</div>';
     x += '<div class="muted" style="font-size:10.5px;margin-top:6px">経路は Google マップ（新しいタブ）で開きます。B-06 から住所を外部へ送ることはありません。</div>';
