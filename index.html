@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.78', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.79', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2445,7 +2445,13 @@ async function openBkHist(b){
   x += '<div id="b6-hist-t" style="max-height:60vh;overflow:auto">'+tbl('')+'</div>';
   x += '<div class="muted" style="font-size:11.5px;margin-top:8px">B-06 の画面で変えた時の記録です（全項目は 2026-11-19 から・Booking no. は 2026-11-12 から）。COMPASS・取込・他のアプリでの変更は残りません。前の Booking no. で検索しても見つかります。</div>';
   const btns = [{label:'閉じる', fn:c=>c()}];
-  if(sent && !b.deleted) btns.push({label:'🚢 COMPASS に変更入力…', pri:true, fn:c=>{ c(); compassUpdate(b); }});
+  /* 送ったのに また「COMPASS に変更入力…」が出て 紛らわしい (ユーザー 2026-11-24):
+     まだ送っていない変更・COMPASS との違い がある時だけ ボタンを出す。比較がまだの時は 確認用に出す */
+  if(sent && !b.deleted){
+    const cmp = cpCmpOf(b), nd = cpDiffN(b), nc = cpChgOf(b);
+    if(nd || nc || !cmp) btns.push({label:'🚢 '+(nd ? 'COMPASS との違い '+nd+' 件を直す…' : nc ? 'まだ送っていない変更を COMPASS に送る…' : 'COMPASS と比べる…'), pri:true, fn:c=>{ c(); compassUpdate(b); }});
+    else x += '<div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:700">✔ COMPASS と同じです — 送るものはありません</div>';
+  }
   modal('↺ 変更履歴 — '+esc(bkLabel(b)), x, btns, true);
   const sel = $('#b6-hist-f');
   if(sel) sel.addEventListener('change', () => { $('#b6-hist-t').innerHTML = tbl(sel.value); });
@@ -3862,6 +3868,8 @@ function menu(ev, items){
   const m = document.createElement('div'); m.className = 'b6-menu'; m.id = 'b6-menu';
   items.forEach(it => {
     if(it.meta){ const d=document.createElement('div'); d.className='meta'; d.innerHTML=it.meta; m.appendChild(d); return; }
+    if(it.head){ const d=document.createElement('div'); d.textContent=it.head; d.style.cssText='padding:6px 12px 2px;font-size:11px;font-weight:700;color:var(--muted,#64748b)'; m.appendChild(d); return; }
+    if(it.sep){ const d=document.createElement('div'); d.style.cssText='border-top:1px solid var(--border,#e2e8f0);margin:4px 0'; m.appendChild(d); return; }
     const bt = document.createElement('button'); bt.textContent = it.label; if(it.danger) bt.style.color='var(--danger)';
     bt.addEventListener('click', () => { closeMenu(); it.fn(); }); m.appendChild(bt);
   });
@@ -3877,9 +3885,16 @@ function bookingMenu(ev, b){
   const items = [];
   if(!b.deleted){
     if(b.compass_status==='SENT'){
-      items.push({label:'✔ COMPASS 詳細', fn:()=>compassInfo(b)});
-      items.push({label:'📦 COMPASS 明細の変更入力', fn:()=>compassDtlUpdate(b)});
-      items.push({label:'🚢 COMPASS 変更入力'+(cpDiffN(b) ? '（違い '+cpDiffN(b)+'）' : cpChgOf(b) ? '（変更 '+cpChgOf(b)+'）' : ''), fn:()=>compassUpdate(b)});
+      /* 分かりやすく (ユーザー 2026-11-24): 「COMPASS」の見出しの下に 見る／ヘッダーを送る／明細を送る。
+         送るものがない時は「COMPASS と同じ」 */
+      const o = cpCmpOf(b), live = o && o.rows ? o.rows.filter(r => !r.soft && !r.okd) : [];
+      const nH = live.filter(r => !r.dtl).length, nD = live.filter(r => r.dtl).length, nc = cpChgOf(b);
+      const st = (n, alt) => n ? '（違い '+n+'）' : alt ? '（'+alt+'）' : o ? '（COMPASS と同じ）' : '';
+      items.push({head:'COMPASS'});
+      items.push({label:'🔍 COMPASS の入力内容を見る', fn:()=>compassInfo(b)});
+      items.push({label:'🚢 ヘッダーを直して送る（船・日付・港 など）'+st(nH, nc ? 'B-06 で変更 '+nc : ''), fn:()=>compassUpdate(b)});
+      items.push({label:'📦 明細を直して送る（販売・購買・本数）'+st(nD), fn:()=>compassDtlUpdate(b)});
+      items.push({sep:true});
     }
     else items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)});
     items.push({label:'📝 メモ', fn:()=>openBookingMemo(b)});
@@ -6099,6 +6114,8 @@ async function compassDtlUpdate(b){
       catch(e){ ng.push('追加 '+x.label+' — '+String(e.message || e).slice(0, 200)); }
     }
     if(ok.length) logHist(b, [{lv:'B', k:'_cp', from:'', to:'COMPASS の明細を変更入力\n'+ok.join('\n')}]);
+    /* 全部送れたら ヘッダーの変更入力と同じく「COMPASS 入力の後の変更」マーク (↺・履歴の色) を消す */
+    if(ok.length && !ng.length) await saveBooking(b, {compass_at:new Date().toISOString()}, 'bkgno');
     if(C.forget) C.forget();
     setTimeout(compassCompareAll, 500);
     modal('明細の変更入力の結果', (ok.length ? '<div><span class="bdg o">✔</span> '+ok.map(esc).join('<br>')+'</div>' : '')
