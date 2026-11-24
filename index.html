@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.77', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.78', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -817,7 +817,7 @@ const CFG = {
   /* COMPASS 入力済みのブッキングの 変更入力 (ヘッダーの PATCH)。false の間は 違い・送る内容を見せるだけ (2026-11-19 — 試験 JSON を確認してから true) */
   COMPASS_UPDATE_WRITE: true,   /* 2026-11-19 ユーザー「추천하는대로 진행」で true (ヘッダーのみ・明細は変えない) */
   /* 明細の変更入力 (本数・販売・購買の PATCH / 足りない明細の POST)。false の間は 送る内容を見せるだけ。明細の削除は B-06 からはしない (COMPASS で) — 2026-11-24 */
-  COMPASS_DTL_UPDATE_WRITE: false,
+  COMPASS_DTL_UPDATE_WRITE: true,   /* 明細の変更入力 — 2026-11-24 試験の POST JSON をユーザーと確認して true */
   COMPASS_TON_PER_HON: 23,     /* 明細の 予想重量 = 本数 × 23 t — すべての品目で固定 (ユーザー 2026-11-13)。画面では変えられない */
 };
 
@@ -5199,13 +5199,17 @@ function dtlPurCands(D, r){
     .sort((p, q) => q.s-p.s || dtlNewer(p.x, q.x)).map(y => y.x);
   return D.purch.items.filter(x => dtlItemScore(x.item, w)>0).sort((p, q) => str(p.party).localeCompare(str(q.party)) || dtlNewer(p, q));
 }
+/* how: '' = 未選択 / 'auto' = 自動の候補（担当者が未確認） / 'man' = 担当者が「選ぶ」を押した（選択完了） / 'cp' = COMPASS に今ある値 */
+const dtlFixed = how => how==='man' || how==='cp';
+/* 自動で入れただけで 担当者がまだ確認していない行 (ユーザー 2026-11-24: 確認してから 選択完了 に) */
+const dtlUnconf = rows => rows.filter(r => (r.sale && r.howS==='auto') || (r.pur && r.howP==='auto'));
 /* 手で選んでいない所だけ自動で選び直す (候補がちょうど 1 件の時だけ) */
 function dtlAuto(D, r, coId){
-  if(r.howS!=='man'){
+  if(!dtlFixed(r.howS)){
     const c = dtlSaleCands(D, r, coId);
     r.sale = c.length===1 ? c[0].id : ''; r.howS = c.length===1 ? 'auto' : '';
   }
-  if(r.howP!=='man'){
+  if(!dtlFixed(r.howP)){
     const c = dtlPurCands(D, r);
     const one = c.length===1 && r.sup.list.length;   /* 購買元が分からない時は自動で選ばない */
     r.pur = one ? c[0].id : ''; r.howP = one ? 'auto' : '';
@@ -5245,9 +5249,13 @@ function dtlFocus(D, i){
   D.fPi = pItems.includes(want) ? want : (dtlRank(pItems.map(n => ({item:n})), [cpNorm(want)].concat(r.gw || [cpNorm(r.grade)]))[0] || {}).item || '';
   D.fPp = pi ? pi.party : (r.sup.list[0] || '');
 }
-/* 販売・購買 の表のボタン: 選んだ行に もう入っているものは「✔ 選択済」(押さなくてよい)・ほかは「選ぶ」 — add だと押すのか分かりにくい (ユーザー 2026-11-24) */
-function dtlPickBtn(cls, id, cur, on){
-  if(on) return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'" title="選んだ行に もう入っています（押さなくて OK）" style="background:#dcfce7;color:#15803d;border-color:#86efac;font-weight:700;white-space:nowrap">✔ 選択済</button>';
+/* 販売・購買 の表のボタン (ユーザー 2026-11-24): 自動で入れた候補は「確認 → 選ぶ」(担当者が確認して押す)・押したら「✔ 選択完了」・
+   COMPASS に今ある値は「✔ COMPASS の値」・ほかは「選ぶ」 */
+function dtlPickBtn(cls, id, cur, on, how){
+  const st = (bg, fg, bd) => ' style="background:'+bg+';color:'+fg+';border-color:'+bd+';font-weight:700;white-space:nowrap"';
+  if(on && how==='auto') return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'" title="自動で入れた候補です — 確認して合っていれば押してください（選択完了）"'+st('#fef3c7', '#b45309', '#f59e0b')+'>確認 → 選ぶ</button>';
+  if(on && how==='cp') return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'" title="COMPASS に今入っている値です（変えなければ送りません）"'+st('#f1f5f9', '#475569', '#cbd5e1')+'>✔ COMPASS の値</button>';
+  if(on) return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'" title="担当者が確認して選びました"'+st('#dcfce7', '#15803d', '#86efac')+'>✔ 選択完了</button>';
   return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'"'+(cur ? ' title="選んだ行の 販売・購買 をこれに替える"' : ' disabled')+' style="white-space:nowrap">選ぶ</button>';
 }
 function dtlHtml(D, coId, coName, opt){
@@ -5274,12 +5282,13 @@ function dtlHtml(D, coId, coName, opt){
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
+    const uc = how => how==='auto' ? ' <span title="自動で入れた候補 — 下の表で確認して「確認 → 選ぶ」を押してください" style="display:inline-block;padding:0 6px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;font-weight:700">未確認</span>' : '';
     if(si && si.remain!=null && sum.S.get(si.id) > si.remain) warns.push('販売 '+si.co+' '+si.item+': 残 '+dtlNum(si.remain)+' を超えます（計 '+dtlNum(sum.S.get(si.id))+'）');
     if(pi && pi.remain!=null && sum.P.get(pi.id) > pi.remain) warns.push('購買 '+pi.party+' '+pi.co+': 残 '+dtlNum(pi.remain)+' を超えます（計 '+dtlNum(sum.P.get(pi.id))+'）');
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')
       + (r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span></td>'
-      + '<td>'+(si ? esc(si.item)+' <span class="muted">'+esc(si.co)+'</span>' : coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>'
-      + '<td>'+(pi ? esc(pi.party)+' <span class="muted">'+esc(pi.co)+'</span>' : ng)+'</td>'
+      + '<td>'+(si ? esc(si.item)+' <span class="muted">'+esc(si.co)+'</span>'+uc(r.howS) : coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>'
+      + '<td>'+(pi ? esc(pi.party)+' <span class="muted">'+esc(pi.co)+'</span>'+uc(r.howP) : ng)+'</td>'
       + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:48px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
       + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
@@ -5296,7 +5305,7 @@ function dtlHtml(D, coId, coName, opt){
   h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売CO</th><th>S.unit</th><th>残</th></tr>'
-    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
+    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
       + '<td class="n"><b>'+dtlNum(x.remain)+'</b></td></tr>').join('')
     + (sL.length ? '' : '<tr><td colspan="5" class="muted">該当なし</td></tr>') + '</table>'
     + (sL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目で絞り込んでください）</div>' : '') + '</div>';
@@ -5310,7 +5319,7 @@ function dtlHtml(D, coId, coName, opt){
     + (S.store.compass.demo ? '' : ' <button class="b6-btn sm cp-dreload" title="COMPASS の 販売・購買（〆・残）を今すぐ読み直す">⟳</button>')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th>備考</th><th>B.unit</th><th>残</th><th title="購買の本数 − 明細で使った本数（本数が空の明細は N/W から推定 ≈）— 割り当て パネルと同じ">残本数</th></tr>'
-    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td>'+dtlPickBtn('cp-padd', x.id, cur, cur && cur.pur===x.id)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
+    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td>'+dtlPickBtn('cp-padd', x.id, cur, cur && cur.pur===x.id, cur && cur.howP)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td>'+esc(x.note)+'</td>'
       + '<td class="n">'+esc(x.unit)+'</td><td class="n"><b>'+dtlNum(x.remain)+'</b></td>'
       + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+(x.nEst ? '≈' : '')+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+'</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
     + (pL.length ? '' : '<tr><td colspan="8" class="muted">該当なし — 品目・購買元を変えてください</td></tr>')
@@ -5414,6 +5423,8 @@ function openCompassUI(b, R){
   const m = modal('🚢 COMPASS に入力 — '+esc(bkLabel(b)), h, [
     {label:'キャンセル', fn:c=>c()},
     {label:'送信内容を確認 →', pri:true, fn:c=>{
+      { const Dd = R.dtl, u = Dd && !Dd.err && Dd.rows ? dtlUnconf(Dd.rows) : [];
+        if(u.length){ toast('明細 '+u.length+' 行の 販売・購買 が未確認です — 行をクリック → 下の表で「確認 → 選ぶ」を押してください（'+u.map(r => r.packer || '追加の行').join('・')+'）', 'warn'); return; } }
       const picks = {}; $$('.cp-pick', m.el).forEach(s => { picks[+s.dataset.i] = s.value; });
       const amc = m.el.querySelector('#cp-am'); picks.am = amc ? amc.checked : false;
       /* 手で選んだ (自動と違う) 対応を覚える */
@@ -5475,7 +5486,7 @@ function dtlWire(m, D, coId, paint){
     if(t.closest('.cp-dadd')){ const base = D.rows[D.cur];
       D.rows.push({packer:'', grade:base ? base.grade : '', hon:1, sale:'', pur:'', howS:'man', howP:'man', sup:{list:[], how:''}, wt:D.ton}); dtlFocus(D, D.rows.length-1); paint(); return; }
     const sa = t.closest('.cp-sadd'), r = D.rows[D.cur];
-    if(sa && r){ r.sale = sa.dataset.id; r.howS = 'man'; if(r.howP!=='man') dtlAuto(D, r, coId()); dtlFocus(D, D.cur); paint(); return; }
+    if(sa && r){ r.sale = sa.dataset.id; r.howS = 'man'; if(!dtlFixed(r.howP)) dtlAuto(D, r, coId()); dtlFocus(D, D.cur); paint(); return; }
     const pa = t.closest('.cp-padd');
     if(pa && r){ if(!dtlPurAllowed(D, r).some(x => x.id===pa.dataset.id)){ toast('この行の購買元（'+r.sup.list.join('・')+'）の購買契約だけ入れられます', 'warn'); return; }
       r.pur = pa.dataset.id; r.howP = 'man'; paint(); return; }
@@ -5980,7 +5991,7 @@ async function compassDtlUpdate(b){
   D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); });
   const setCp = (r, cp) => {
     r.cp = cp || null;
-    if(cp){ r.sale = cp.s; r.pur = cp.p; r.howS = 'man'; r.howP = 'man'; r.wt = Math.round(r.hon * D.ton * 100) / 100; }
+    if(cp){ r.sale = cp.s; r.pur = cp.p; r.howS = 'cp'; r.howP = 'cp'; r.wt = Math.round(r.hon * D.ton * 100) / 100; }
     else { r.sale = ''; r.pur = ''; r.howS = ''; r.howP = ''; dtlAuto(D, r, coId); }
   };
   /* 自動の対応: 購買元 (Packer) > 品目 > 本数。点の高い組から決める。同点は 上から順に */
@@ -6022,7 +6033,7 @@ async function compassDtlUpdate(b){
         + cps.map((cp, j) => '<option value="'+j+'"'+(r.cp===cp ? ' selected' : '')+'>'+esc(cpName(cp))+'</option>').join('')+'</select></td><td>'+what(r)+'</td>',
       mid:(() => { const only = cps.filter(cp => !D.rows.some(r => r.cp===cp));
         return (only.length ? '<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fffbeb;font-size:12.5px"><span class="bdg w">⚠</span> COMPASS にだけある明細 '+only.length+' 件 — <b>削除は COMPASS で</b>（B-06 からは削除しません）<br>'+only.map(cp => '・'+esc(cpName(cp))).join('<br>')+'</div>' : '')
-          + '<div style="margin:12px 0 0;font-size:12.5px;font-weight:700">▼ 販売・購買を変える時だけ — 上の表で行をクリック → 下で「選ぶ」（<span style="color:#15803d">✔ 選択済</span> は もう入っているもの — 押さなくて OK）</div>'; })()
+          + '<div style="margin:12px 0 0;font-size:12.5px;font-weight:700">▼ 販売・購買を変える時だけ — 上の表で行をクリック → 下で「選ぶ」（<span style="color:#b45309">確認 → 選ぶ</span> = 自動の候補: 確認して押すと <span style="color:#15803d">✔ 選択完了</span>）</div>'; })()
     });
     return h;
   };
@@ -6048,6 +6059,8 @@ async function compassDtlUpdate(b){
   async function sendDtlUpdate(){
     const c = D.cols, kb = col => col && col.rel ? (col.rel.nav || col.col)+'@odata.bind' : null;
     const patch = [], post = [], skip = [];
+    const u = dtlUnconf(D.rows.filter(r => !r.cp || chg(r).length));
+    if(u.length){ toast('送る行の 販売・購買 が未確認です — 行をクリック → 下の表で「確認 → 選ぶ」を押してください（'+u.map(r => r.packer || '追加の行').join('・')+'）', 'warn'); return false; }
     for(const r of D.rows){
       const ch = chg(r);
       if(r.cp && !ch.length) continue;
