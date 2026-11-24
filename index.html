@@ -798,7 +798,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.81', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.82', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2525,6 +2525,47 @@ async function on412(kind, obj){
   }catch(e){}
   toast('他の人が更新しました。最新の内容を読み込みました', 'warn');
 }
+/* ══════════ Ctrl+Z / Ctrl+Y (ユーザー 2026-11-24): 表のセルで変えた値を 元に戻す・やり直す ══════════
+   記録するのは 表の列 (港・承認・Booking no.・…・状態の列) の変更だけ。COMPASS の状態などシステムの保存は記録しない。
+   戻す時も ふつうの保存 (履歴にも残る)。戻す前に その後 ほかの人が同じセルを変えていたら 戻さない */
+const UNDO_MAX = 50;
+let UNDO_KEYS = null;
+function undoKeys(){
+  if(!UNDO_KEYS){ UNDO_KEYS = new Set(['port','approval','bkgno','invoiceno','pod','carrier','vessel','grade','packer','qty_raw','cyopen','cycut','etd','eta','delivery']);
+    Object.values(REGION_COLUMNS).forEach(l => l.forEach(k => UNDO_KEYS.add(k))); }
+  return UNDO_KEYS;
+}
+function undoRec(lv, b, a, prev, patch){
+  if(S._undoBusy) return;
+  const ks = Object.keys(patch).filter(k => k!=='name');
+  if(!ks.some(k => undoKeys().has(k))) return;
+  const next = {}; ks.forEach(k => next[k] = patch[k]);
+  const pv = {}; ks.forEach(k => pv[k] = prev[k]==null ? '' : prev[k]);
+  if(ks.every(k => str(pv[k])===str(next[k]))) return;
+  S.undo = S.undo || []; S.undo.push({lv:lv, bookkey:b.bookkey, aid:a ? a.id : null, prev:pv, next:next, f:ks.find(k => undoKeys().has(k))});
+  if(S.undo.length > UNDO_MAX) S.undo.shift();
+  S.redo = [];
+}
+async function undoStep(redo){
+  const from = redo ? (S.redo || []) : (S.undo || []), to = redo ? (S.undo = S.undo || []) : (S.redo = S.redo || []);
+  const e = from.pop();
+  if(!e){ toast(redo ? 'やり直す変更はありません' : '元に戻す変更はありません', 'info'); return; }
+  const b = S.bk.get(e.bookkey), a = b && e.aid ? b.rows.find(x => x.id===e.aid) : null;
+  if(!b || b.deleted || (e.aid && (!a || a.deleted))){ toast('その行は もうありません（削除・移動）— 戻せません', 'warn'); return; }
+  const obj = e.aid ? a : b, want = redo ? e.prev : e.next, put = redo ? e.next : e.prev;
+  /* その後 ほかの人 (または自動更新) が変えていたら 上書きしない */
+  if(Object.keys(want).some(k => str(obj[k])!==str(want[k]))){ toast('このセルは その後 変わっています（'+(COL_LABEL[e.f] || e.f)+'）— 戻しません', 'warn'); return; }
+  const lbl = (COL_LABEL[e.f] || e.f)+'：'+(str(want[e.f]) || '（空）')+' → '+(str(put[e.f]) || '（空）');
+  S._undoBusy = true;
+  try{ if(e.aid) await saveAsg(b, a, Object.assign({}, put), e.f); else await saveBooking(b, Object.assign({}, put), e.f); }
+  finally{ S._undoBusy = false; }
+  if(Object.keys(put).every(k => str(obj[k])===str(put[k]))){ to.push(e); toast((redo ? 'やり直しました' : '元に戻しました')+' — '+lbl, 'ok'); }
+  /* 戻したセルを選ぶ */
+  const tr = document.querySelector('#b6-board tr[data-k="'+CSS.escape(e.bookkey)+'"]');
+  const td = e.aid ? document.querySelector('#b6-board td[data-lv="A"][data-aid="'+CSS.escape(e.aid)+'"][data-f="'+e.f+'"]')
+                   : tr && tr.querySelector('td[data-lv="B"][data-f="'+e.f+'"]');
+  if(td){ setCellSel(td); td.scrollIntoView({block:'nearest', inline:'nearest'}); }
+}
 async function saveBooking(b, patch, cellKey){
   const prev = {}; Object.keys(patch).forEach(k => prev[k] = b[k]);
   Object.assign(b, patch); b.name = bkName(b);
@@ -2538,6 +2579,7 @@ async function saveBooking(b, patch, cellKey){
     const saved = await job;
     b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
     setFx('B', b.id, fk, 'saved');
+    undoRec('B', b, null, prev, patch);
     /* 空 → 番号 (はじめての入力) は変更ではないので残さない — ユーザー 2026-11-17 */
     if('bkgno' in patch && str(prev.bkgno).trim() && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
     /* 全項目の変更履歴 (空 → 値 のはじめての入力も残す・Booking no. の 空 → 番号 も) */
@@ -2576,6 +2618,7 @@ async function saveAsg(b, a, patch, cellKey){
     const saved = await job;
     a.etag = saved.etag; a.modifiedon = saved.modifiedon; a.modifiedby = saved.modifiedby;
     setFx('A', a.id, fk, 'saved');
+    undoRec('A', b, a, prev, patch);
     const pa = Object.assign({}, a, prev);
     logHist(b, histDiff('A', Object.keys(patch), pa, a, histRowLabel(pa)));
     renderBoard(); return true;
@@ -6966,6 +7009,18 @@ function initUI(){
     /* 日本語入力 (IME) — 空の入力欄を開いて そのまま変換が入るように */
     if(ev.key==='Process' || ev.keyCode===229){ if(plain) startEdit(td, {text:''}); return; }
     if(ev.key.length===1 && plain){ ev.preventDefault(); startEdit(td, {text:ev.key}); }
+  });
+  /* Ctrl+Z = 元に戻す・Ctrl+Y / Ctrl+Shift+Z = やり直す (入力欄の中では ふつうの文字の取消) */
+  document.addEventListener('keydown', ev => {
+    if(!(ev.ctrlKey || ev.metaKey) || ev.altKey || S.editing) return;
+    const k = ev.key.toLowerCase(); if(k!=='z' && k!=='y') return;
+    const ae = document.activeElement;
+    if(ae && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) || ae.isContentEditable)) return;
+    if(document.querySelector('.b6-modal-bg')) return;
+    const bd = $('#b6-board'); if(!bd || !bd.offsetParent) return;
+    ev.preventDefault();
+    if(S._undoRun) return; S._undoRun = true;
+    undoStep(k==='y' || ev.shiftKey).finally(() => { S._undoRun = false; });
   });
   initBoardZoom();
   $('#b6-resort').addEventListener('click', () => resortNow());
