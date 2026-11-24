@@ -814,7 +814,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.90', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.91', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2277,12 +2277,14 @@ async function openSiteSearch(q){
 }
 /* ── ブッキングの選択 (表は作り直さずにクラスだけ付け替える — 編集中のセルを壊さない) ── */
 /* 同じ Booking no. のほかのブッキング (削除済みは除く)。描くたびに作り直さないよう 一覧が変わった時だけ索引を作る */
+/* Booking no. は 英数字だけ (「返信待ち」など 日本語のメモは 番号ではない — ユーザー 2026-11-24) */
+const bkNoKey = v => { const t = PARSE.nfkcSame(firstLine(v)).replace(/\s+/g, '').toUpperCase(); return /^[A-Z0-9]+$/.test(t) && /\d/.test(t) ? t : ''; };
 function bkDupOf(b){
-  const key = cpNorm(firstLine(b.bkgno)); if(!key || b.deleted) return [];
+  const key = bkNoKey(b.bkgno); if(!key || b.deleted) return [];
   let I = S._dupIdx;
   const sig = S.bk.size+'|'+S._dupRev;
   if(!I || I.sig!==sig){ I = S._dupIdx = {sig:sig, m:new Map()};
-    S.bk.forEach(x => { if(x.deleted) return; const kk = cpNorm(firstLine(x.bkgno)); if(!kk) return; (I.m.get(kk) || I.m.set(kk, []).get(kk)).push(x); }); }
+    S.bk.forEach(x => { if(x.deleted) return; const kk = bkNoKey(x.bkgno); if(!kk) return; (I.m.get(kk) || I.m.set(kk, []).get(kk)).push(x); }); }
   return (I.m.get(key) || []).filter(x => x!==b);
 }
 function selectBooking(k){
@@ -6104,10 +6106,42 @@ function cpCellAttr(b, k){
 }
 function compassGoneInfo(b){
   const o = cpCmpOf(b) || {};
-  modal('COMPASS にありません — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> COMPASS に このブッキング（ID '+esc(b.compass_id)+'）がありません。COMPASS で削除されたようです。</div>'
+  const m = modal('COMPASS にありません — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> COMPASS に このブッキング（ID '+esc(b.compass_id)+'）がありません。COMPASS で削除されたようです。</div>'
     + (o.multi ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> COMPASS に同じ Booking no. が複数あります — どれにつなぐか決められません。COMPASS を確認してください。</div>' : '')
+    + '<div class="cp-aud" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--surface2);font-size:12.5px">🔎 誰が・いつ削除したか 調べています…</div>'
     + '<div class="muted" style="margin-top:6px;font-size:12px">内容を直して入れ直す場合は「再入力」— 今の B-06 の内容で COMPASS 入力の画面を開きます。</div>',
     [{label:'閉じる', fn:c=>c()}, {label:'↻ 比べ直す', fn:c=>{ c(); compassCompareAll(); }}, {label:'🚢 再入力', pri:true, fn:c=>{ c(); compassResend(b); }}]);
+  const box = m.el.querySelector('.cp-aud');
+  compassDeleteAudit(b).then(h => { if(box.isConnected) box.innerHTML = h; })
+    .catch(e => { if(box.isConnected) box.innerHTML = '<span class="bdg w">⚠</span> 削除の記録を読めません: '+esc(String(e.message || e).slice(0, 200)); });
+}
+/* COMPASS の削除の記録 (Dataverse の監査ログ — 読み取りのみ。ユーザー 2026-11-24)。
+   監査が オフ・読む権限がない 時は その旨を出す */
+async function compassDeleteAudit(b){
+  const C = S.store.compass, id = String(b.compass_id || '').toLowerCase();
+  if(!C || C.demo) return '<span class="muted">デモでは 削除の記録はありません</span>';
+  if(!/^[0-9a-f-]{36}$/.test(id)) return '<span class="muted">COMPASS ID がないので 調べられません</span>';
+  const FVK = '@OData.Community.Display.V1.FormattedValue';
+  let rows;
+  try{
+    rows = (await dvGet('audits?$select=createdon,operation,action,_userid_value&$filter='+encodeURIComponent('_objectid_value eq '+id)+'&$orderby=createdon desc&$top=20')).value || [];
+  }catch(e){
+    if(e.status===403) return '<span class="bdg w">⚠</span> 監査ログを読む権限がありません — COMPASS の管理者に「Audit Summary View（エンティティ Booking・操作 Delete）」で確かめてもらってください（ID '+esc(id)+'）';
+    throw e;
+  }
+  const del = rows.filter(r => +r.operation===3 || +r.action===3);
+  if(del.length){
+    const r = del[0];
+    return '<b>🗑 '+esc(str(r['_userid_value'+FVK]) || '（不明）')+'</b> さんが <b>'+esc(fmtDT(r.createdon))+'</b> に COMPASS で削除しました'
+      + '<div class="muted" style="font-size:11px;margin-top:2px">Dataverse の監査ログより（ID '+esc(id)+'）</div>';
+  }
+  /* 記録がない: 監査がオンか 確かめて 理由を出す */
+  let on = null;
+  try{ const M = await C.meta(); const e = await dvGet("EntityDefinitions(LogicalName='"+M.entity.LogicalName+"')?$select=IsAuditEnabled"); on = !!(e.IsAuditEnabled && e.IsAuditEnabled.Value); }catch(e){}
+  const last = rows[0] ? '（このブッキングの最後の記録: '+esc(str(rows[0]['operation'+FVK] || rows[0]['action'+FVK] || ''))+' '+esc(fmtDT(rows[0].createdon))+' '+esc(str(rows[0]['_userid_value'+FVK]))+'）' : '';
+  return '<span class="bdg w">⚠</span> 削除の記録が見つかりません'+last
+    + '<div class="muted" style="font-size:11.5px;margin-top:2px">'+(on===false ? 'COMPASS のブッキング テーブルの 監査（Auditing）が オフです — 削除した人・日時は残っていません。管理者が オンにすると 次から分かります。'
+      : '監査がオフの時期の削除か、記録がまだ反映されていない可能性があります。COMPASS の管理者に確かめてもらってください。')+'</div>';
 }
 /* ── COMPASS との違いの「確認」(違っていても このままで OK — 担当者が確認。ユーザー 2026-11-19) ──
    B-06_MEMO/hist/cpok.json {map:{<bookkey>:{<行の key>:{label, cp, b06, by, at}}}}。
