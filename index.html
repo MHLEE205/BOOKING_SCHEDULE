@@ -814,7 +814,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.88', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.89', date:'2026-11-24', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5399,6 +5399,35 @@ function dtlPickBtn(cls, id, cur, on, how){
   if(on) return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'" title="担当者が確認して選びました"'+st('#dcfce7', '#15803d', '#86efac')+'>✔ 選択完了</button>';
   return '<button class="b6-btn sm '+cls+'" data-id="'+esc(id)+'"'+(cur ? ' title="選んだ行の 販売・購買 をこれに替える"' : ' disabled')+' style="white-space:nowrap">選ぶ</button>';
 }
+/* 残を超えるか (ユーザー 2026-11-24): 販売 = 超えても入力できる（COMPASS と同じ — 確認だけ）・
+   購買 = 超えたら入力できない（決まった購買の本数を必ず合わせる）。購買は 残本数 があれば 本数 で、なければ 重量 で比べる
+   (予想重量は 本数 × 23 t 固定なので 重量で比べると 本数が合っていても超えることがある) */
+function dtlOver(rows, saleItems, purItems){
+  const SS = new Map(), PP = new Map();
+  rows.filter(r => r.sale && r.pur && r.hon > 0).forEach(r => {
+    const a = SS.get(r.sale) || {wt:0}; a.wt += r.wt; SS.set(r.sale, a);
+    const c = PP.get(r.pur) || {wt:0, hon:0}; c.wt += r.wt; c.hon += r.hon; PP.set(r.pur, c); });
+  const sale = [], pur = [];
+  SS.forEach((n, id) => { const x = saleItems.find(y => y.id===id);
+    if(x && x.remain!=null && n.wt > x.remain + 0.005) sale.push('販売 '+[x.item, x.co].filter(Boolean).join(' ')+': 残 '+dtlNum(x.remain)+' t に '+dtlNum(n.wt)+' t（'+dtlNum(n.wt - x.remain)+' t 超え）'); });
+  PP.forEach((n, id) => { const x = purItems.find(y => y.id===id); if(!x) return;
+    const nm = '購買 '+[x.party, x.co].filter(Boolean).join(' ');
+    if(x.remainHon!=null){ if(n.hon > x.remainHon) pur.push(nm+': 残 '+(x.nEst ? '≈' : '')+x.remainHon+' 本 に '+n.hon+' 本（'+(n.hon - x.remainHon)+' 本 超え）'); }
+    else if(x.remain!=null && n.wt > x.remain + 0.005) pur.push(nm+': 残 '+dtlNum(x.remain)+' t に '+dtlNum(n.wt)+' t（'+dtlNum(n.wt - x.remain)+' t 超え）'); });
+  return {sale:sale, pur:pur};
+}
+/* 販売が残を超える時の確認 (はい → true) */
+function dtlSaleOverAsk(list){
+  return new Promise(res => {
+    let done = false; const fin = v => { if(!done){ done = true; res(v); } };
+    const m = modal('⚠ 販売契約の重量を超えます', '<div>'+list.map(x => '<div><span class="bdg w">⚠</span> '+esc(x)+'</div>').join('')+'</div>'
+      + '<div style="margin-top:8px">COMPASS では 販売契約の重量を超えても 割り当てできます。<b>それでも入力しますか？</b></div>',
+      [{label:'やめる', fn:c=>{ fin(false); c(); }}, {label:'入力する', pri:true, fn:c=>{ fin(true); c(); }}]);
+    /* ✕・外側で閉じた時は やめる */
+    new MutationObserver((_, ob) => { if(!m.el.isConnected){ ob.disconnect(); fin(false); } }).observe(document.body, {childList:true});
+  });
+}
+const dtlPurOverMsg = list => '購買の残を超えるので入力できません（購買は 決まった本数に合わせてください）: '+list.join('、');
 function dtlHtml(D, coId, coName, opt){
   opt = opt || null;
   let h = opt ? '' : '<div class="cp-h">明細 <small class="muted">'+(CFG.COMPASS_DTL_WRITE ? '販売・購買 が両方そろった行を作成' : '試験 — 送る内容を表示するだけ')+'・1 本 = '+D.ton+' t</small></div>';
@@ -5415,8 +5444,6 @@ function dtlHtml(D, coId, coName, opt){
   if(!pc.shut && !opt) h += '<div style="font-size:11px;color:#b45309;margin-top:4px">⚠ 〆 の列が見つかりません — 〆 の購買契約も出ています</div>';
   if(!opt) h += '</details>';
   /* ① 明細の一覧 */
-  const sum = {S:new Map(), P:new Map()};
-  D.rows.forEach(r => { if(r.sale) sum.S.set(r.sale, (sum.S.get(r.sale)||0)+r.wt); if(r.pur) sum.P.set(r.pur, (sum.P.get(r.pur)||0)+r.wt); });
   const warns = [];
   /* シンプル版 (ユーザー 2026-11-16): ID の列をやめ、販売 = 品目+販売CO・購買 = 購買元+購買CO を 1 列ずつに */
   h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>')+'</tr>';
@@ -5424,8 +5451,6 @@ function dtlHtml(D, coId, coName, opt){
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
     const uc = how => how==='auto' ? ' <span title="自動で入れた候補 — 下の表で確認して「確認 → 選ぶ」を押してください" style="display:inline-block;padding:0 6px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;font-weight:700">未確認</span>' : '';
-    if(si && si.remain!=null && sum.S.get(si.id) > si.remain) warns.push('販売 '+si.co+' '+si.item+': 残 '+dtlNum(si.remain)+' を超えます（計 '+dtlNum(sum.S.get(si.id))+'）');
-    if(pi && pi.remain!=null && sum.P.get(pi.id) > pi.remain) warns.push('購買 '+pi.party+' '+pi.co+': 残 '+dtlNum(pi.remain)+' を超えます（計 '+dtlNum(sum.P.get(pi.id))+'）');
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')
       + (r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span></td>'
       + '<td>'+(si ? esc(si.item)+' <span class="muted">'+esc(si.co)+'</span>'+uc(r.howS) : coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>'
@@ -5434,7 +5459,10 @@ function dtlHtml(D, coId, coName, opt){
       + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
   h += '</table>'+(opt ? '' : '<button class="b6-btn sm cp-dadd" style="margin-top:4px">＋ 明細を追加</button>');
-  if(warns.length) h += '<div style="margin-top:4px">'+warns.map(w => '<div><span class="bdg w">⚠</span> '+esc(w)+'</div>').join('')+'</div>';
+  { const ov = dtlOver(D.rows, D.sale.items, D.purch.items);
+    ov.sale.forEach(w => warns.push('<span class="bdg w">⚠</span> '+esc(w)+' — 入力はできます（確認あり）'));
+    ov.pur.forEach(w => warns.push('<span class="bdg d">⛔</span> <b style="color:var(--danger)">'+esc(w)+' — 購買は超えて入力できません</b>')); }
+  if(warns.length) h += '<div style="margin-top:4px">'+warns.map(w => '<div>'+w+'</div>').join('')+'</div>';
   if(opt && opt.mid) h += opt.mid;
   const cur = D.rows[D.cur];
   const who = cur ? '「'+esc(cur.packer || '追加の行')+(cur.grade ? ' / '+esc(cur.grade) : '')+'」' : '（上の一覧で行を選んでください）';
@@ -5565,7 +5593,8 @@ function openCompassUI(b, R){
     {label:'キャンセル', fn:c=>c()},
     {label:'送信内容を確認 →', pri:true, fn:c=>{
       { const Dd = R.dtl, u = Dd && !Dd.err && Dd.rows ? dtlUnconf(Dd.rows) : [];
-        if(u.length){ toast('明細 '+u.length+' 行の 販売・購買 が未確認です — 行をクリック → 下の表で「確認 → 選ぶ」を押してください（'+u.map(r => r.packer || '追加の行').join('・')+'）', 'warn'); return; } }
+        if(u.length){ toast('明細 '+u.length+' 行の 販売・購買 が未確認です — 行をクリック → 下の表で「確認 → 選ぶ」を押してください（'+u.map(r => r.packer || '追加の行').join('・')+'）', 'warn'); return; }
+        if(Dd && !Dd.err && Dd.rows){ const ov = dtlOver(Dd.rows, Dd.sale.items, Dd.purch.items); if(ov.pur.length){ toast(dtlPurOverMsg(ov.pur), 'danger'); return; } } }
       const picks = {}; $$('.cp-pick', m.el).forEach(s => { picks[+s.dataset.i] = s.value; });
       const amc = m.el.querySelector('#cp-am'); picks.am = amc ? amc.checked : false;
       /* 手で選んだ (自動と違う) 対応を覚える */
@@ -5780,18 +5809,17 @@ async function compassDtlRecheck(R){
     if(!N){ C.forget(); N = await C.details(); }
   }
   catch(e){ toast('COMPASS を読み直せません: '+String(e.message || e).slice(0, 120), 'danger'); return false; }
-  const need = {S:new Map(), P:new Map()};
-  rows.forEach(r => { need.S.set(r.sale, (need.S.get(r.sale)||0) + r.wt); need.P.set(r.pur, (need.P.get(r.pur)||0) + r.wt); });
   const bad = [];
-  need.S.forEach((w, id) => { const x = N.sale.items.find(y => y.id===id), o = D.sale.items.find(y => y.id===id) || {};
-    if(!x) bad.push('販売 '+[o.item, o.co].filter(Boolean).join(' ')+': COMPASS にありません（削除・変更された）');
-    else if(x.remain!=null && w > x.remain) bad.push('販売 '+x.item+' '+x.co+': 残 '+dtlNum(x.remain)+' t に '+dtlNum(w)+' t は入りません'); });
-  need.P.forEach((w, id) => { const x = N.purch.items.find(y => y.id===id), o = D.purch.items.find(y => y.id===id) || {};
-    if(!x) bad.push('購買 '+[o.party, o.co].filter(Boolean).join(' ')+': COMPASS で使えません（残 0・〆・削除）');
-    else if(x.remain!=null && w > x.remain) bad.push('購買 '+x.party+' '+x.co+': 残 '+dtlNum(x.remain)+' t に '+dtlNum(w)+' t は入りません'); });
+  new Set(rows.map(r => r.sale)).forEach(id => { if(!N.sale.items.some(y => y.id===id)){ const o = D.sale.items.find(y => y.id===id) || {};
+    bad.push('販売 '+[o.item, o.co].filter(Boolean).join(' ')+': COMPASS にありません（削除・変更された）'); } });
+  new Set(rows.map(r => r.pur)).forEach(id => { if(!N.purch.items.some(y => y.id===id)){ const o = D.purch.items.find(y => y.id===id) || {};
+    bad.push('購買 '+[o.party, o.co].filter(Boolean).join(' ')+': COMPASS で使えません（残 0・〆・削除）'); } });
+  /* 購買は 残を超えたら止める・販売は 超えても 確認して入力できる (ユーザー 2026-11-24) */
+  const ov = dtlOver(rows, N.sale.items, N.purch.items);
+  ov.pur.forEach(x => bad.push(x+' — 購買は超えて入力できません'));
   /* 新しい残を 入力画面にも (「← 戻って直す」で見える) */
   D.sale = N.sale; D.purch = N.purch;
-  if(!bad.length) return true;
+  if(!bad.length) return ov.sale.length ? await dtlSaleOverAsk(ov.sale) : true;
   modal('⚠ COMPASS の 販売・購買 が変わっています', '<div>入力画面を開いた後に COMPASS の内容が変わりました（ほかの人の入力など）。<b>まだ何も送っていません。</b></div>'
     + '<div style="margin-top:6px">'+bad.map(x => '<div><span class="bdg w">⚠</span> '+esc(x)+'</div>').join('')+'</div>'
     + '<div class="muted" style="margin-top:6px;font-size:12px">「← 戻って直す」で 販売・購買 を選び直してください（新しい残で表示されます）。</div>', [{label:'閉じる', fn:c=>c()}]);
@@ -6272,6 +6300,10 @@ async function compassDtlUpdate(b){
     const patch = [], post = [], skip = [];
     const u = dtlUnconf(D.rows.filter(r => !r.cp || chg(r).length));
     if(u.length){ toast('送る行の 販売・購買 が未確認です — 行をクリック → 下の表で「確認 → 選ぶ」を押してください（'+u.map(r => r.packer || '追加の行').join('・')+'）', 'warn'); return false; }
+    /* 残 (この画面を開いた時の COMPASS。今の明細の分は戻してある): 購買は 超えたら送らない・販売は 確認して送れる (ユーザー 2026-11-24) */
+    { const ov = dtlOver(D.rows, D.sale.items, D.purch.items);
+      if(ov.pur.length){ toast(dtlPurOverMsg(ov.pur), 'danger'); return false; }
+      if(ov.sale.length && !test && !(await dtlSaleOverAsk(ov.sale))) return false; }
     for(const r of D.rows){
       const ch = chg(r);
       if(r.cp && !ch.length) continue;
