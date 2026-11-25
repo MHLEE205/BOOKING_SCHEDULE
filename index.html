@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.05', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.06', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5070,7 +5070,7 @@ function cpLearnedOf(learned, kind, b, key){
   return (st && (learned[kind+'@'+st] || {})[k]) || (learned[kind] || {})[k] || null;
 }
 /* ══════════ Grade (B-06) → COMPASS の品目名 を覚える (ユーザー 2026-11-19 — 例: 紙管 → PAPER CORE)
-   覚える時: COMPASS 入力で 品目の違う販売アイテムを選んで送った時・「品目（参考）」の違いを ✔ 確認した時。担当ごと + 全員 ══════════ */
+   覚える時: COMPASS 入力で 品目の違う販売アイテムを選んで送った時・「品目」の違いを ✔ 確認した時。担当ごと + 全員 ══════════ */
 function gradeAs(b, g){
   const k = cpNorm(g), L = S.cpMap || {}, st = bkStaff(b); if(!k) return '';
   const e = (st && (L['grade@'+st] || {})[k]) || (L.grade || {})[k];
@@ -6091,11 +6091,11 @@ function cpDetailRows(b, d){
   /* Packer (購買元) ごとの本数 (ユーザー 2026-11-25: FUJI 3→2・MATEC 2→3 のように 合計が同じでも 違いを出す)。
      B-06 の行と COMPASS の明細が 購買元 で全部つながる時だけ (つながらない時は 合計だけ — 名前の違いで 間違った違いを出さない) */
   const per = cpPerPacker(live, d);
-  if(per) per.forEach(g => { if(Math.round(g.b*100)!==Math.round(g.c*100)) rows.push({k:'qty_raw', dtl:true, label:'本数（'+g.name+'）', cp:g.c+' 本', b06:g.b+' 本'}); });
+  if(per) per.forEach(g => { if(Math.round(g.b*100)!==Math.round(g.c*100)) rows.push({k:'qty_raw', sub:cpNorm(g.name), dtl:true, label:'本数（'+g.name+'）', cp:g.c+' 本', b06:g.b+' 本'}); });
   if(Math.round(hon*100)!==Math.round(d.hon*100) && !(per && rows.some(r => r.k==='qty_raw'))) rows.push({k:'qty_raw', dtl:true, label:'本数の合計', cp:d.hon+' 本', b06:hon+' 本'});
   if(d.items && d.items.length){
     const g = live.map(a => cpNorm(gradeAs(b, a.grade) || a.grade)).filter(Boolean).sort().join(','), it = d.items.map(cpNorm).filter(Boolean).sort().join(',');
-    if(g && it && g!==it) rows.push({k:'grade', dtl:true, soft:true, label:'品目（参考）', cp:d.items.join('・'), b06:live.map(a => str(a.grade).trim()).filter(Boolean).join('・')});
+    if(g && it && g!==it) rows.push({k:'grade', dtl:true, label:'品目', cp:d.items.join('・'), b06:live.map(a => str(a.grade).trim()).filter(Boolean).join('・')});
   }
   return rows;
 }
@@ -6260,7 +6260,7 @@ async function loadCpOk(){
   try{ const r = await memoStore().get(CPOK_PATH); S.cpOk = (r.doc && r.doc.map) || {}; }
   catch(e){ S.cpOk = S.cpOk || {}; }
 }
-const cpRowKey = r => r.dtl ? 'dtl:'+r.k : (r.col || r.label);
+const cpRowKey = r => r.dtl ? 'dtl:'+r.k+(r.sub ? ':'+r.sub : '') : (r.col || r.label);   /* Packer ごとの本数は Packer 別に確認 */
 function applyCpOk(b, rows){
   const m = (S.cpOk || {})[b.bookkey] || {};
   rows.forEach(r => { const o = m[cpRowKey(r)]; r.okd = o && o.cp===str(r.cp) && o.b06===str(r.b06) ? o : null; });
