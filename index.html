@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.11', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.12', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2905,7 +2905,7 @@ function gradeNamesLoad(){
 }
 const CELL_HELP = {
   pod:{title:'COMPASS の POD', load:podNamesLoad, get:() => S.podNames, pre:(q, b) => { const k = cpNorm(q), lr = cpLearnedOf(S.cpMap, 'pod', b, q); return [POD_CP[k], lr && str(lr.name).trim()]; }},
-  grade:{title:'COMPASS の品目', load:gradeNamesLoad, get:() => S.gradeNames, pre:(q, b) => [gradeAs(b, q)], q:gradeCore,
+  grade:{title:'COMPASS の品目', load:gradeNamesLoad, get:() => S.gradeNames, pre:(q, b) => [gradeAs(b, q)], q:t => gradeCore(t),   /* gradeCore は後ろで const — 直接書くと 読み込み時に止まる */
     /* 英名だけ入れ替え、後ろの日本語はそのまま。日本語がなければ 1 つ空けて 続けて書けるように */
     put:(t, n) => { const x = PARSE.nfkcSame(t).trim(), c = gradeCore(x);
       const rest = c!==x ? x.slice(c.length).trim() : /^[\x00-\x7F]*$/.test(x) ? '' : x;   /* 英名＋日本語 → 日本語を残す・日本語だけ → それを残す・英字だけ (打ちかけ) → 消す */
