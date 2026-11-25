@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.02', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.03', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2693,6 +2693,7 @@ async function saveBooking(b, patch, cellKey){
     if('bkgno' in patch && str(prev.bkgno).trim() && str(prev.bkgno).trim()!==str(b.bkgno).trim()) addBkHist(b, prev.bkgno, b.bkgno);
     /* 全項目の変更履歴 (空 → 値 のはじめての入力も残す・Booking no. の 空 → 番号 も) */
     logHist(b, histDiff('B', Object.keys(patch), Object.assign({}, b, prev), b));
+    if(!Object.keys(patch).some(k => /^compass_|^deleted$/.test(k))) cpCompareSoon(b);   /* 本船情報などの変更 (COMPASS に送った時の保存は除く) */
     /* Booking no.・港 のコピーを Packer 行にも反映 */
     if('bkgno' in patch || 'port' in patch){
       for(const a of b.rows){
@@ -2730,6 +2731,7 @@ async function saveAsg(b, a, patch, cellKey){
     undoRec('A', b, a, prev, patch);
     const pa = Object.assign({}, a, prev);
     logHist(b, histDiff('A', Object.keys(patch), pa, a, histRowLabel(pa)));
+    cpCompareSoon(b);   /* 数量・Packer・Grade・行の削除 → この 1 件だけ COMPASS と比べ直す */
     renderBoard(); return true;
   }catch(e){
     Object.assign(a, prev); a.name = asName(b, a);
@@ -4109,6 +4111,7 @@ async function addRow(b){
     const saved = await S.store.create('A', newAsg(b, seq, last));
     b.rows.push(saved); sortRows(b); renderBoard();
     logHist(b, [{lv:'A', k:'_add', from:'', to:histRowLabel(saved)}]);
+    cpCompareSoon(b);
     toast('Packer 行を追加しました（Grade・Packer は直上行の値）', 'ok');
   }catch(e){ toast('追加に失敗: '+e.message.slice(0,120), 'danger'); }
 }
@@ -6156,6 +6159,25 @@ async function compassCompareAll(){
     toast('COMPASS と比較できません: '+S.cmpErr.slice(0, 160), 'warn'); }
   finally{ S._cmpBusy = false; }
   if(nr) setTimeout(compassCompareAll, 1500);   /* つなぎ直したものを比べる */
+}
+/* 1 件だけ比べ直す (ユーザー 2026-11-25): COMPASS済 のブッキングで 数量・Packer・Grade・行の追加/削除・本船情報 などを B-06 で変えた時。
+   続けて打つ時のために 1.5 秒待ってから。読み取りのみ。COMPASS にない時は 一括の比較 (再登録のつなぎ直し・削除) に任せる */
+function cpCompareSoon(b){
+  if(!b || b.deleted || b.compass_status!=='SENT' || !b.compass_id) return;
+  const C = S.store && S.store.compass; if(!C || !C.read) return;
+  clearTimeout(b._cmpT);
+  b._cmpT = setTimeout(() => cpCompareOne(b).catch(e => console.warn('COMPASS 比較 (1 件)', e)), 1500);
+}
+async function cpCompareOne(b){
+  const C = S.store.compass, id = String(b.compass_id).toLowerCase();
+  const [X] = await Promise.all([cpDiffCtx(), loadCpOk()]);
+  let rec;
+  try{ rec = await C.read(b.compass_id, X.sel); }catch(e){ if(e.status===404){ compassCompareAll(); return; } throw e; }
+  const dts = C.detailSummary ? await C.detailSummary([id]).catch(() => null) : null;
+  const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
+  S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:rows, dt:dts && dts.get(id)};
+  S.cpSeenAt = S.cpSeenAt || {}; S.cpSeenAt[b.bookkey] = new Date().toISOString();
+  renderBoard();
 }
 const cpCmpOf = b => (b.compass_status==='SENT' && S.cpCmp && S.cpCmp[b.bookkey]) || null;
 const cpDiffN = b => { const o = cpCmpOf(b); return o && o.rows ? o.rows.filter(r => !r.soft && !r.okd).length : 0; };
