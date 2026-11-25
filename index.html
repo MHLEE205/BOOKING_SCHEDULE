@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.10', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.11', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5970,11 +5970,61 @@ async function sendCompassDetails(R, bkId){
     + (ng.length ? '<div style="margin-top:6px"><span class="bdg d">✕</span> 失敗 — COMPASS で手入力してください:<br>'+ng.map(esc).join('<br>')+'</div>' : '')+skipH,
     [{label:'閉じる', fn:c=>c()}]);
 }
-function compassInfo(b){
-  modal('✔ COMPASS 入力済み — '+esc(bkLabel(b)), '<table class="b6-s"><tr><th>COMPASS ID</th><td>'+esc(b.compass_id)+'</td></tr><tr><th>最終入力</th><td>'+esc(fmtDT(b.compass_at))+'</td></tr></table>'
-    + '<div class="muted" style="margin-top:6px;font-size:12px">・変更入力: B-06 の変更を COMPASS に反映<br>・もう一度入力: COMPASS で削除した時<br>・明細の修正は COMPASS で</div>',
-    [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力', fn:c=>{ c(); compassResend(b); }},
-     {label:'🚢 変更を COMPASS に送る…', pri:true, fn:c=>{ c(); compassUpdate(b); }}]);
+/* COMPASS に入っている内容 (ユーザー 2026-11-25「콤파스에 어떤 정보로 입력했는지」): COMPASS の今の内容を読んで (読み取りのみ)
+   入力の時の確認画面と同じく 本船情報・購買/販売/本数 を表で。B-06 と違う所に ⚠ */
+async function compassInfo(b){
+  const C = S.store.compass, FVK = '@OData.Community.Display.V1.FormattedValue';
+  const btns = [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力', fn:c=>{ c(); compassResend(b); }},
+    {label:'🚢 変更を COMPASS に送る…', pri:true, fn:c=>{ c(); compassUpdate(b); }}];
+  const title = '🔍 COMPASS に入っている内容 — '+esc(bkLabel(b));
+  if(!C || !C.read || !b.compass_id){ modal(title, '<div class="muted">COMPASS ID がありません</div>', btns); return; }
+  LEENAI.loading.show('COMPASS の内容を読んでいます（読み取りのみ）…');
+  let X, rec, cps = [], D = null, ex = [];
+  try{
+    X = await cpDiffCtx();
+    const M = X.M;
+    /* 本船情報の比較に入っていない列も見せる: 販売先・販売CO・海上運賃区分・最終船積日 */
+    for(const [lb, re] of [['販売先', /販売先/], ['販売CO', /販売\s*CO|販売契約/i], ['海上運賃区分', /海上運賃/]]){
+      for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)){
+        let o = null; try{ o = await C.options(M.rels.get(k).target); }catch(e){}
+        ex.push({lb:lb, col:'_'+k+'_value', o:o}); break; } }
+    }
+    let ls = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && /最終船積日/.test(a.label)){ ls = k; break; } }
+    if(ls) ex.push({lb:M.attrs.get(ls).label, col:ls, date:true});
+    rec = await C.read(b.compass_id, X.sel.concat(ex.map(e => e.col), ['createdon', 'modifiedon']));
+    if(C.detailRows){ [cps, D] = await Promise.all([C.detailRows(b.compass_id).catch(() => []), C.details ? C.details().catch(() => null) : null]); }
+  }catch(e){
+    LEENAI.loading.hide();
+    modal(title, '<div><span class="bdg d">✕</span> '+esc(e.status===404 ? 'COMPASS にこのブッキングがありません（COMPASS で削除されたようです）' : String(e.message || e).slice(0, 300))+'</div>', btns);
+    return;
+  }
+  LEENAI.loading.hide();
+  const cmp = cpCmpOf(b), diffCols = new Set(((cmp && cmp.rows) || []).filter(r => !r.dtl && !r.okd).map(r => r.col));
+  const dDiff = ((cmp && cmp.rows) || []).filter(r => r.dtl && !r.okd);
+  const v = t => t ? esc(t) : '<span class="muted">（空）</span>';
+  const row = (lb, val, col) => '<tr><th style="white-space:nowrap;text-align:left">'+esc(lb)+'</th><td>'+v(val)+(col && diffCols.has(col) ? ' <span class="bdg w" title="B-06 と違います">⚠ B-06 と違う</span>' : '')+'</td></tr>';
+  const nameIn = (o, id) => { const x = o && o.list && id ? o.list.find(y => y.id===id) : null; return x ? str(x.name) : ''; };
+  let h = '<div style="font-size:14px;font-weight:700;margin-bottom:4px">🚢 本船情報</div><table class="b6-s" style="width:100%">';
+  X.fcols.forEach(x => { const raw = rec[x.col];
+    h += row(x.f.label, raw==null ? '' : x.f.date ? jstDay(raw).replace(/-/g, '/') : str(rec[x.col+FVK] || raw), x.col); });
+  X.lks.forEach(x => { const id = rec['_'+x.col+'_value']; h += row(x.f.label, nameIn(x.o, id) || str(rec['_'+x.col+'_value'+FVK]), x.col); });
+  if(X.otsu){ const id = rec['_'+X.otsu.col+'_value']; h += row('乙仲', cpFullTxt(nameIn(X.otsu.o, id) || str(rec['_'+X.otsu.col+'_value'+FVK])), X.otsu.col); }
+  if(X.amCol) h += row('AM', rec[X.amCol] ? '✔ AM' : '—', X.amCol);
+  ex.forEach(e => { const raw = rec[e.col]; h += row(e.lb, e.date ? (raw ? jstDay(raw).replace(/-/g, '/') : '') : (nameIn(e.o, raw) || str(rec[e.col+FVK]))); });
+  h += '</table>';
+  /* 購買・販売・本数 (COMPASS の明細) */
+  const all = (L, id) => { const xs = D && D[L] ? (D[L].every || D[L].items || []) : []; return xs.find(y => y.id===id) || null; };
+  h += '<div style="font-size:14px;font-weight:700;margin:14px 0 4px">📦 購買・販売・本数'+(dDiff.length ? ' <span class="bdg w" title="'+esc(dDiff.map(r => r.label+': COMPASS '+r.cp+' / B-06 '+r.b06).join('\n'))+'">⚠ B-06 と違う '+dDiff.length+'</span>' : '')+'</div>';
+  if(!cps.length) h += '<div class="muted">COMPASS に 明細がありません</div>';
+  else h += '<table class="b6-s" style="width:100%"><tr><th>#</th><th>品目</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th class="num">本数</th><th class="num">重量</th></tr>'
+    + cps.map((cp, i) => { const si = all('sale', cp.s), pi = all('purch', cp.p);
+        return '<tr><td>'+(i+1)+'</td><td>'+v(si && si.item)+'</td><td>'+v(si && si.co)+'</td><td>'+v(pi && pi.party)+'</td><td>'+v(pi && pi.co)+'</td><td class="num">'+cp.hon+'</td><td class="num">'+dtlNum(cp.wt)+'</td></tr>'; }).join('')
+    + '<tr><th colspan="5" style="text-align:right">合計</th><th class="num">'+cps.reduce((t, x) => t + x.hon, 0)+'</th><th class="num">'+dtlNum(cps.reduce((t, x) => t + x.wt, 0))+'</th></tr></table>';
+  h += '<div class="muted" style="font-size:11.5px;margin-top:8px">COMPASS の今の内容です（COMPASS の画面で直した分も入っています）。送った内容の記録は「↺ 変更履歴」で見られます。</div>';
+  h += '<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
+    + 'COMPASS ID: '+esc(b.compass_id)+'<br>COMPASS で作成: '+esc(fmtDT(rec.createdon))+'<br>COMPASS で最終更新: '+esc(fmtDT(rec.modifiedon))+'<br>B-06 から最後に入力・変更入力: '+esc(fmtDT(b.compass_at))
+    + '<br>・もう一度入力: COMPASS で削除した時だけ</div></details>';
+  modal(title, h, btns, true);
 }
 /* ══════════ COMPASS に変更入力 (2026-11-19 — ユーザーと決めた形) ══════════
    ① COMPASS の今の内容を読む → ② B-06 と違う項目を出す「COMPASS とこの部分が違います。変更入力しますか？」
