@@ -817,7 +817,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.19', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.20', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6018,17 +6018,23 @@ async function compassInfo(b){
   X.lks.forEach(x => { const id = rec['_'+x.col+'_value']; h += row(x.f.label, nameIn(x.o, id) || str(rec['_'+x.col+'_value'+FVK]), x.col); });
   if(X.otsu){ const id = rec['_'+X.otsu.col+'_value']; h += row('乙仲', cpFullTxt(nameIn(X.otsu.o, id) || str(rec['_'+X.otsu.col+'_value'+FVK])), X.otsu.col); }
   if(X.amCol) h += row('AM', rec[X.amCol] ? '✔ AM' : '—', X.amCol);
+  const all = (L, id) => { const xs = D && D[L] ? (D[L].every || D[L].items || []) : []; return xs.find(y => y.id===id) || null; };
+  /* 販売先: ブッキングに列がなければ 販売契約 (明細の販売アイテム) の販売先 (ユーザー 2026-11-25) */
+  if(!ex.some(e => e.lb==='販売先')){ const ps = Array.from(new Set(cps.map(cp => { const si = all('sale', cp.s); return si ? str(si.party).trim() : ''; }).filter(Boolean)));
+    h += row('販売先', ps.join('・')); }
   ex.forEach(e => { const raw = rec[e.col]; h += row(e.lb, e.date ? (raw ? jstDay(raw).replace(/-/g, '/') : '') : (nameIn(e.o, raw) || str(rec[e.col+FVK]))); });
   h += '</table>';
-  /* 購買・販売・本数 (COMPASS の明細) */
-  const all = (L, id) => { const xs = D && D[L] ? (D[L].every || D[L].items || []) : []; return xs.find(y => y.id===id) || null; };
+  /* 購買・販売・本数 (COMPASS の明細) — 販売 と 購買 の列に 薄い色 (見分けやすく) */
   h += '<div style="font-size:14px;font-weight:700;margin:14px 0 4px">📦 購買・販売・本数'+(dDiff.length ? ' <span class="bdg w" title="'+esc(dDiff.map(r => r.label+': COMPASS '+r.cp+' / B-06 '+r.b06).join('\n'))+'">⚠ B-06 と違う '+dDiff.length+'</span>' : '')+'</div>';
   if(!cps.length) h += '<div class="muted">COMPASS に 明細がありません</div>';
-  else h += '<table class="b6-s" style="width:100%"><tr><th>#</th><th>販売の品目</th><th>販売CO</th><th>購買元</th><th>購買の品目</th><th>購買CO</th><th class="num">本数</th><th class="num">重量</th></tr>'
+  const SB = 'background:color-mix(in srgb,var(--info) 9%,transparent)', PB = 'background:color-mix(in srgb,var(--ok) 9%,transparent)';
+  const sc = t => '<td style="'+SB+'">'+t+'</td>', pc = t => '<td style="'+PB+'">'+t+'</td>';
+  if(cps.length) h += '<table class="b6-s" style="width:100%"><tr><th rowspan="2">#</th><th colspan="3" style="text-align:center;'+SB+'">販売</th><th colspan="3" style="text-align:center;'+PB+'">購買</th><th rowspan="2" class="num">本数</th><th rowspan="2" class="num">重量</th></tr>'
+    + '<tr><th style="'+SB+'">販売先</th><th style="'+SB+'">品目</th><th style="'+SB+'">販売CO</th><th style="'+PB+'">購買元</th><th style="'+PB+'">品目</th><th style="'+PB+'">購買CO</th></tr>'
     + cps.map((cp, i) => { const si = all('sale', cp.s), pi = all('purch', cp.p);
-        return '<tr><td>'+(i+1)+'</td><td>'+v(si && si.item)+'</td><td>'+v(si && si.co)+'</td><td>'+v(pi && pi.party)+'</td><td>'+v(pi && pi.item)+'</td><td>'+v(pi && pi.co)+'</td><td class="num">'+cp.hon+'</td><td class="num">'+dtlNum(cp.wt)+'</td></tr>'; }).join('')
-    + '<tr><th colspan="6" style="text-align:right">合計</th><th class="num">'+cps.reduce((t, x) => t + x.hon, 0)+'</th><th class="num">'+dtlNum(cps.reduce((t, x) => t + x.wt, 0))+'</th></tr></table>';
-  h += '<div class="muted" style="font-size:11.5px;margin-top:8px">COMPASS の今の内容です（COMPASS の画面で直した分も入っています）。送った内容の記録は「↺ 変更履歴」で見られます。</div>';
+        return '<tr><td>'+(i+1)+'</td>'+sc(v(si && si.party))+sc(v(si && si.item))+sc(v(si && si.co))+pc(v(pi && pi.party))+pc(v(pi && pi.item))+pc(v(pi && pi.co))+'<td class="num">'+cp.hon+'</td><td class="num">'+dtlNum(cp.wt)+'</td></tr>'; }).join('')
+    + '<tr><th colspan="7" style="text-align:right">合計</th><th class="num">'+cps.reduce((t, x) => t + x.hon, 0)+'</th><th class="num">'+dtlNum(cps.reduce((t, x) => t + x.wt, 0))+'</th></tr></table>';
+  h += '<div class="muted" style="font-size:11.5px;margin-top:8px">COMPASS の<b>今</b>の内容です（B-06 から入力した時のままではなく、その後 B-06 から送った変更・COMPASS の画面で直した分も入っています）。送った内容の記録は「↺ 変更履歴」で見られます。</div>';
   h += '<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
     + 'COMPASS ID: '+esc(b.compass_id)+'<br>COMPASS で作成: '+esc(fmtDT(rec.createdon))+'<br>COMPASS で最終更新: '+esc(fmtDT(rec.modifiedon))+'<br>B-06 から最後に入力・変更入力: '+esc(fmtDT(b.compass_at))
     + '</div></details>';
