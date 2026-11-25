@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.13', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.14', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6228,11 +6228,13 @@ async function compassCompareAll(){
   if(!list.length){ S.cpCmp = {}; S.cmpInfo = ''; updSync(); return; }
   S._cmpBusy = true;
   let nr = 0;
+  /* 比べている間 (数十秒かかることがある) は そう出す — 印が出ないのを「違いなし」と間違えないように (ユーザー 2026-11-25) */
+  if(!S.cpCmp || !Object.keys(S.cpCmp).length){ S.cmpInfo = '⏳ COMPASS と比較中…'; updSync(); }
   try{
     const [X] = await Promise.all([cpDiffCtx(), loadCpOk()]);
     const ids = list.map(b => String(b.compass_id).toLowerCase());
-    const [recs, dts] = await Promise.all([C.readMany(ids, X.sel), C.detailSummary ? C.detailSummary(ids).catch(e => { console.warn('COMPASS 明細の比較: 読めません', e); return null; }) : null,
-      C.details ? C.details().catch(() => null) : null]);   /* Packer ごとの本数を比べるのに 購買アイテム (購買元) の一覧 */
+    /* 購買アイテムの一覧 (Packer ごとの本数に使う) は 待たない — 読めたら 明細の比較だけ やり直す (一覧の読み込みが遅いと 印が全部出なかった) */
+    const [recs, dts] = await Promise.all([C.readMany(ids, X.sel), C.detailSummary ? C.detailSummary(ids).catch(e => { console.warn('COMPASS 明細の比較: 読めません', e); return null; }) : null]);
     const out = {}; let nd = 0, ng = 0;
     for(const b of list){
       const id = String(b.compass_id).toLowerCase(), rec = recs.get(id);
@@ -6256,8 +6258,12 @@ async function compassCompareAll(){
         out[b.bookkey] = {gone:true, multi:dup.length>1, at:pg && pg.gone && pg.at || new Date().toISOString(), seen:(S.cpSeenAt || {})[b.bookkey] || ''}; ng++; }
     }
     S.cpCmp = out; S.cmpErr = '';
-    /* 契約番号の表示: 販売・購買のアイテム一覧 (先読み済みのことが多い) を待ってから 描き直す */
-    if(C.details && !C._dtl) C.details().then(() => { S._coIdx = null; renderBoard(); }).catch(() => {});
+    /* 契約番号の表示・Packer ごとの本数: 販売・購買のアイテム一覧 を待ってから 比べ直して 描き直す */
+    if(C.details && !C._dtl) C.details().then(() => { S._coIdx = null;
+      if(S.cpCmp!==out) return;   /* もう次の比較が終わっている */
+      for(const b of list){ const id = String(b.compass_id).toLowerCase(), rec = recs.get(id); if(!rec || !out[b.bookkey]) continue;
+        out[b.bookkey].rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id)))); }
+      renderBoard(); }).catch(() => {});
     cpLearnFromCompass(list, recs, X).then(n => { if(n) console.info('COMPASS 実績から学習: '+n+' 件'); }).catch(e => console.warn('COMPASS 実績の学習', e));
     S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
     updSync(); renderBoard();
