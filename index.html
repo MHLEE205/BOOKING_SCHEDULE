@@ -242,6 +242,7 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cpco{font-size:8px;line-height:1.2;color:#51cf66;white-space:nowrap;font-weight:400}
 [data-theme="light"] .cpco{color:#2f9e44}   /* 契約番号: 港の札 (OKINAWA など) と同じ緑 — ユーザー 2026-11-19 */
 .cpco.r{text-align:right}
+.cpco.ng,[data-theme="light"] .cpco.ng{color:#f08c00;font-weight:700}   /* 販売契約が Invoice no.・ヘッダーと合わない */
 .pkc .pkt{flex:1 1 auto;min-width:0}
 tr.cp-sec td{background:var(--surface2);font-weight:700;font-size:12px;color:var(--text2)}
 tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
@@ -816,7 +817,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.18', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.19', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1503,7 +1504,8 @@ function cellHtml(col, b, a){
     }
     if(k==='carrier' && S.hasQty) return esc(carrierText(b)) + ' ' + qtyBadge(b);
     if(k==='invoiceno'){ const co = cpContracts(b);
-      return esc(v) + (co && co.sale.length ? '<div class="cpco" title="COMPASS の販売契約">'+esc(co.sale.join('・'))+'</div>' : ''); }
+      const cw = ((cpCmpOf(b) || {}).rows || []).filter(r => r.k==='saleco' && !r.okd);
+      return esc(v) + (co && co.sale.length ? '<div class="cpco'+(cw.length ? ' ng' : '')+'" title="'+esc(cw.length ? 'COMPASS の販売契約 — 確認してください\n'+cw.map(r => r.label+': '+r.cp+' / '+r.b06).join('\n') : 'COMPASS の販売契約')+'">'+esc(co.sale.join('・'))+(cw.length ? ' ⚠' : '')+'</div>' : ''); }
     return esc(v);
   }
   const v = a[k];
@@ -6059,10 +6061,14 @@ async function cpDiffCtx(){
   let otsu = null;
   for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && /乙仲/.test(a.label) && M.rels.get(k)){
     try{ otsu = {col:k, a:a, rel:M.rels.get(k), o:await C.options(M.rels.get(k).target, null, '乙仲')}; }catch(e){} break; } }
+  /* ヘッダーの 販売CO (読むだけ — 契約の確認用。送らない) */
+  let scHd = null;
+  for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && /販売\s*CO|販売契約/i.test(a.label) && M.rels.get(k)){
+    try{ const o = await C.options(M.rels.get(k).target); scHd = {col:k, name:id => str(((o.list || []).find(y => y.id===id) || {}).name)}; }catch(e){} break; } }
   const amCol = cpAmCol(M);
   let upCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /^更新日時$/.test(a.label)){ upCol = {col:k, dateOnly:a.dateOnly}; break; } }
-  return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
-    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [])};
+  return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, scHd:scHd, learned:await cpMapLoad(),
+    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [], scHd ? ['_'+scHd.col+'_value'] : [])};
 }
 /* ══ Booking no. は 1 文字だけ違うもの・同じ番号 (分割) もあるので、COMPASS と比べる時は いつも
    Booking no.＋Invoice no. の ペア で見る (ユーザー 2026-11-24) ══ */
@@ -6170,7 +6176,8 @@ function cpHeaderRows(b, rec, X){
   return rows;
 }
 /* 明細の違い (行数・本数の合計 — 正確 / 品目 — 参考)。B-06 からは明細を変えない */
-function cpDetailRows(b, d){
+const cpHdCo = (rec, X) => X && X.scHd && rec ? X.scHd.name(rec['_'+X.scHd.col+'_value']) || str(rec['_'+X.scHd.col+'_value@OData.Community.Display.V1.FormattedValue']) : '';
+function cpDetailRows(b, d, hdCo){
   if(!d) return [];
   const live = b.rows.filter(a => !a.deleted), hon = live.reduce((t, a) => t + honOf(a), 0), rows = [];
   if(live.length!==d.n) rows.push({k:'packer', dtl:true, label:'Packer 行の数', cp:d.n+' 行', b06:live.length+' 行'});
@@ -6187,6 +6194,19 @@ function cpDetailRows(b, d){
     const g = live.map(a => cpNorm(gradeAs(b, a.grade) || gradeCore(a.grade))).filter(Boolean).sort().join(','), it = d.items.map(cpNorm).filter(Boolean).sort().join(',');
     if(g && it && g!==it) rows.push({k:'grade', dtl:true, label:'品目', cp:d.items.join('・'), b06:live.map(a => str(a.grade).trim()).filter(Boolean).join('・')});
   }
+  /* 販売契約の確認 (ユーザー 2026-11-25): ① Invoice no. の規則 (NHA2611-32 → …-2611HA3) に合うか ② ヘッダーの 販売CO と 明細の販売契約 が同じか。
+     B-06 の中で知らせるだけ (COMPASS には送らない — 販売契約を B-06 から変えるのは 相談してから) */
+  const I = d.rows && d.rows.length ? coIdx() : null;
+  const dCos = I ? Array.from(new Set(d.rows.map(r => { const x = r.s && I.sale.get(String(r.s).toLowerCase()); return x ? str(x.co).trim() : ''; }).filter(Boolean))) : [];
+  const all = Array.from(new Set([hdCo].concat(dCos).map(x => str(x).trim()).filter(Boolean)));
+  const inv = invNorm(b.invoiceno), iv = invParse(inv);
+  if(iv && all.length){
+    const want = iv.yymm+iv.code+invK(iv.seq);
+    const bad = all.filter(n => { const q = coParse(n); return q && !(q.code===iv.code && q.yymm===iv.yymm && q.k===invK(iv.seq)); });
+    if(bad.length) rows.push({k:'saleco', sub:'inv', dtl:true, label:'販売契約 ↔ Invoice no.', cp:bad.join('・'), b06:'Invoice '+inv+' → …-'+want+' のはず'});
+  }
+  if(hdCo && dCos.length && dCos.some(n => cpNorm(n)!==cpNorm(hdCo)))
+    rows.push({k:'saleco', sub:'mix', dtl:true, label:'販売契約（ヘッダー ↔ 明細）', cp:'ヘッダー '+hdCo, b06:'明細 '+dCos.join('・')});
   return rows;
 }
 /* B-06 の Packer 行 ↔ COMPASS の明細 を 購買元 でまとめて 本数を比べる。[{name, b, c}] か null (全部はつながらない・一覧がまだ) */
@@ -6251,7 +6271,7 @@ async function compassDiff(b){
     }
   }
   let dRows = [];
-  if(C.detailSummary){ try{ const m = await C.detailSummary([id]); dRows = cpDetailRows(b, m.get(String(id).toLowerCase())); }catch(e){} }
+  if(C.detailSummary){ try{ const m = await C.detailSummary([id]); dRows = cpDetailRows(b, m.get(String(id).toLowerCase()), cpHdCo(rec, X)); }catch(e){} }
   return {id:id, etag:rec['@odata.etag'] || '*', rows:rows, dRows:dRows, upCol:X.upCol};
 }
 /* ══════════ COMPASS と B-06 の比較 (画面を開いた時・⟳ — ユーザー 2026-11-19) ══════════
@@ -6275,7 +6295,7 @@ async function compassCompareAll(){
     for(const b of list){
       const id = String(b.compass_id).toLowerCase(), rec = recs.get(id);
       if(rec){
-        const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
+        const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id), cpHdCo(rec, X))));
         out[b.bookkey] = {rows:rows, dt:dts && dts.get(id)}; if(rows.some(r => !r.soft && !r.okd)) nd++;
         (S.cpSeenAt = S.cpSeenAt || {})[b.bookkey] = new Date().toISOString();   /* COMPASS にあった最後の確認 (削除の時刻の目安) */
         continue;
@@ -6298,7 +6318,7 @@ async function compassCompareAll(){
     if(C.details && !C._dtl) C.details().then(() => { S._coIdx = null;
       if(S.cpCmp!==out) return;   /* もう次の比較が終わっている */
       for(const b of list){ const id = String(b.compass_id).toLowerCase(), rec = recs.get(id); if(!rec || !out[b.bookkey]) continue;
-        out[b.bookkey].rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id)))); }
+        out[b.bookkey].rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id), cpHdCo(rec, X)))); }
       renderBoard(); }).catch(() => {});
     cpLearnFromCompass(list, recs, X).then(n => { if(n) console.info('COMPASS 実績から学習: '+n+' 件'); }).catch(e => console.warn('COMPASS 実績の学習', e));
     S.cmpInfo = 'COMPASS 比較 '+new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})+'（'+list.length+' 件'+(nd ? '・違い '+nd : '')+(ng ? '・削除 '+ng : '')+'）';
@@ -6322,7 +6342,7 @@ async function cpCompareOne(b){
   let rec;
   try{ rec = await C.read(b.compass_id, X.sel); }catch(e){ if(e.status===404){ compassCompareAll(); return; } throw e; }
   const [dts] = await Promise.all([C.detailSummary ? C.detailSummary([id]).catch(() => null) : null, C.details ? C.details().catch(() => null) : null]);
-  const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
+  const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id), cpHdCo(rec, X))));
   S.cpCmp = S.cpCmp || {}; S.cpCmp[b.bookkey] = {rows:rows, dt:dts && dts.get(id)};
   S.cpSeenAt = S.cpSeenAt || {}; S.cpSeenAt[b.bookkey] = new Date().toISOString();
   renderBoard();
@@ -6460,7 +6480,9 @@ async function compassUpdate(b){
     h += !X.dRows.length ? same('購買・販売・本数') : X.dRows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
       + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td class="muted">'+cnt(r.cp)+'</td><td><b>'+cnt(r.b06)+'</b></td>'
       + '<td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-        + (r.okd ? '' : r.sub==='link'
+        + (r.okd ? '' : r.k==='saleco'
+            ? '<span class="muted" style="font-size:11.5px">COMPASS で 販売CO・明細の販売 を直してください（B-06 からは送りません）</span>'
+          : r.sub==='link'
             ? '<button class="b6-btn sm pri cpu-link" data-i="'+i+'" title="B-06 の Packer 行を COMPASS の購買元につなぐ（B-06 の中だけ・COMPASS は変わりません）">B-06 で「'+esc(r.cp)+'」につなぐ</button>'
           : r.k==='grade'
             ? (fx ? '<button class="b6-btn sm pri cpu-fix" title="B-06 の Grade「'+esc(fx.from)+'」を「'+esc(fx.to)+'」に（後ろの日本語名はそのまま）">B-06 を「'+esc(fx.to)+'」に直す</button>' : '')
