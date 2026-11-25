@@ -494,10 +494,14 @@ details.rp summary{cursor:pointer;font-size:12.5px}
       <div class="b6-bar b6-fbar">
         <span class="fg" title="CY Cut の日付で絞り込み（変えるとすぐ読み直します）"><span class="fl">Cut</span><input type="date" class="b6-in" id="f-from">〜<input type="date" class="b6-in" id="f-to"><label title="Cut が空のブッキングも表示"><input type="checkbox" id="f-noetd" checked>未定も</label></span>
         <span class="fg"><span class="fl">承認</span><select class="b6-sel" id="f-appr"></select></span>
-        <span class="fg"><span class="fl">Packer</span><input class="b6-in" id="f-packer" size="8"><label><input type="checkbox" id="f-nopk">未割当</label></span>
-        <span class="fg"><label title="削除したブッキング・Packer 行だけを表示（≡ / ⋮ メニューから復元できます）"><input type="checkbox" id="f-del">削除済み</label></span>
+        <span class="fg" title="COMPASS 入力済み・未入力・違いあり・Packer 未割当・削除済み で絞り込み"><span class="fl">表示</span><select class="b6-sel" id="f-view" style="max-width:150px">
+          <option value="">すべて</option>
+          <optgroup label="COMPASS"><option value="cp">COMPASS 入力済み</option><option value="nocp">COMPASS 未入力</option><option value="cpdiff">COMPASS と違いあり</option></optgroup>
+          <optgroup label="その他"><option value="nopk">Packer 未割当</option><option value="del">削除済み（復元できます）</option></optgroup>
+        </select></span>
+        <span hidden><input id="f-packer"><input type="checkbox" id="f-nopk"><input type="checkbox" id="f-del"></span>
         <span class="fg"><span class="fl">並び</span><select class="b6-sel" id="f-sort"><option value="cut" selected>Cut 昇順</option><option value="etd">ETD 昇順</option><option value="seq">入力順（エクセル行順）</option></select></span>
-        <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel">
+        <input class="b6-in fq" id="f-q" placeholder="🔍 BKG・Invoice・Vessel・Packer" title="Booking no.・Invoice no.・本船名・Packer（日本語・COMPASS の英名 どちらでも）">
         <button class="b6-btn b6-allocb" id="b-alloc" data-alloc="1" title="割り当て表 (販売・購買の残) を右に表示 / 閉じる">📊 割り当て</button>
       </div>
       <div class="b6-bar b6-abar">
@@ -817,7 +821,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.20', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.21', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1362,8 +1366,8 @@ function visRows(b, showDel){ return b.rows.filter(a => showDel || !a.deleted); 
 function filt(){
   return {
     port: S.port, appr: $('#f-appr').value, packer: $('#f-packer').value.trim().toLowerCase(),
-    nopk: $('#f-nopk').checked, q: $('#f-q').value.trim().toLowerCase(),
-    del: $('#f-del').checked, sort: $('#f-sort').value,
+    nopk: $('#f-nopk').checked || $('#f-view').value==='nopk', q: $('#f-q').value.trim().toLowerCase(),
+    del: $('#f-del').checked || $('#f-view').value==='del', sort: $('#f-sort').value, view: $('#f-view').value,
   };
 }
 function noPacker(b){ return b.rows.filter(a=>!a.deleted).every(a => blank(a.packer)); }
@@ -1376,7 +1380,13 @@ function visibleBookings(){
   if(F.packer) list = list.filter(b => b.rows.some(a => !a.deleted && str(a.packer).toLowerCase().includes(F.packer)));
   /* BKG#未取得 の絞り込みは削除 (Booking no. 欄に番号以外のメモを書くこともある — 2026-11-17) */
   if(F.nopk) list = list.filter(b => noPacker(b));
-  if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].concat(bkHistOf(b).map(e => e.from)).some(v => str(v).toLowerCase().includes(F.q)));
+  /* COMPASS: 入力済み・未入力・違いあり (ユーザー 2026-11-25) */
+  if(F.view==='cp') list = list.filter(b => b.compass_status==='SENT');
+  else if(F.view==='nocp') list = list.filter(b => b.compass_status!=='SENT');
+  else if(F.view==='cpdiff') list = list.filter(b => cpDiffN(b) > 0 || !!(cpCmpOf(b) || {}).gone);
+  /* 検索: Packer も (日本語の表記・COMPASS 購買元の英名 (緑)・略称) — ユーザー 2026-11-25 */
+  const pkWords = a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id); return [a.packer, c && c.name, o && o.name].concat(o && o.alt || []); };
+  if(F.q) list = list.filter(b => [b.bkgno,b.invoiceno,b.vessel].concat(bkHistOf(b).map(e => e.from), b.rows.filter(a => !a.deleted).flatMap(pkWords)).some(v => str(v).toLowerCase().includes(F.q)));
   if(F.sort==='seq') list.sort((a,b)=>(a.seq||0)-(b.seq||0));
   else if(F.sort==='cut') list.sort((a,b)=> (a.cycut||'9999-99-99').localeCompare(b.cycut||'9999-99-99') || (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
   else list.sort((a,b)=> (a.etd||'9999-99-99').localeCompare(b.etd||'9999-99-99') || (a.seq||0)-(b.seq||0));
@@ -4189,7 +4199,7 @@ async function addBooking(){
     saved.rows = [a]; S.bk.set(saved.bookkey, saved);
     logHist(saved, [{lv:'B', k:'_new', from:'', to:'B-06 の画面で作成'}]);
     S.hl = saved.bookkey;
-    ['#f-appr','#f-packer','#f-q'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false;
+    ['#f-appr','#f-packer','#f-q','#f-view'].forEach(s=>{ $(s).value=''; }); $('#f-nopk').checked=false;
     S.port = ''; if(!staffMatch(saved)) S.staff = '';
     fillFilterOptions(); renderBoard();
     const tr = document.querySelector('tr[data-k="'+saved.bookkey+'"]'); if(tr) tr.scrollIntoView({block:'center'});
@@ -7429,7 +7439,7 @@ function initUI(){
       renderBoard(); memoFollow();
     }
   });
-  ['#f-appr','#f-nopk','#f-sort','#f-del'].forEach(s => $(s).addEventListener('change', renderBoard));
+  ['#f-appr','#f-nopk','#f-sort','#f-del','#f-view'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
   $('#f-reload').addEventListener('click', loadBoard);
   /* 期間・未定もを変えたらすぐ読み直す (以前は ⟳ を押すまで反映されなかった) */
