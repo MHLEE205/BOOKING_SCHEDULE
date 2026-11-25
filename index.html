@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.97', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.98', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4484,7 +4484,7 @@ const DvCompass = {
       if(c){ pa = c.col;
         try{ (await dvGetAll(N.set+'?$select='+N.E.entity.PrimaryIdAttribute+',_'+pa+'_value')).forEach(r => par.set(r[N.E.entity.PrimaryIdAttribute], r['_'+pa+'_value'] || null)); }catch(e){ pa = null; } }
     }
-    const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, port:o.port, f:o.f, parent:pa ? par.get(o.id) || null : null}))
+    const list = Array.from(N.map.values()).map(o => ({id:o.id, name:o.name, alt:o.alt, port:o.port, f:o.f, exp:o.exp, parent:pa ? par.get(o.id) || null : null}))
       .sort((x, y) => x.name.localeCompare(y.name, 'ja', {numeric:true}));
     return {set:N.set, parentAttr:pa, nameCol:N.colLabel, portLabel:N.portLabel, list:list};
   },
