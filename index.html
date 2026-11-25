@@ -832,7 +832,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.25', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.26', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6302,6 +6302,27 @@ function cpPerPacker(live, d){
   if(left.length || gone.length) out.swap = {cp:gone.map(g => g.name+' '+g.c+' 本').join('・'), b06:left.map(a => pkName(a)+' '+honOf(a)+' 本').join('・')};
   return out;
 }
+/* 比べる画面の 横並び表: B-06 の Packer 行 ⇄ COMPASS の明細 を 購買元・品目・本数 で組にする (ユーザー 2026-11-25 — 何が違うか 一目で) */
+function cpPairView(b, d){
+  const I = d && d.rows && d.rows.length ? coIdx() : null; if(!I) return null;
+  const live = b.rows.filter(a => !a.deleted);
+  const cl = d.rows.map(r => { const x = r.p && I.purch.get(String(r.p).toLowerCase()), si = r.s && I.sale.get(String(r.s).toLowerCase());
+    return {hon:r.hon || 0, party:x ? str(x.party) : '', pid:x && x.partyId ? String(x.partyId).toLowerCase() : '', pco:x ? str(x.co) : '', item:si ? str(si.item) : (x ? str(x.item) : '')}; });
+  const names = a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), head = str(a.packer).split(/[\s(（・\/]/)[0];
+    const al = [a.packer, head, c && c.name, o && o.name].concat(o && o.alt || []); al.slice().forEach(x => { if(x) al.push(...kanaRomaji(x)); });
+    return new Set(al.map(cpNorm).filter(Boolean)); };
+  const partyOk = (a, c) => { const k = cpkOf(a); if(k) return !!c.pid && String(k.id).toLowerCase()===c.pid || (!c.pid && names(a).has(cpNorm(c.party)));
+    return names(a).has(cpNorm(c.party)); };
+  const itemOk = (a, c) => cpNorm(gradeAs(b, a.grade) || gradeCore(a.grade))===cpNorm(c.item);
+  const pairs = []; live.forEach((a, i) => cl.forEach((c, j) => { const s = (partyOk(a, c) ? 4 : 0) + (itemOk(a, c) ? 2 : 0) + (Math.round(honOf(a)*100)===Math.round(c.hon*100) ? 1 : 0); if(s >= 4) pairs.push({i:i, j:j, s:s}); }));
+  pairs.sort((x, y) => y.s - x.s || x.i - y.i || x.j - y.j);
+  const uA = new Map(), uC = new Set();
+  pairs.forEach(p => { if(uA.has(p.i) || uC.has(p.j)) return; uA.set(p.i, p.j); uC.add(p.j); });
+  const out = live.map((a, i) => { const c = uA.has(i) ? cl[uA.get(i)] : null;
+    return {a:a, c:c, pOk:c ? partyOk(a, c) : false, iOk:c ? itemOk(a, c) : false, hOk:c ? Math.round(honOf(a)*100)===Math.round(c.hon*100) : false}; });
+  cl.forEach((c, j) => { if(!uC.has(j)) out.push({a:null, c:c}); });
+  return out;
+}
 async function compassDiff(b){
   const C = S.store.compass, id = b.compass_id;
   if(!id) throw new Error('COMPASS ID がありません');
@@ -6319,8 +6340,10 @@ async function compassDiff(b){
     }
   }
   let dRows = [];
-  if(C.detailSummary){ try{ const m = await C.detailSummary([id]); dRows = cpDetailRows(b, m.get(String(id).toLowerCase()), cpHdCo(rec, X)); }catch(e){} }
-  return {id:id, etag:rec['@odata.etag'] || '*', rows:rows, dRows:dRows, upCol:X.upCol};
+  let dt = null;
+  if(C.detailSummary){ try{ if(C.details) await C.details().catch(() => null);
+    const m = await C.detailSummary([id]); dt = m.get(String(id).toLowerCase()); dRows = cpDetailRows(b, dt, cpHdCo(rec, X)); }catch(e){} }
+  return {id:id, etag:rec['@odata.etag'] || '*', rows:rows, dRows:dRows, dt:dt, upCol:X.upCol};
 }
 /* ══════════ COMPASS と B-06 の比較 (画面を開いた時・⟳ — ユーザー 2026-11-19) ══════════
    COMPASS済 のブッキングを COMPASS から まとめて読んで (読み取りのみ) 違う所をセルに印。
@@ -6512,21 +6535,46 @@ async function compassUpdate(b){
     const box = (c, t) => '<div style="padding:9px 12px;border-radius:8px;margin-bottom:10px;font-size:14px;background:color-mix(in srgb,var(--'+c+') 12%,transparent);border:1px solid color-mix(in srgb,var(--'+c+') 35%,transparent)">'+t+'</div>';
     const grp = t => '<tr><td colspan="4" style="background:var(--surface2);font-weight:700;font-size:12.5px">'+t+'</td></tr>';
     const same = t => '<tr><td colspan="4" class="muted" style="font-size:12.5px"><span class="bdg o">✔</span> '+t+' は COMPASS と同じです</td></tr>';
-    let h = !nH && !nD ? box('ok', '✔ <b>COMPASS と同じです。</b>送るものはありません。')
-      : box('warn', '⚠ COMPASS と違うところが <b>'+(nH+nD)+' 件</b> あります')
-        + '<div class="muted" style="font-size:11.5px;margin:-4px 0 8px;line-height:1.6">右の「どうしますか」で選んでください —　'
-        + '<b>COMPASS に送る</b> = COMPASS を B-06 の内容に直す ／ <b>B-06 を直す</b> = B-06 を COMPASS の内容に直す ／ <b>このままで OK</b> = 違っていて良い（次から出さない）</div>';
-    h += '<table class="b6-s" style="width:100%"><tr><th>項目</th><th>COMPASS に入っている</th><th>B-06 に入っている</th><th>どうしますか</th></tr>';
-    h += grp('🚢 本船情報 <span class="muted" style="font-weight:400">船名・Booking no.・Invoice no.・CY・港・船社・乙仲 など</span>');
-    h += !X.rows.length ? same('本船情報') : X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
+    /* 上: 2 つの区分の 同じ／違う を札で一目で */
+    const chip = (t, n) => '<div style="flex:1;min-width:220px;padding:8px 12px;border-radius:8px;font-size:13.5px;'
+      + (n ? 'background:color-mix(in srgb,#f08c00 12%,transparent);border:1px solid color-mix(in srgb,#f08c00 40%,transparent)">'+t+' <b style="color:#f08c00">⚠ 違い '+n+' 件</b>'
+           : 'background:color-mix(in srgb,var(--ok) 10%,transparent);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent)">'+t+' <b style="color:var(--ok)">✔ COMPASS と同じ</b>')+'</div>';
+    let h = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">'+chip('🚢 本船情報', nH)+chip('📦 購買・販売・本数', nD)+'</div>';
+    if(nH || nD) h += '<div class="muted" style="font-size:11.5px;margin:0 0 8px;line-height:1.6"><b>COMPASS に送る</b> = COMPASS を B-06 の内容に直す ／ <b>B-06 を直す</b> = B-06 を COMPASS の内容に直す ／ <b>このままで OK</b> = 違っていて良い（次から出さない）</div>';
+    /* 🚢 本船情報: 違う時だけ 表 */
+    if(X.rows.length){
+      h += '<div style="font-weight:700;margin:6px 0 4px">🚢 本船情報</div><table class="b6-s" style="width:100%"><tr><th>項目</th><th>COMPASS に入っている</th><th>B-06 に入っている</th><th>どうしますか</th></tr>';
+      h += X.rows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
       + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td class="muted">'+cell(r.cp)+'</td>'
       + '<td><b>'+cell(r.b06)+'</b>'+(r.pick ? cpPickSel(r, i) : '')+'</td>'
       + '<td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
         + (r.okd ? '' : '<label style="white-space:nowrap;font-weight:700'+(r.ok ? '' : ';opacity:.45')+'"><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def ? ' checked' : '')+(r.ok ? '' : ' disabled')+'> COMPASS に送る</label>')
         + (r.fixB06 && !r.okd ? '<button class="b6-btn sm pri cpu-fixb" data-i="'+i+'" title="B-06 の通関依頼に COMPASS の乙仲を入れる（B-06 の中だけ）">B-06 に「'+esc(r.fixB06)+'」を入れる</button>' : '')
         + okCell(r, 'h', i)+'</div><div class="cpu-nt">'+(r.ok || r.okd || r.fixB06 ? (r.note && !r.okd ? '<div class="muted" style="font-size:11px;margin-top:2px" title="'+esc(r.tip || r.note)+'">'+esc(str(r.note).split(' ／ ')[0])+'</div>' : '') : stCell(r))+'</div></td></tr>').join('');
-    h += grp('📦 購買・販売・本数 <span class="muted" style="font-weight:400">Packer ごと</span>');
-    h += !X.dRows.length ? same('購買・販売・本数') : X.dRows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
+      h += '</table>';
+    }
+    /* 📦 横並び: B-06 の Packer 行 ⇄ COMPASS の明細 (違う所をオレンジ) */
+    const PV = nD ? cpPairView(b, X.dt) : null;
+    if(nD){
+      h += '<div style="font-weight:700;margin:12px 0 4px">📦 購買・販売・本数 <span class="muted" style="font-weight:400;font-size:11.5px">— B-06 と COMPASS を並べて（オレンジ = 違う所）</span></div>';
+      if(PV){
+        const bad = 'background:color-mix(in srgb,#f08c00 16%,transparent);font-weight:700', B6 = 'background:color-mix(in srgb,var(--info) 6%,transparent)', CP = 'background:color-mix(in srgb,var(--ok) 6%,transparent)';
+        const td = (v, ok, bg) => '<td style="'+(ok ? bg : bad)+'">'+v+'</td>', none = '<span class="muted">（なし）</span>';
+        h += '<table class="b6-s" style="width:100%"><tr><th colspan="3" style="text-align:center;'+B6+'">B-06</th><th style="width:22px"></th><th colspan="4" style="text-align:center;'+CP+'">COMPASS</th></tr>'
+          + '<tr><th style="'+B6+'">Grade</th><th style="'+B6+'">Packer</th><th class="num" style="'+B6+'">本数</th><th></th><th style="'+CP+'">品目</th><th style="'+CP+'">購買元</th><th class="num" style="'+CP+'">本数</th><th style="'+CP+'">購買契約</th></tr>'
+          + PV.map(x => { const a = x.a, c = x.c;
+              const k = a && cpkOf(a), o = k && S.cpkName && S.cpkName.get(k.id), en = k ? str((o && o.name) || k.name) : '';
+              const pk = a ? esc(str(a.packer).trim() || '—')+(en ? ' <span class="bdg o" style="font-size:9.5px">'+esc(en)+'</span>' : ' <span class="bdg w" style="font-size:9.5px">🔗?</span>') : none;
+              const eq = a && c && x.pOk && x.iOk && x.hOk;
+              return '<tr>'+(a ? td(esc(str(a.grade).trim() || '—'), !c || x.iOk, B6)+td(pk, !c || x.pOk, B6)+'<td class="num" style="'+(!c || x.hOk ? B6 : bad)+'">'+honOf(a)+'</td>'
+                           : '<td colspan="3" style="'+bad+'">（B-06 にない）</td>')
+                + '<td style="text-align:center;color:'+(eq ? 'var(--ok)' : '#f08c00')+';font-weight:700">'+(eq ? '＝' : '≠')+'</td>'
+                + (c ? td(esc(c.item || '—'), !a || x.iOk, CP)+td(esc(c.party || '—'), !a || x.pOk, CP)+'<td class="num" style="'+(!a || x.hOk ? CP : bad)+'">'+c.hon+'</td><td style="'+CP+'">'+esc(c.pco || '—')+'</td>'
+                     : '<td colspan="4" style="'+bad+'">（COMPASS にない）</td>')+'</tr>'; }).join('')
+          + '</table>';
+      }
+      h += '<div style="font-weight:700;margin:10px 0 4px;font-size:12.5px">どう直しますか</div><table class="b6-s" style="width:100%"><tr><th>違い</th><th>COMPASS</th><th>B-06</th><th>どうしますか</th></tr>';
+      h += X.dRows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
       + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td class="muted">'+cnt(r.cp)+'</td><td><b>'+cnt(r.b06)+'</b></td>'
       + '<td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
         + (r.okd ? '' : r.k==='saleco'
@@ -6538,7 +6586,8 @@ async function compassUpdate(b){
               + (C.detailRows ? '<button class="b6-btn sm cpu-dtl" title="COMPASS の 販売アイテム を B-06 の品目のものに替える">COMPASS に送る →</button>' : '')
             : (C.detailRows ? '<button class="b6-btn sm pri cpu-dtl">COMPASS に送る →</button>' : ''))
         + okCell(r, 'd', i)+'</div></td></tr>').join('');
-    h += '</table>';
+      h += '</table>';
+    }
     if(nH) h += '<div class="muted" style="font-size:11.5px;margin-top:6px">🚢 本船情報: 「COMPASS に送る」に ☑ → 下の「<b>☑ を COMPASS に送る</b>」　／　📦 購買・販売・本数: 「COMPASS に送る →」で 送る画面へ（内容を確かめてから送ります）</div>';
     else if(nD) h += '<div class="muted" style="font-size:11.5px;margin-top:6px">📦「COMPASS に送る →」で 送る画面へ（内容を確かめてから送ります）</div>';
     if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:10px">試験モード: 送るボタンを押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
