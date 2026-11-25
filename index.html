@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.16', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.17', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1525,7 +1525,9 @@ function cellHtml(col, b, a){
     /* COMPASS 購買元 (別の列 leenai_cpacker) — クリックで選ぶ */
     if(S.hasCpk){ const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), nm = o ? o.name : c && c.name;
       h += c ? ' <span class="bdg o cpk" data-cpk="1" title="COMPASS 購買元: '+esc(nm)+(o && o.alt.length ? '（'+esc(o.alt[0])+'）' : '')+' — クリックで変更">'+esc(nm)+'</span>'
-             : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
+             : b.compass_status==='SENT'
+               ? ' <span class="bdg d cpk" data-cpk="1" title="COMPASS 入力済みなのに COMPASS 購買元につながっていません — クリックで選ぶ（「COMPASS差」の画面から まとめてつなぐこともできます）">🔗?</span>'
+               : ' <span class="bdg w cpk" data-cpk="1" title="COMPASS 購買元にまだつながっていません — クリックで選ぶ">🔗?</span>'; }
     const co = cpContracts(b), pc = co && co.purch.get(a.id);
     return '<div class="pkc">'+h+'</div>' + (pc ? '<div class="cpco r" title="COMPASS の購買契約">'+esc(pc)+'</div>' : '');
   }
@@ -6170,6 +6172,9 @@ function cpDetailRows(b, d){
   /* Packer (購買元) ごとの本数 (ユーザー 2026-11-25: FUJI 3→2・MATEC 2→3 のように 合計が同じでも 違いを出す)。
      B-06 の行と COMPASS の明細が 購買元 で全部つながる時だけ (つながらない時は 合計だけ — 名前の違いで 間違った違いを出さない) */
   const per = cpPerPacker(live, d);
+  /* COMPASS 入力済みのブッキングは 全部の Packer 行が COMPASS 購買元 (緑の英名) につながっているのが正常 (ユーザー 2026-11-25) */
+  if(per && per.unlinked.length) rows.push({k:'packer', sub:'link', dtl:true, label:'Packer の COMPASS 購買元（未連結）', link:per.unlinked,
+    cp:per.unlinked.map(u => u.name).join('・'), b06:per.unlinked.map(u => str(u.a.packer).trim()+'（🔗?）').join('・')});
   if(per && per.swap) rows.push({k:'packer', sub:'swap', dtl:true, label:'Packer（購買元）', cp:per.swap.cp || '（なし）', b06:per.swap.b06 || '（なし）'});
   if(per) per.forEach(g => { if(Math.round(g.b*100)!==Math.round(g.c*100)) rows.push({k:'qty_raw', sub:cpNorm(g.name), dtl:true, label:'本数（'+g.name+'）', cp:g.c+' 本', b06:g.b+' 本'}); });
   if(Math.round(hon*100)!==Math.round(d.hon*100) && !(per && rows.some(r => r.k==='qty_raw'))) rows.push({k:'qty_raw', dtl:true, label:'本数の合計', cp:d.hon+' 本', b06:hon+' 本'});
@@ -6186,8 +6191,8 @@ function cpPerPacker(live, d){
   const keyOf = x => x ? (x.partyId ? 'id:'+String(x.partyId).toLowerCase() : 'nm:'+cpNorm(x.party)) : '';
   const parties = new Map();   /* key → {names:Set, name, c} */
   for(const r of d.rows){ const x = pOf(r), k = keyOf(x); if(!k || k==='nm:') return null;
-    const g = parties.get(k) || {names:new Set(), name:str(x.party) || '?', c:0, b:0, n:0}; g.c += r.hon; cpNorm(x.party) && g.names.add(cpNorm(x.party)); parties.set(k, g); }
-  const miss = [], linkedMiss = [];
+    const g = parties.get(k) || {names:new Set(), name:str(x.party) || '?', pid:x.partyId || '', pname:str(x.party), c:0, b:0, n:0}; g.c += r.hon; cpNorm(x.party) && g.names.add(cpNorm(x.party)); parties.set(k, g); }
+  const miss = [], linkedMiss = [], unl = [];   /* unl: 緑の英名がない行 (COMPASS 入力済みなら 本当は全部つながっているはず) */
   /* Packer の横の 緑の英名 (COMPASS 購買元につないだもの) があれば それだけで合わせる (ユーザー 2026-11-25)。
      つないだ購買元が COMPASS の明細にない = Packer が違う (名前が似ていても 同じにしない)。つないでいない行だけ 名前で合わせる */
   live.forEach(a => { const c = cpkOf(a);
@@ -6202,7 +6207,7 @@ function cpPerPacker(live, d){
     const nm = new Set([a.packer, str(a.packer).split(/[\s(（・\/]/)[0]].map(cpNorm).filter(Boolean));
     let k = '';
     for(const [pk, g] of parties){ if(Array.from(g.names).some(n => nm.has(n))){ k = pk; break; } }
-    if(k){ const g = parties.get(k); g.b += honOf(a); g.n++; if(g.n===1) g.name = str(a.packer).trim() || g.name; } else miss.push(a); });
+    if(k){ const g = parties.get(k); g.b += honOf(a); g.n++; unl.push({a:a, g:g}); } else miss.push(a); });
   /* つながらない行 ↔ 行のない購買元: 名前が似ていれば (フジ ↔ FUJI・かなのローマ字も) 同じ購買元。
      似ていないものは「Packer が違う」(FUJI → MATEC のように 本数・行数が同じでも 出す — ユーザー 2026-11-25) */
   const empty = Array.from(parties.values()).filter(g => !g.n), left = linkedMiss.slice();
@@ -6212,12 +6217,15 @@ function cpPerPacker(live, d){
     const aliases = Array.from(new Set(al.map(cpNorm).filter(Boolean)));
     let best = null, bs = 0;
     empty.filter(g => !g.n).forEach(g => { const m = cpMatch([{id:'g', name:g.name, alt:Array.from(g.names)}], aliases); const sc = m[0] ? m[0].s : 0; if(sc > bs){ bs = sc; best = g; } });
-    if(best && bs >= 50){ best.b += honOf(a); best.n++; best.name = str(a.packer).trim() || best.name; } else left.push(a);
+    if(best && bs >= 50){ best.b += honOf(a); best.n++; unl.push({a:a, g:best}); } else left.push(a);
   });
   const out = Array.from(parties.values()).filter(g => g.n);   /* 本数を比べるのは つながった購買元だけ */
   const gone = empty.filter(g => !g.n);
   const pkName = a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), en = c ? str((o && o.name) || c.name).trim() : '';
     return str(a.packer).trim()+(en && cpNorm(en)!==cpNorm(a.packer) ? '（'+en+'）' : ''); };
+  /* 名前で合わせた行は COMPASS の購買元に つなげる (B-06 の中だけ) */
+  out.unlinked = unl.filter(u => u.g.pid).map(u => ({a:u.a, id:u.g.pid, name:u.g.pname}));
+  out.unlinkedNo = unl.filter(u => !u.g.pid).map(u => u.a).concat(left.filter(a => !cpkOf(a)));
   if(left.length || gone.length) out.swap = {cp:gone.map(g => g.name+' '+g.c+' 本').join('・'), b06:left.map(a => pkName(a)+' '+honOf(a)+' 本').join('・')};
   return out;
 }
@@ -6447,7 +6455,9 @@ async function compassUpdate(b){
     h += !X.dRows.length ? same('購買・販売・本数') : X.dRows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
       + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td class="muted">'+cnt(r.cp)+'</td><td><b>'+cnt(r.b06)+'</b></td>'
       + '<td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-        + (r.okd ? '' : r.k==='grade'
+        + (r.okd ? '' : r.sub==='link'
+            ? '<button class="b6-btn sm pri cpu-link" data-i="'+i+'" title="B-06 の Packer 行を COMPASS の購買元につなぐ（B-06 の中だけ・COMPASS は変わりません）">B-06 で「'+esc(r.cp)+'」につなぐ</button>'
+          : r.k==='grade'
             ? (fx ? '<button class="b6-btn sm pri cpu-fix" title="B-06 の Grade「'+esc(fx.from)+'」を「'+esc(fx.to)+'」に（後ろの日本語名はそのまま）">B-06 を「'+esc(fx.to)+'」に直す</button>' : '')
               + (C.detailRows ? '<button class="b6-btn sm cpu-dtl" title="COMPASS の 販売アイテム を B-06 の品目のものに替える">COMPASS に送る →</button>' : '')
             : (C.detailRows ? '<button class="b6-btn sm pri cpu-dtl">COMPASS に送る →</button>' : ''))
@@ -6489,6 +6499,15 @@ async function compassUpdate(b){
     if(nt) nt.innerHTML = stCell(r);
   });
   pm.el.addEventListener('click', async ev => {
+    const lk = ev.target.closest('.cpu-link');
+    if(lk){
+      const r = X.dRows[+lk.dataset.i]; if(!r || !r.link || busy) return;
+      busy = true;
+      try{ for(const u of r.link){ if(!cpkOf(u.a)) await saveAsg(b, u.a, {cpacker:u.id+'|'+u.name}, 'packer'); }
+        pm.close(); toast('Packer 行を COMPASS の購買元につなぎました（'+r.cp+'）', 'ok'); }
+      finally{ busy = false; }
+      return;
+    }
     if(ev.target.closest('.cpu-fix')){
       /* B-06 の Grade を COMPASS の品目名に (英名だけ入れ替え・後ろの日本語名はそのまま) — 保存すると この 1 件を比べ直す */
       const fx = gradeFix(); if(!fx || busy) return;
