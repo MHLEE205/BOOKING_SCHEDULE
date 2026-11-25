@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.06', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.07', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2887,10 +2887,27 @@ function podNamesLoad(){
   })().catch(() => []).finally(() => { S._podP = null; });
   return S._podP;
 }
-function podHelpOpen(el, td, b){
+/* Grade のセルも同じく COMPASS の品目一覧 (販売・購買アイテムの 品目) を候補に (ユーザー 2026-11-25 — COMPASS と同じ名前で記録して 比較を合わせる) */
+function gradeNamesLoad(){
+  if(S.gradeNames) return Promise.resolve(S.gradeNames);
+  if(S._grP) return S._grP;
+  S._grP = (async () => {
+    const C = S.store && S.store.compass; if(!C || !C.details) return [];
+    const D = await C.details();
+    const all = [].concat((D.sale && (D.sale.every || D.sale.items)) || [], (D.purch && (D.purch.every || D.purch.items)) || []);
+    return S.gradeNames = dtlUniq(all.map(x => str(x.item).trim()));
+  })().catch(() => []).finally(() => { S._grP = null; });
+  return S._grP;
+}
+const CELL_HELP = {
+  pod:{title:'COMPASS の POD', load:podNamesLoad, get:() => S.podNames, pre:(q, b) => { const k = cpNorm(q), lr = cpLearnedOf(S.cpMap, 'pod', b, q); return [POD_CP[k], lr && str(lr.name).trim()]; }},
+  grade:{title:'COMPASS の品目', load:gradeNamesLoad, get:() => S.gradeNames, pre:(q, b) => [gradeAs(b, q)]},
+};
+function podHelpOpen(el, td, b, kind){
   const C = S.store && S.store.compass; if(!C || !C.meta) return;
+  const H = CELL_HELP[kind || 'pod'];
   const box = document.createElement('div'); box.className = 'inv-help pod-help'; document.body.appendChild(box);
-  let L = S.podNames || null, cands = [], hi = -1, moved = false;
+  let L = H.get() || null, cands = [], hi = -1, moved = false;
   const lineAt = () => { const v = el.value, p = el.selectionStart==null ? v.length : el.selectionStart;
     const s = v.lastIndexOf('\n', p - 1) + 1, e0 = v.indexOf('\n', p); return {s:s, e:e0<0 ? v.length : e0, t:v.slice(s, e0<0 ? v.length : e0)}; };
   const place = () => { const r = td.getBoundingClientRect(), h = el.getBoundingClientRect();
@@ -2900,29 +2917,28 @@ function podHelpOpen(el, td, b){
     const k = cpNorm(q); if(!L) return [];
     if(!k) return L.slice();
     const out = [], add = n => { if(n && L.includes(n) && !out.includes(n)) out.push(n); };
-    if(POD_CP[k]) add(POD_CP[k]);
-    const lr = cpLearnedOf(S.cpMap, 'pod', b, q); if(lr) add(str(lr.name).trim());
+    H.pre(q, b).forEach(add);   /* 決めた対応・覚えた対応 を先に */
     L.filter(n => cpNorm(n).startsWith(k)).forEach(add);
     L.filter(n => cpNorm(n).includes(k)).forEach(add);
     return out;
   };
   const draw = () => {
     if(!box.isConnected) return;
-    if(!L){ box.innerHTML = '<div class="t">COMPASS の POD</div><div class="muted">読み込み中…</div>'; place(); return; }
+    if(!L){ box.innerHTML = '<div class="t">'+H.title+'</div><div class="muted">読み込み中…</div>'; place(); return; }
     const q = lineAt().t.trim();
     cands = find(q);
-    if(!moved) hi = q && cands.length && (cpNorm(cands[0]).startsWith(cpNorm(q)) || POD_CP[cpNorm(q)] || cpLearnedOf(S.cpMap, 'pod', b, q)) ? 0 : -1;
+    if(!moved) hi = q && cands.length && (cpNorm(cands[0]).startsWith(cpNorm(q)) || H.pre(q, b).some(Boolean)) ? 0 : -1;
     if(hi >= cands.length) hi = cands.length - 1;
     if(!cands.length){ box.style.display = 'none'; return; }
     box.style.display = '';
-    box.innerHTML = '<div class="t">COMPASS の POD <span class="muted" style="font-weight:400">↑↓ Enter で入れる'+(q ? '' : '・打つと絞り込み')+'</span></div>'
+    box.innerHTML = '<div class="t">'+H.title+' <span class="muted" style="font-weight:400">↑↓ Enter で入れる'+(q ? '' : '・打つと絞り込み')+'</span></div>'
       + cands.slice(0, 60).map((n, i) => '<div class="pod-o'+(i===hi ? ' on' : '')+'" data-pod="'+esc(n)+'">'+esc(n)+'</div>').join('');
     place();
     const on = box.querySelector('.pod-o.on'); if(on) on.scrollIntoView({block:'nearest'});
   };
   const put = n => { const ln = lineAt(); el.value = el.value.slice(0, ln.s) + n + el.value.slice(ln.e); const p = ln.s + n.length; try{ el.setSelectionRange(p, p); }catch(e){} moved = false; };
   draw();
-  if(!L) podNamesLoad().then(v => { L = v; if(!L.length){ box.remove(); return; } draw(); });
+  if(!L) H.load().then(v => { L = v; if(!L.length){ box.remove(); return; } draw(); });
   el.addEventListener('input', () => { moved = false; draw(); });
   el.addEventListener('click', draw);
   /* 選択中の候補があれば ↑↓ Enter は候補の操作 (それ以外は いつもどおり確定) */
@@ -3102,7 +3118,8 @@ function startEdit(td, opt){
   };
   el.addEventListener('blur', () => { if(!picking) finish(true); });
   if(k==='invoiceno' && lv==='B') invHelpOpen(el, td, b, v => { el.value = v; finish(true); });
-  if(k==='pod' && lv==='B') podHelpOpen(el, td, b);
+  if(k==='pod' && lv==='B') podHelpOpen(el, td, b, 'pod');
+  if(k==='grade' && lv==='A') podHelpOpen(el, td, b, 'grade');
   el.addEventListener('change', () => { if(el.tagName==='SELECT') finish(true); });
   el.addEventListener('keydown', ev => {
     if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
