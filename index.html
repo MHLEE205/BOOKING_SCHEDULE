@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.07', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.08', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2894,8 +2894,12 @@ function gradeNamesLoad(){
   S._grP = (async () => {
     const C = S.store && S.store.compass; if(!C || !C.details) return [];
     const D = await C.details();
+    /* 品目マスター (COMPASS に登録されている品目 全部 — 有効なもの)。アイテム (残のあるもの) で使われている名前も足す */
+    const c = D.cols && D.cols.item, tgt = c && c.rel && c.rel.target;
+    let master = [];
+    if(tgt && !C.demo){ try{ const N = await cpNames(tgt); master = Array.from(N.map.values()).map(o => str(o.name).trim()); }catch(e){} }
     const all = [].concat((D.sale && (D.sale.every || D.sale.items)) || [], (D.purch && (D.purch.every || D.purch.items)) || []);
-    return S.gradeNames = dtlUniq(all.map(x => str(x.item).trim()));
+    return S.gradeNames = dtlUniq(master.concat(all.map(x => str(x.item).trim())));
   })().catch(() => []).finally(() => { S._grP = null; });
   return S._grP;
 }
