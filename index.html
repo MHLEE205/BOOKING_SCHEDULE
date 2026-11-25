@@ -826,7 +826,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.22', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.23', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6193,6 +6193,9 @@ function cpHeaderRows(b, rec, X){
     /* 手で選んだ対応 (学習) → 名前の一致。決まらない時は 画面の一覧から選ぶ (ユーザー 2026-11-25) */
     const L = X.otsu.o.list, lr = v ? cpLearnedOf(X.learned, 'customs', b, v) : null;
     const day = otsuDay(b), to = !v ? '' : lr && L.some(y => y.id===lr.id && otsuValid(y, day)) ? lr.id : otsuByName(L, v, b.port, day);
+    /* B-06 の通関依頼が空で COMPASS に乙仲がある時も 違い (ユーザー 2026-11-25)。COMPASS を空にはしない — B-06 に入れるか このままで OK */
+    if(!v && curName) rows.push({k:'customs', label:'乙仲（通関依頼）', col:X.otsu.col, cp:cpFullTxt((L.find(y => y.id===cur) || {}).name || curName), b06:'',
+      ok:false, def:false, fixB06:curName, note:'B-06 の通関依頼が空です'});
     if(v && cpNorm(v)!==cpNorm(curName) && !(to && to===cur)){
       const upd = X.otsu.a.updOk!==false, toFull = to ? str((L.find(y => y.id===to) || {}).name) : '';
       const curFull = cpFullTxt((L.find(y => y.id===cur) || {}).name || curName);
@@ -6507,7 +6510,8 @@ async function compassUpdate(b){
       + '<td><b>'+cell(r.b06)+'</b>'+(r.pick ? cpPickSel(r, i) : '')+'</td>'
       + '<td><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
         + (r.okd ? '' : '<label style="white-space:nowrap;font-weight:700'+(r.ok ? '' : ';opacity:.45')+'"><input type="checkbox" class="cpu-ck" data-i="'+i+'"'+(r.ok && r.def ? ' checked' : '')+(r.ok ? '' : ' disabled')+'> COMPASS に送る</label>')
-        + okCell(r, 'h', i)+'</div><div class="cpu-nt">'+(r.ok || r.okd ? (r.note && !r.okd ? '<div class="muted" style="font-size:11px;margin-top:2px" title="'+esc(r.tip || r.note)+'">'+esc(str(r.note).split(' ／ ')[0])+'</div>' : '') : stCell(r))+'</div></td></tr>').join('');
+        + (r.fixB06 && !r.okd ? '<button class="b6-btn sm pri cpu-fixb" data-i="'+i+'" title="B-06 の通関依頼に COMPASS の乙仲を入れる（B-06 の中だけ）">B-06 に「'+esc(r.fixB06)+'」を入れる</button>' : '')
+        + okCell(r, 'h', i)+'</div><div class="cpu-nt">'+(r.ok || r.okd || r.fixB06 ? (r.note && !r.okd ? '<div class="muted" style="font-size:11px;margin-top:2px" title="'+esc(r.tip || r.note)+'">'+esc(str(r.note).split(' ／ ')[0])+'</div>' : '') : stCell(r))+'</div></td></tr>').join('');
     h += grp('📦 購買・販売・本数 <span class="muted" style="font-weight:400">Packer ごと</span>');
     h += !X.dRows.length ? same('購買・販売・本数') : X.dRows.map((r, i) => '<tr'+(r.okd ? ' style="opacity:.6"' : '')+'>'
       + '<td style="white-space:nowrap"><b>'+esc(r.label)+'</b></td><td class="muted">'+cnt(r.cp)+'</td><td><b>'+cnt(r.b06)+'</b></td>'
@@ -6558,6 +6562,17 @@ async function compassUpdate(b){
     if(nt) nt.innerHTML = stCell(r);
   });
   pm.el.addEventListener('click', async ev => {
+    const fb = ev.target.closest('.cpu-fixb');
+    if(fb){
+      /* B-06 の通関依頼 (最初の Packer 行) に COMPASS の乙仲の名前を入れる。✔ などの印は残す */
+      const r = X.rows[+fb.dataset.i], a = b.rows.find(x => !x.deleted); if(!r || !a || busy) return;
+      busy = true;
+      try{ const o = statusOf(a.customs), mk = o.st==='done' ? '✔' : '';
+        await saveAsg(b, a, {customs:mk+r.fixB06}, 'customs');
+        pm.close(); toast('B-06 の通関依頼に「'+r.fixB06+'」を入れました', 'ok'); }
+      finally{ busy = false; }
+      return;
+    }
     const lk = ev.target.closest('.cpu-link');
     if(lk){
       const r = X.dRows[+lk.dataset.i]; if(!r || !r.link || busy) return;
