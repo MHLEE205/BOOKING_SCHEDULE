@@ -476,6 +476,12 @@ details.rp summary{cursor:pointer;font-size:12.5px}
 .b6-menu{position:fixed;z-index:9500;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.3);padding:4px;min-width:180px;font-size:12.5px}
 .b6-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:6px 10px;border-radius:5px;cursor:pointer;font:inherit}
 .b6-menu button:hover{background:var(--surface2)}
+.b6-menu .mi{display:flex;align-items:center;gap:10px}
+.b6-menu .ml{flex:1}
+.b6-menu .mt{font-size:10.5px;padding:0 7px;border-radius:9px;white-space:nowrap;background:var(--surface3);color:var(--text2)}
+.b6-menu .mt.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.b6-menu .mt.w{background:color-mix(in srgb,#f08c00 18%,transparent);color:#f08c00;font-weight:700}
+.b6-menu .ms{display:block;font-size:10.5px;color:var(--text3);margin:1px 0 0 22px;line-height:1.35}
 .b6-menu .meta{color:var(--text3);font-size:11px;padding:4px 10px;border-top:1px solid var(--border);margin-top:4px}
 .ok{color:var(--ok)}.ng{color:var(--danger)}.wn{color:var(--warn)}
 .b6-empty{padding:40px;text-align:center;color:var(--text3)}
@@ -826,7 +832,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.24', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.25', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4102,7 +4108,13 @@ function menu(ev, items){
     if(it.meta){ const d=document.createElement('div'); d.className='meta'; d.innerHTML=it.meta; m.appendChild(d); return; }
     if(it.head){ const d=document.createElement('div'); d.textContent=it.head; d.style.cssText='padding:6px 12px 2px;font-size:11px;font-weight:700;color:var(--muted,#64748b)'; m.appendChild(d); return; }
     if(it.sep){ const d=document.createElement('div'); d.style.cssText='border-top:1px solid var(--border,#e2e8f0);margin:4px 0'; m.appendChild(d); return; }
-    const bt = document.createElement('button'); bt.textContent = it.label; if(it.danger) bt.style.color='var(--danger)';
+    const bt = document.createElement('button');
+    if(it.sub || it.tag){
+      /* ボタン名・状態 (右)・説明 (下に小さく) を分けて (ユーザー 2026-11-25 — 1 行に全部だと読みにくい) */
+      bt.innerHTML = '<span class="mi"><span class="ml">'+esc(it.label)+'</span>'+(it.tag ? '<span class="mt '+(it.tagCls || '')+'">'+esc(it.tag)+'</span>' : '')+'</span>'
+        + (it.sub ? '<span class="ms">'+esc(it.sub)+'</span>' : '');
+    } else bt.textContent = it.label;
+    if(it.danger) bt.style.color='var(--danger)';
     bt.addEventListener('click', () => { closeMenu(); it.fn(); }); m.appendChild(bt);
   });
   document.body.appendChild(m);
@@ -4121,20 +4133,21 @@ function bookingMenu(ev, b){
          送るものがない時は「COMPASS と同じ」 */
       const o = cpCmpOf(b), live = o && o.rows ? o.rows.filter(r => !r.soft && !r.okd) : [];
       const nH = live.filter(r => !r.dtl).length, nD = live.filter(r => r.dtl).length, nc = cpChgLive(b);
-      const st = (n, alt) => n ? '（違い '+n+'）' : alt ? '（'+alt+'）' : o ? '（COMPASS と同じ）' : '';
+      /* 状態は右の札・説明は下に小さく (ユーザー 2026-11-25) */
+      const st = (n, alt) => n ? {tag:'違い '+n, tagCls:'w'} : alt ? {tag:alt, tagCls:'w'} : o ? {tag:'COMPASS と同じ', tagCls:'ok'} : {tag:'未比較'};
       /* 「ヘッダー・明細」は他の担当者に分かりにくい (ユーザー 2026-11-25) → 本船情報・購買/販売/本数 */
       items.push({head:'COMPASS に送る・見る'});
-      items.push({label:'🚢 本船情報の変更を送る（船名・CY・港・船社・乙仲 など）'+st(nH, nc ? 'B-06 で変更 '+nc : ''), fn:()=>compassUpdate(b)});
-      items.push({label:'📦 購買・販売・本数の変更を送る（Packer ごと）'+st(nD), fn:()=>compassDtlUpdate(b)});
-      items.push({label:'🔍 COMPASS に入っている内容を見る', fn:()=>compassInfo(b)});
+      items.push(Object.assign({label:'🚢 本船情報の変更を送る', sub:'船名・Booking no.・Invoice no.・CY・港・船社・乙仲 など', fn:()=>compassUpdate(b)}, st(nH, nc ? 'B-06 で変更 '+nc : '')));
+      items.push(Object.assign({label:'📦 購買・販売・本数の変更を送る', sub:'Packer ごと — 本数の増減・契約の変更・行の追加（削除は COMPASS で）', fn:()=>compassDtlUpdate(b)}, st(nD)));
+      items.push({label:'🔍 COMPASS に入っている内容を見る', sub:'COMPASS の今の内容（読むだけ）', fn:()=>compassInfo(b)});
       items.push({sep:true});
     }
-    else { items.push({head:'COMPASS'}); items.push({label:'🚢 COMPASS に入力'+(b.compass_status==='ERROR'?'（前回失敗）':''), fn:()=>openCompass(b)}); items.push({sep:true}); }
+    else { items.push({head:'COMPASS'}); items.push({label:'🚢 COMPASS に入力', sub:'確認画面で 内容を確かめてから入力します', tag:b.compass_status==='ERROR' ? '前回失敗' : '', tagCls:'w', fn:()=>openCompass(b)}); items.push({sep:true}); }
     items.push({head:'B-06 の中だけ（COMPASS は変わりません）'});
     items.push({label:'📝 メモ', fn:()=>openBookingMemo(b)});
-    items.push({label:'↺ 変更履歴', fn:()=>openBkHist(b)});
-    items.push({label:'＋ Packer 行を追加', fn:()=>addRow(b)});
-    items.push({label:'🗑 このブッキングを削除', danger:true, fn:()=>deleteBooking(b)});
+    items.push({label:'↺ 変更履歴', sub:'B-06 で変えた内容・COMPASS に送った記録', fn:()=>openBkHist(b)});
+    items.push({label:'＋ Packer 行を追加', sub:b.compass_status==='SENT' ? '同じ契約で台数を増やす時は 行を足さずに QTY の数を変える' : '', fn:()=>addRow(b)});
+    items.push({label:'🗑 このブッキングを削除', sub:b.compass_status==='SENT' ? 'B-06 からだけ削除（COMPASS は残ります）' : '', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
   items.push({meta:metaHtml(b)});
   menu(ev, items);
