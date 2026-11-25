@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.15', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.16', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6187,17 +6187,27 @@ function cpPerPacker(live, d){
   const parties = new Map();   /* key → {names:Set, name, c} */
   for(const r of d.rows){ const x = pOf(r), k = keyOf(x); if(!k || k==='nm:') return null;
     const g = parties.get(k) || {names:new Set(), name:str(x.party) || '?', c:0, b:0, n:0}; g.c += r.hon; cpNorm(x.party) && g.names.add(cpNorm(x.party)); parties.set(k, g); }
-  const miss = [];
-  live.forEach(a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id);
-    const nm = new Set([c && c.name, o && o.name].concat(o && o.alt || [], [a.packer, str(a.packer).split(/[\s(（・\/]/)[0]]).map(cpNorm).filter(Boolean));
-    let k = c && parties.has('id:'+String(c.id).toLowerCase()) ? 'id:'+String(c.id).toLowerCase() : '';
-    if(!k) for(const [pk, g] of parties){ if(Array.from(g.names).some(n => nm.has(n))){ k = pk; break; } }
+  const miss = [], linkedMiss = [];
+  /* Packer の横の 緑の英名 (COMPASS 購買元につないだもの) があれば それだけで合わせる (ユーザー 2026-11-25)。
+     つないだ購買元が COMPASS の明細にない = Packer が違う (名前が似ていても 同じにしない)。つないでいない行だけ 名前で合わせる */
+  live.forEach(a => { const c = cpkOf(a);
+    if(c){
+      const o = S.cpkName && S.cpkName.get(c.id), idk = 'id:'+String(c.id).toLowerCase();
+      let k = parties.has(idk) ? idk : '';
+      if(!k){ const cn = new Set([c.name, o && o.name].map(cpNorm).filter(Boolean));   /* 明細側に ID がない時だけ 購買元の名前で */
+        for(const [pk, g] of parties){ if(pk.startsWith('nm:') && Array.from(g.names).some(n => cn.has(n))){ k = pk; break; } } }
+      if(k){ const g = parties.get(k); g.b += honOf(a); g.n++; if(g.n===1) g.name = str((o && o.name) || c.name || a.packer).trim() || g.name; } else linkedMiss.push(a);
+      return;
+    }
+    const nm = new Set([a.packer, str(a.packer).split(/[\s(（・\/]/)[0]].map(cpNorm).filter(Boolean));
+    let k = '';
+    for(const [pk, g] of parties){ if(Array.from(g.names).some(n => nm.has(n))){ k = pk; break; } }
     if(k){ const g = parties.get(k); g.b += honOf(a); g.n++; if(g.n===1) g.name = str(a.packer).trim() || g.name; } else miss.push(a); });
   /* つながらない行 ↔ 行のない購買元: 名前が似ていれば (フジ ↔ FUJI・かなのローマ字も) 同じ購買元。
      似ていないものは「Packer が違う」(FUJI → MATEC のように 本数・行数が同じでも 出す — ユーザー 2026-11-25) */
-  const empty = Array.from(parties.values()).filter(g => !g.n), left = [];
+  const empty = Array.from(parties.values()).filter(g => !g.n), left = linkedMiss.slice();
   miss.forEach(a => {
-    const head = str(a.packer).split(/[\s(（・\/]/)[0], c = cpkOf(a), al = [a.packer, head, c && c.name];
+    const head = str(a.packer).split(/[\s(（・\/]/)[0], al = [a.packer, head];
     al.slice().forEach(x => { if(x) al.push(...kanaRomaji(x)); });
     const aliases = Array.from(new Set(al.map(cpNorm).filter(Boolean)));
     let best = null, bs = 0;
@@ -6206,7 +6216,9 @@ function cpPerPacker(live, d){
   });
   const out = Array.from(parties.values()).filter(g => g.n);   /* 本数を比べるのは つながった購買元だけ */
   const gone = empty.filter(g => !g.n);
-  if(left.length || gone.length) out.swap = {cp:gone.map(g => g.name+' '+g.c+' 本').join('・'), b06:left.map(a => str(a.packer).trim()+' '+honOf(a)+' 本').join('・')};
+  const pkName = a => { const c = cpkOf(a), o = c && S.cpkName && S.cpkName.get(c.id), en = c ? str((o && o.name) || c.name).trim() : '';
+    return str(a.packer).trim()+(en && cpNorm(en)!==cpNorm(a.packer) ? '（'+en+'）' : ''); };
+  if(left.length || gone.length) out.swap = {cp:gone.map(g => g.name+' '+g.c+' 本').join('・'), b06:left.map(a => pkName(a)+' '+honOf(a)+' 本').join('・')};
   return out;
 }
 async function compassDiff(b){
