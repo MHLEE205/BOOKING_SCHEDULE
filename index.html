@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'0.98', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.00', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1892,7 +1892,7 @@ function boardTable(region, list, F){
       cols.forEach(c => {
         if(c.lv==='B'){
           if(i>0) return;
-          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' ? ' cp-sent' : '')+(c.k==='approval' && apYellow(b) ? ' ap-y' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'"'+cpCellAttr(b,c.k)+'>'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
+          h += '<td rowspan="'+n+'" class="ed'+(c.dt?' dt':'')+(c.k==='bkgno' && b.compass_status==='SENT' && !(cpCmpOf(b) || {}).gone ? ' cp-sent' : '')+(c.k==='approval' && apYellow(b) ? ' ap-y' : '')+fmtCls(b,c.k,b)+fxClass('B',b.id,c.k)+cselCls('B',b.id,c.k)+'" data-lv="B" data-f="'+c.k+'"'+cpCellAttr(b,c.k)+'>'+remoteTag('B',b.id,c.k)+cellHtml(c,b,a)+memoDeco(c,b,a)+'</td>';
         } else if(merged[c.k]){
           if(i>0) return;
           h += '<td rowspan="'+n+'" class="ed'+fmtCls(rows[0],c.k,b)+fxClass('A',rows[0].id,c.k)+cselCls('A',rows[0].id,c.k)+'" data-lv="A" data-aid="'+esc(rows[0].id)+'" data-f="'+c.k+'"'+(cpCellAttr(b,c.k) || ' title="結合表示 (1 行目の値)"')+'>'+remoteTag('A',rows[0].id,c.k)+cellHtml(c,b,rows[0])+memoDeco(c,b,rows[0])+'</td>';
@@ -5966,10 +5966,18 @@ async function cpDiffCtx(){
   let otsu = null;
   for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && /乙仲/.test(a.label) && M.rels.get(k)){
     try{ otsu = {col:k, a:a, rel:M.rels.get(k), o:await C.options(M.rels.get(k).target, null, '乙仲')}; }catch(e){} break; } }
+  /* 販売先・販売CO: Invoice no. を変えた時に 販売契約 も変えられるように (ユーザー 2026-11-25 — コンテナ番号が入った後は 削除・再入力できないため) */
+  const findLk = re => { for(const [k, a] of M.attrs){ if((a.type==='Lookup' || a.type==='Customer') && re.test(a.label) && M.rels.get(k)) return k; } return null; };
+  let buyer = null, sc = null;
+  const bCol = findLk(/販売先/), sCol = findLk(/販売\s*CO|販売契約/i);
+  if(bCol){ try{ buyer = {col:bCol, a:M.attrs.get(bCol) || {}, rel:M.rels.get(bCol), o:await C.options(M.rels.get(bCol).target)}; }catch(e){} }
+  if(sCol){ try{ sc = {col:sCol, a:M.attrs.get(sCol) || {}, rel:M.rels.get(sCol), o:await C.options(M.rels.get(sCol).target, buyer && buyer.rel.target)}; }catch(e){} }
+  let lsCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /最終船積日/.test(a.label)){ lsCol = {col:k, dateOnly:a.dateOnly}; break; } }
   const amCol = cpAmCol(M);
   let upCol = null; for(const [k, a] of M.attrs){ if(a.type==='DateTime' && !a.of && a.updOk!==false && /^(cr49f|crcf9)_/.test(k) && /^更新日時$/.test(a.label)){ upCol = {col:k, dateOnly:a.dateOnly}; break; } }
-  return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, learned:await cpMapLoad(),
-    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [])};
+  return {M:M, fcols:fcols, lks:lks, otsu:otsu, amCol:amCol, upCol:upCol, buyer:buyer, sc:sc, lsCol:lsCol, learned:await cpMapLoad(),
+    sel:fcols.map(x => x.col).concat(lks.map(x => '_'+x.col+'_value'), otsu ? ['_'+otsu.col+'_value'] : [], amCol ? [amCol] : [],
+      buyer ? ['_'+buyer.col+'_value'] : [], sc ? ['_'+sc.col+'_value'] : [])};
 }
 /* ══ Booking no. は 1 文字だけ違うもの・同じ番号 (分割) もあるので、COMPASS と比べる時は いつも
    Booking no.＋Invoice no. の ペア で見る (ユーザー 2026-11-24) ══ */
@@ -6071,6 +6079,27 @@ function cpHeaderRows(b, rec, X){
         note:!to ? 'COMPASS の乙仲一覧で 1 つに決まりません — '+(upd ? '一覧から選んでください' : 'COMPASS で直してください') : !upd ? 'COMPASS で更新できない列' : ''});
     }
   }
+  /* 販売CO: Invoice no. の契約 (番号を押した時に覚えた契約 → 番号の規則 NXX2611-21 → …-2611XX2) が COMPASS と違えば 販売CO・販売先 を送れる。
+     Invoice no. が COMPASS と同じで 番号を押した記録もない時は 参考 (一覧の「COMPASS差」には数えない) */
+  if(X.sc){
+    const inv = invNorm(b.invoiceno), cur = rec['_'+X.sc.col+'_value'] || '', L = X.sc.o.list, iv = invParse(inv);
+    const nmOf = id => str((L.find(y => y.id===id) || {}).name);
+    const lr = inv ? ((X.learned || {}).invco || {})[inv] : null;
+    let to = lr && L.some(y => y.id===lr.id) ? lr.id : '';
+    if(!to && iv){ const hit = L.filter(o => { const p = coParse(o.name); return p && p.code===iv.code && p.yymm===iv.yymm && p.k===invK(iv.seq); }); if(hit.length===1) to = hit[0].id; }
+    if(to && to!==cur){
+      const invChg = !!lr || cpNorm(inv)!==cpNorm(rec.cr49f_invoice_no || ''), upd = X.sc.a.updOk!==false;
+      rows.push({k:'saleco', label:'販売CO（販売契約）', col:X.sc.col, cp:nmOf(cur) || str(rec['_'+X.sc.col+'_value'+FVK]), b06:nmOf(to)+'（Invoice '+inv+' の契約）',
+        bind:{nav:X.sc.rel.nav, set:X.sc.o.set, id:to}, ok:upd, def:upd, soft:!invChg, coChg:to,
+        note:upd ? '送った後に 明細の画面が開きます — 明細の 販売 も この契約のアイテムに変えてください' : 'COMPASS で更新できない列'});
+      const bid = (L.find(y => y.id===to) || {}).parent, bcur = X.buyer ? rec['_'+X.buyer.col+'_value'] || '' : '';
+      if(X.buyer && bid && bid!==bcur){
+        const BL = X.buyer.o.list, bn = id => str((BL.find(y => y.id===id) || {}).name), bu = X.buyer.a.updOk!==false;
+        rows.push({k:'buyer', label:'販売先', col:X.buyer.col, cp:bn(bcur) || str(rec['_'+X.buyer.col+'_value'+FVK]), b06:bn(bid)+'（販売CO の販売先）',
+          bind:{nav:X.buyer.rel.nav, set:X.buyer.o.set, id:bid}, ok:bu, def:bu, soft:!invChg, note:bu ? '販売CO と一緒に送ります' : 'COMPASS で更新できない列'});
+      }
+    }
+  }
   if(X.amCol){ const v = cutAM(b), c = !!rec[X.amCol];
     if(v!==c) rows.push({k:'cycut', label:'AM', col:X.amCol, cp:c ? '✔ AM' : '—', b06:v ? '✔ AM' : '—', send:v, ok:(X.M.attrs.get(X.amCol)||{}).updOk!==false, def:true, note:''}); }
   cpPairNote(b, rows);
@@ -6128,6 +6157,7 @@ async function compassCompareAll(){
       if(rec){
         const rows = applyCpOk(b, cpHeaderRows(b, rec, X).concat(cpDetailRows(b, dts && dts.get(id))));
         out[b.bookkey] = {rows:rows, dt:dts && dts.get(id)}; if(rows.some(r => !r.soft && !r.okd)) nd++;
+        (S.cpSeenAt = S.cpSeenAt || {})[b.bookkey] = new Date().toISOString();   /* COMPASS にあった最後の確認 (削除の時刻の目安) */
         continue;
       }
       /* COMPASS にない */
@@ -6140,7 +6170,8 @@ async function compassCompareAll(){
         logHist(b, [{lv:'B', k:'_cp', from:'', to:'COMPASS で再登録されたのを検出 — 新しい COMPASS ID に つなぎ直しました（前 '+id+'）'}]);
         toast('COMPASS で再登録されたブッキングを つなぎ直しました（'+bkLabel(b)+'）', 'info');
         nr++;
-      } else { out[b.bookkey] = {gone:true, multi:dup.length>1}; ng++; }
+      } else { const pg = S.cpCmp && S.cpCmp[b.bookkey];
+        out[b.bookkey] = {gone:true, multi:dup.length>1, at:pg && pg.gone && pg.at || new Date().toISOString(), seen:(S.cpSeenAt || {})[b.bookkey] || ''}; ng++; }
     }
     S.cpCmp = out; S.cmpErr = '';
     /* 契約番号の表示: 販売・購買のアイテム一覧 (先読み済みのことが多い) を待ってから 描き直す */
@@ -6162,43 +6193,42 @@ function cpCellAttr(b, k){
   return ' data-cpdiff="1" title="'+esc(rs.map(r => 'COMPASS と違います — '+r.label+'\nCOMPASS: '+(r.cp || '（空）')+'\nB-06: '+(r.b06 || '（空）')+(r.tip ? '\n'+r.tip : '')).join('\n'))+'"';
 }
 function compassGoneInfo(b){
+  /* 分かりやすく (ユーザー 2026-11-25): いつ削除されたか だけ。監査ログ・ID などは「詳細」に */
   const o = cpCmpOf(b) || {};
-  const m = modal('COMPASS にありません — '+esc(bkLabel(b)), '<div><span class="bdg d">✕</span> COMPASS に このブッキング（ID '+esc(b.compass_id)+'）がありません。COMPASS で削除されたようです。</div>'
-    + (o.multi ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> COMPASS に同じ Booking no. が複数あります — どれにつなぐか決められません。COMPASS を確認してください。</div>' : '')
-    + '<div class="cp-aud" style="margin-top:8px;padding:6px 8px;border-radius:6px;background:var(--surface2);font-size:12.5px">🔎 誰が・いつ削除したか 調べています…</div>'
-    + '<div class="muted" style="margin-top:6px;font-size:12px">内容を直して入れ直す場合は「再入力」— 今の B-06 の内容で COMPASS 入力の画面を開きます。</div>',
+  const est = o.seen ? fmtDT(o.seen)+' 〜 '+fmtDT(o.at) : o.at ? fmtDT(o.at)+' より前' : '';
+  const m = modal('🗑 COMPASS で削除されています — '+esc(bkLabel(b)),
+    '<div class="cp-aud" style="padding:10px 12px;border-radius:8px;font-size:14px;background:color-mix(in srgb,var(--danger) 9%,transparent);border:1px solid color-mix(in srgb,var(--danger) 30%,transparent)">'
+      + '🗑 このブッキングは <b>COMPASS で削除</b>されています<div class="muted cp-aud-t" style="font-size:12px;margin-top:3px">削除の日時を調べています…</div></div>'
+    + (o.multi ? '<div style="margin-top:8px"><span class="bdg w">⚠</span> COMPASS に同じ Booking no. が複数あります — COMPASS を確認してください。</div>' : '')
+    + '<div style="margin-top:10px;font-size:12.5px">入れ直す時は「<b>🚢 再入力</b>」— 今の B-06 の内容で COMPASS 入力の画面を開きます。</div>'
+    + '<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted cp-aud-d" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
+      + '前の COMPASS ID: '+esc(b.compass_id || '—')+'</div></details>',
     [{label:'閉じる', fn:c=>c()}, {label:'↻ 比べ直す', fn:c=>{ c(); compassCompareAll(); }}, {label:'🚢 再入力', pri:true, fn:c=>{ c(); compassResend(b); }}]);
-  const box = m.el.querySelector('.cp-aud');
-  compassDeleteAudit(b).then(h => { if(box.isConnected) box.innerHTML = h; })
-    .catch(e => { if(box.isConnected) box.innerHTML = '<span class="bdg w">⚠</span> 削除の記録を読めません: '+esc(String(e.message || e).slice(0, 200)); });
+  const t = m.el.querySelector('.cp-aud-t'), d = m.el.querySelector('.cp-aud-d');
+  const fallback = why => { if(!t.isConnected) return;
+    t.innerHTML = est ? '削除の時刻（目安）: <b>'+esc(est)+'</b>' : '削除の日時は分かりません';
+    if(why) d.insertAdjacentHTML('beforeend', '<br>'+esc(why)); };
+  compassDeleteAudit(b).then(r => {
+    if(!r || !r.at) return fallback(r && r.why);
+    if(t.isConnected) t.innerHTML = '<b>'+esc(fmtDT(r.at))+'</b> に削除'+(r.by ? '（'+esc(r.by)+'）' : '');
+  }).catch(e => fallback('削除の記録を読めません: '+String(e.message || e).slice(0, 160)));
 }
-/* COMPASS の削除の記録 (Dataverse の監査ログ — 読み取りのみ。ユーザー 2026-11-24)。
-   監査が オフ・読む権限がない 時は その旨を出す */
+/* COMPASS の削除の記録 (Dataverse の監査ログ — 読み取りのみ)。{at, by} か {why} (読めない理由 — 詳細にだけ出す) */
 async function compassDeleteAudit(b){
   const C = S.store.compass, id = String(b.compass_id || '').toLowerCase();
-  if(!C || C.demo) return '<span class="muted">デモでは 削除の記録はありません</span>';
-  if(!/^[0-9a-f-]{36}$/.test(id)) return '<span class="muted">COMPASS ID がないので 調べられません</span>';
+  if(!C || C.demo) return {why:'デモでは 削除の記録はありません'};
+  if(!/^[0-9a-f-]{36}$/.test(id)) return {why:'COMPASS ID がないので 削除の記録を調べられません'};
   const FVK = '@OData.Community.Display.V1.FormattedValue';
   let rows;
   try{
     rows = (await dvGet('audits?$select=createdon,operation,action,_userid_value&$filter='+encodeURIComponent('_objectid_value eq '+id)+'&$orderby=createdon desc&$top=20')).value || [];
   }catch(e){
-    if(e.status===403) return '<span class="bdg w">⚠</span> 監査ログを読む権限がありません — COMPASS の管理者に「Audit Summary View（エンティティ Booking・操作 Delete）」で確かめてもらってください（ID '+esc(id)+'）';
+    if(e.status===403) return {why:'削除した人・日時（監査ログ）を読む権限がないため、時刻は B-06 の比較からの目安です'};
     throw e;
   }
   const del = rows.filter(r => +r.operation===3 || +r.action===3);
-  if(del.length){
-    const r = del[0];
-    return '<b>🗑 '+esc(str(r['_userid_value'+FVK]) || '（不明）')+'</b> さんが <b>'+esc(fmtDT(r.createdon))+'</b> に COMPASS で削除しました'
-      + '<div class="muted" style="font-size:11px;margin-top:2px">Dataverse の監査ログより（ID '+esc(id)+'）</div>';
-  }
-  /* 記録がない: 監査がオンか 確かめて 理由を出す */
-  let on = null;
-  try{ const M = await C.meta(); const e = await dvGet("EntityDefinitions(LogicalName='"+M.entity.LogicalName+"')?$select=IsAuditEnabled"); on = !!(e.IsAuditEnabled && e.IsAuditEnabled.Value); }catch(e){}
-  const last = rows[0] ? '（このブッキングの最後の記録: '+esc(str(rows[0]['operation'+FVK] || rows[0]['action'+FVK] || ''))+' '+esc(fmtDT(rows[0].createdon))+' '+esc(str(rows[0]['_userid_value'+FVK]))+'）' : '';
-  return '<span class="bdg w">⚠</span> 削除の記録が見つかりません'+last
-    + '<div class="muted" style="font-size:11.5px;margin-top:2px">'+(on===false ? 'COMPASS のブッキング テーブルの 監査（Auditing）が オフです — 削除した人・日時は残っていません。管理者が オンにすると 次から分かります。'
-      : '監査がオフの時期の削除か、記録がまだ反映されていない可能性があります。COMPASS の管理者に確かめてもらってください。')+'</div>';
+  if(del.length) return {at:del[0].createdon, by:str(del[0]['_userid_value'+FVK])};
+  return {why:'監査ログに削除の記録がないため、時刻は B-06 の比較からの目安です'};
 }
 /* ── COMPASS との違いの「確認」(違っていても このままで OK — 担当者が確認。ユーザー 2026-11-19) ──
    B-06_MEMO/hist/cpok.json {map:{<bookkey>:{<行の key>:{label, cp, b06, by, at}}}}。
@@ -6280,7 +6310,7 @@ async function compassUpdate(b){
     if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-top:10px">試験モード: 送るボタンを押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
     const tips = Array.from(new Set(X.rows.map(r => str(r.tip)).filter(Boolean)));
     h += '<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
-      + 'COMPASS ID: '+esc(X.id)+'<br>COMPASS 入力: '+esc(fmtDT(b.compass_at))+'<br>送らない項目: 販売先・販売CO・海上運賃区分<br>比べない項目: ETD・ETA（入力後に COMPASS とずれることが多いため）<br>明細の削除は COMPASS で行ってください'
+      + 'COMPASS ID: '+esc(X.id)+'<br>COMPASS 入力: '+esc(fmtDT(b.compass_at))+'<br>送らない項目: 海上運賃区分（販売先・販売CO は Invoice no. の契約が COMPASS と違う時だけ）<br>比べない項目: ETD・ETA（入力後に COMPASS とずれることが多いため）<br>明細の削除は COMPASS で行ってください'
       + tips.map(t => '<br>'+esc(t).replace(/\n/g, '<br>')).join('')+'</div></details>';
     return h;
   };
@@ -6353,13 +6383,18 @@ async function compassDtlUpdate(b){
   const seen = new Set(); D.parties = [];
   D.purch.items.forEach(x => { if(x.party && !seen.has(x.party)){ seen.add(x.party); D.parties.push({id:x.party, name:x.party, pid:x.partyId || null, alt:x.partyAlt || []}); } });
   const cs0 = cps.map(cp => D.sale.items.find(x => x.id===cp.s)).find(Boolean);
-  const coId = cs0 ? cs0.coId || '' : '', coName = cs0 ? cs0.co || '' : '';
+  let coId = cs0 ? cs0.coId || '' : '', coName = cs0 ? cs0.co || '' : '';
+  /* ヘッダーの 販売CO が 明細と違う (B-06 から販売CO を変えた後など) → ヘッダーの契約で 販売 を選び直す (ユーザー 2026-11-25) */
+  try{ const M = await C.meta(); let sk = null; for(const [k, a] of M.attrs){ if(a.type==='Lookup' && /販売\s*CO|販売契約/i.test(a.label) && M.rels.get(k)){ sk = k; break; } }
+    const hd = sk ? (await C.read(b.compass_id, ['_'+sk+'_value']))['_'+sk+'_value'] || '' : '';
+    if(hd && hd!==coId){ D.coChg = {from:coName, to:(D.sale.items.find(x => x.coId===hd) || {}).co || ''}; coId = hd; coName = D.coChg.to; } }catch(e){}
   D.rows = b.rows.filter(a => !a.deleted).map(a => ({packer:str(a.packer).trim(), grade:str(a.grade).trim(), gw:gradeWants(b, a.grade), hon:honOf(a), cpk:cpkOf(a),
     sale:'', pur:'', howS:'', howP:'', sup:{list:[], how:''}, wt:0, cp:null}));
   D.rows.forEach(r => { r.sup = dtlSuppliers(D, r); });
   const setCp = (r, cp) => {
     r.cp = cp || null;
-    if(cp){ r.sale = cp.s; r.pur = cp.p; r.howS = 'cp'; r.howP = 'cp'; r.wt = Math.round(r.hon * D.ton * 100) / 100; }
+    if(cp){ r.sale = cp.s; r.pur = cp.p; r.howS = 'cp'; r.howP = 'cp'; r.wt = Math.round(r.hon * D.ton * 100) / 100;
+      if(D.coChg){ const si = D.sale.items.find(x => x.id===cp.s); if(!si || si.coId!==coId){ r.howS = ''; dtlAuto(D, r, coId); } } }
     else { r.sale = ''; r.pur = ''; r.howS = ''; r.howP = ''; dtlAuto(D, r, coId); }
   };
   /* 自動の対応: 購買元 (Packer) > 品目 > 本数。点の高い組から決める。同点は 上から順に */
@@ -6391,6 +6426,9 @@ async function compassDtlUpdate(b){
   const html = () => {
     let h = '';
     if(test) h += '<div class="b6-demo" style="border-radius:6px;margin-bottom:8px">試験モード: 「COMPASS に送る」を押しても COMPASS には書き込みません（送る内容の表示まで）</div>';
+    if(D.coChg) h += '<div style="padding:7px 10px;border-radius:6px;margin-bottom:8px;background:color-mix(in srgb,var(--warn) 12%,transparent);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);font-size:12.5px">'
+      + '⚠ 販売CO（ヘッダー）が <b>'+esc(D.coChg.to || '新しい契約')+'</b> に変わっています（明細は '+esc(D.coChg.from || '前の契約')+'）。明細の <b>販売</b> を この契約のアイテムに変えて送ってください。'
+      + (D.rows.some(r => r.cp && !r.sale) ? ' <span style="color:var(--danger)">自動で決まらない行は 行をクリック → 下の 販売 で「選ぶ」</span>' : '')+'</div>';
     const nP = D.rows.filter(r => r.cp && chg(r).length).length, nA = D.rows.filter(r => !r.cp).length;
     h += '<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:8px">'
       + '<div><b>① 右端の「送る内容」を確認</b></div><div><b>② 違う時だけ</b> 行をクリック → 下の 販売・購買 で「選ぶ」・本数を直す</div><div><b>③ 「COMPASS に送る」</b></div></div>';
@@ -6488,6 +6526,10 @@ async function sendCompassUpdate(b, X, picked, test){
     else { body[r.col] = r.send; allowed.add(r.col); }
   });
   if(X.upCol){ body[X.upCol.col] = X.upCol.dateOnly ? todayStr() : new Date().toISOString(); allowed.add(X.upCol.col); }
+  /* 販売CO を変える時は 最終船積日 も その契約の日に (COMPASS 入力と同じ) */
+  const coR = picked.find(r => r.coChg);
+  if(coR && X.lsCol){ try{ const I = await S.store.compass.invoiceIndex(), c = I.contracts.find(x => x.id===coR.coChg);
+    if(c && c.last){ body[X.lsCol.col] = compassDate(c.last, X.lsCol.dateOnly); allowed.add(X.lsCol.col); } }catch(e){} }
   if(test){
     modal('試験モード — 変更入力の内容', '<div>COMPASS には書き込んでいません。実際に送る場合の内容です。</div><pre style="font-size:12px;white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">PATCH '+esc(COMPASS.ES)+'('+esc(X.id)+')\nIf-Match: '+esc(X.etag)+'\n'+esc(JSON.stringify(body, null, 2))+'</pre>', [{label:'閉じる', fn:c=>c()}], true);
     return true;
@@ -6508,6 +6550,8 @@ async function sendCompassUpdate(b, X, picked, test){
   if(S.store.compass.forget) S.store.compass.forget();
   if(S.cpCmp && S.cpCmp[b.bookkey] && S.cpCmp[b.bookkey].rows){ S.cpCmp[b.bookkey].rows = S.cpCmp[b.bookkey].rows.filter(r => !picked.includes(r)); renderBoard(); }
   toast('COMPASS に変更入力しました（'+labels+'）', 'ok');
+  /* 販売CO を変えたら 続けて 明細 (販売アイテム) を新しい契約に */
+  if(coR && S.store.compass.detailRows) setTimeout(() => compassDtlUpdate(b), 400);
   return true;
 }
 /* 再入力 (ユーザー 2026-11-16): COMPASS 側で消したことを確かめてから、B-06 の「COMPASS済」を外して入力画面を開く。
