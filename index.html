@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.12', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.13', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5098,7 +5098,7 @@ function cpLearnedOf(learned, kind, b, key){
    覚える時: COMPASS 入力で 品目の違う販売アイテムを選んで送った時・「品目」の違いを ✔ 確認した時。担当ごと + 全員 ══════════ */
 /* Grade は「英名 日本語名」と 1 つ空けて 日本語も書ける (ユーザー 2026-11-25)。比べる・選ぶのは 前の英名だけ。
    例 「OMG 段ボール」「PAPER CORE（紙管）」→ OMG / PAPER CORE。日本語だけ・英名だけ は そのまま */
-const gradeCore = g => { const t = PARSE.nfkcSame(str(g)).trim(), m = t.match(/^([ -~]*?[A-Za-z0-9][ -~]*?)\s*[(]?\s*[^ -]/); return m ? m[1].trim() : t; };
+const gradeCore = g => { const t = PARSE.nfkcSame(str(g)).trim(), m = t.match(/^([\x20-\x7E]*?[A-Za-z0-9][\x20-\x7E]*?)\s*[(]?\s*[^\x00-\x7F]/); return m ? m[1].trim() : t; };
 function gradeAs(b, g){
   const k = cpNorm(g), k2 = cpNorm(gradeCore(g)), L = S.cpMap || {}, st = bkStaff(b); if(!k) return '';
   const look = x => (st && (L['grade@'+st] || {})[x]) || (L.grade || {})[x];
