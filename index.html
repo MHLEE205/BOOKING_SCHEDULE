@@ -826,7 +826,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.23', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.24', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1560,10 +1560,10 @@ function cellHtml(col, b, a){
     return '<div class="pkc">'+h+'</div>' + (pc ? '<div class="cpco r" title="COMPASS の購買契約">'+esc(pc)+'</div>' : '');
   }
   if(col.st && col.k==='customs'){
-    /* 通関依頼 = 乙仲の名前。押すと選択リスト */
-    const o = statusOf(v), nm = o.memo.trim();
-    if(!nm && o.st==='none') return '<span class="cu-ph">選ぶ ▾</span>';
-    return (o.st==='done' ? '<span style="color:var(--ok);font-weight:700">✔ </span>' : o.st==='na' ? '<span class="muted">- </span>' : '')+esc(nm);
+    /* 通関依頼 = □ 業者に連絡したか (手で ✔) + 乙仲の名前 (押すと選択リスト) — 別々に (ユーザー 2026-11-25) */
+    const o = statusOf(v), nm = o.memo.trim(), dn = o.st==='done';
+    const ck = '<span class="ck" style="display:inline-flex;vertical-align:middle;margin-right:4px"><span class="bx '+(dn ? 'done' : 'none')+'" data-cuck="1" style="cursor:pointer" title="'+(dn ? '業者に連絡済み — 押すと 外す' : 'まだ連絡していない — 業者に連絡したら 押して ✔')+'">'+(dn ? '✔' : '')+'</span></span>';
+    return ck + (nm ? esc(nm) : '<span class="cu-ph">選ぶ ▾</span>');
   }
   if(col.st){
     /* チェック: 空 = □ / ✔ = 緑 / - = 不要。文字は下に (✎ で入力) */
@@ -7508,6 +7508,16 @@ function initUI(){
       const a = td.dataset.lv==='A' ? b.rows.find(x => x.id===td.dataset.aid) : null;
       if(td.dataset.lv==='A' && !a) return;
       openCellMemo(b, a, td.dataset.f); return;
+    }
+    const cuk = ev.target.closest('[data-cuck]');
+    if(cuk){
+      /* 通関依頼の ✔ (業者に連絡したか) だけ切り替え。名前はそのまま */
+      ev.stopPropagation();
+      const td = cuk.closest('td'), b = S.bk.get(td.closest('tr').dataset.k), a = b && b.rows.find(x => x.id===td.dataset.aid);
+      if(!b || !a || b.deleted || a.deleted) return;
+      const o = statusOf(a.customs), nm = o.memo.trim();
+      saveAsg(b, a, {customs:o.st==='done' ? nm : '✔'+(nm ? ' '+nm : '')}, 'customs');
+      return;
     }
     const bh = ev.target.closest('[data-bkh]');
     if(bh){ const b = S.bk.get(bh.closest('tr').dataset.k); if(b) openBkHist(b); return; }
