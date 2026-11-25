@@ -520,6 +520,7 @@ details.rp summary{cursor:pointer;font-size:12.5px}
         <span class="muted" style="font-size:10.5px;white-space:nowrap" title="見出しの C = COMPASS に入力する列。オレンジ = COMPASS と比べる（違うとセルにオレンジの枠）・灰色 = 入力の時だけ（比べない）"><span style="display:inline-block;padding:0 3px;border-radius:3px;font-size:8.5px;font-weight:700;color:#f08c00;border:1px solid color-mix(in srgb,#f08c00 45%,transparent);background:color-mix(in srgb,#f08c00 22%,transparent)">C</span> = COMPASS と比べる列</span>
         <span class="muted b6-sync" id="b6-sync" title="20秒ごとに自動更新。セルを右クリック → 文字色・サイズ・ハイライト"></span>
         <button class="b6-btn sm" id="b6-resort" title="Cut・ETD を変えた行は、押すまで元の位置に置いています">↕ 並べ替える</button>
+        <button class="b6-btn sm" id="b6-cols" title="表示する列を選ぶ（COMPASS に入れる列は いつも表示）">☰ 列</button>
         <button class="b6-btn sm" id="f-reload" title="今すぐ読み直す">⟳</button>
         <button class="b6-btn b6-add" id="b-add">＋ ブッキング追加</button>
         <button class="b6-btn" id="b-memo" hidden>📝 メモ帳</button>
@@ -832,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.28', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.29', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1373,7 +1374,19 @@ function fillDatalists(){
 
 /* ══════════ BOARD (① スケジュール表) ══════════ */
 function regionOf(port){ return PORT_REGION[str(port).trim().toUpperCase()] || 'SPOT'; }
-function boardCols(region){
+/* 画面の列 (ユーザー 2026-11-25): どの港も 全部の列 (搬入先・ドレ配車・P/O・ドレーFAX など) を出し、
+   COMPASS に入れる列 以外は 各自が 表示／非表示 を選べる (この PC のブラウザに覚える)。Excel 出力は 今までどおり 地域ごとの列 */
+const ALL_STATUS_COLS = ['customs','dray','poapply','podist','drayfax','banyu','memo'];
+const OPT_COLS = ['approval','dray','poapply','podist','drayfax','banyu','memo'];   /* 表示／非表示 を選べる列 (COMPASS に入れない列) */
+const colHidden = () => { try{ return new Set(JSON.parse(localStorage.getItem('b6_cols_hidden') || '[]')); }catch(e){ return new Set(); } };
+function colHiddenSave(set){ try{ localStorage.setItem('b6_cols_hidden', JSON.stringify(Array.from(set))); }catch(e){} }
+function boardCols(region, screen){
+  if(screen){
+    const hid = colHidden();
+    return boardCols(region).filter(x => !ALL_STATUS_COLS.includes(x.k) && x.k!=='delivery')
+      .concat([{k:'delivery',lv:'B'}], ALL_STATUS_COLS.map(k => ({k:k, lv:'A', st:k!=='memo'})))
+      .map(x => Object.assign(x, {l:COL_LABEL[x.k]})).filter(x => !(OPT_COLS.includes(x.k) && hid.has(x.k)));
+  }
   const c = [
     {k:'port',lv:'B'},{k:'approval',lv:'B'},{k:'bkgno',lv:'B'},{k:'invoiceno',lv:'B'},{k:'pod',lv:'B'},{k:'carrier',lv:'B'},{k:'vessel',lv:'B'},
     {k:'grade',lv:'A'},{k:'packer',lv:'A'},{k:'qty_raw',lv:'A'},
@@ -1907,7 +1920,7 @@ function moveTable(k, dir){
   renderBoard();
 }
 function boardTable(region, list, F){
-  const cols = boardCols(region), span = ROW_SPAN_COLUMNS[region] || [];
+  const cols = boardCols(region, true), span = ROW_SPAN_COLUMNS[region] || [];
   let h = '<table class="b6-t"><thead><tr><th class="no" title="表示順の番号（並び・フィルターで変わります）">No.</th><th title="ブッキング操作"></th><th title="行操作"></th>'+cols.map(c=>'<th class="'+(c.dt?'dt':'')+(c.st?' stc':'')+'" data-f="'+c.k+'">'+esc(c.l)+cpColMark(c.k)+'</th>').join('')+'</tr></thead><tbody>';
   let no = 0;   /* 表示順の番号 (削除済みは数えない) */
   list.forEach(b => {
@@ -2354,6 +2367,22 @@ function selectBooking(k){
   $$('#b6-board tr.bsel').forEach(tr => tr.classList.remove('bsel'));
   if(S.selBk) $$('#b6-board tr[data-k="'+CSS.escape(S.selBk)+'"]').forEach(tr => tr.classList.add('bsel'));
   renderMap();
+}
+/* 列の 表示／非表示 (この PC のブラウザに覚える)。COMPASS に入れる列は 固定 */
+function openColPick(){
+  const hid = colHidden();
+  const all = boardCols('KANTO', true).map(c => c.k).concat(OPT_COLS.filter(k => hid.has(k)));
+  const order = ['port','approval','bkgno','invoiceno','pod','carrier','vessel','grade','packer','qty_raw','cyopen','cycut','etd','eta','delivery'].concat(ALL_STATUS_COLS).filter(k => all.includes(k) || OPT_COLS.includes(k));
+  const row = k => { const opt = OPT_COLS.includes(k);
+    return '<label style="display:flex;align-items:center;gap:6px;padding:3px 4px;'+(opt ? 'cursor:pointer' : 'opacity:.6')+'"><input type="checkbox" class="colpk" data-k="'+k+'"'+(opt ? (hid.has(k) ? '' : ' checked') : ' checked disabled')+'> '
+      + esc(COL_LABEL[k])+(opt ? '' : ' <span class="muted" style="font-size:10.5px">（COMPASS — いつも表示）</span>')+'</label>'; };
+  const h = '<div class="muted" style="font-size:12px;margin-bottom:6px">どの港も 同じ列です。チェックを外した列は 表に出しません（この PC のブラウザに覚えます）。</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">'
+    + '<div><div style="font-weight:700;font-size:12px;margin-bottom:2px">選べる列</div>'+order.filter(k => OPT_COLS.includes(k)).map(row).join('')+'</div>'
+    + '<div><div style="font-weight:700;font-size:12px;margin-bottom:2px">COMPASS に入れる列</div>'+order.filter(k => !OPT_COLS.includes(k)).map(row).join('')+'</div></div>';
+  const m = modal('☰ 表示する列', h, [{label:'全部表示', fn:c => { colHiddenSave(new Set()); c(); renderBoard(); }}, {label:'閉じる', pri:true, fn:c => c()}]);
+  m.el.addEventListener('change', ev => { const t = ev.target.closest('.colpk'); if(!t || t.disabled) return;
+    const s2 = colHidden(); if(t.checked) s2.delete(t.dataset.k); else s2.add(t.dataset.k); colHiddenSave(s2); renderBoard(); });
 }
 /* 選んだブッキングを Excel に貼れる形 (タブ区切り) でコピー */
 function copyBooking(b){
@@ -7551,6 +7580,7 @@ function initUI(){
   ['#f-appr','#f-nopk','#f-sort','#f-del','#f-view'].forEach(s => $(s).addEventListener('change', renderBoard));
   ['#f-packer','#f-q'].forEach(s => $(s).addEventListener('input', renderBoard));
   $('#f-reload').addEventListener('click', loadBoard);
+  $('#b6-cols').addEventListener('click', openColPick);
   /* 期間・未定もを変えたらすぐ読み直す (以前は ⟳ を押すまで反映されなかった) */
   const rangeChanged = () => {
     clearTimeout(S.rangeT);
