@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.17', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.18', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5976,8 +5976,12 @@ async function sendCompassDetails(R, bkId){
    入力の時の確認画面と同じく 本船情報・購買/販売/本数 を表で。B-06 と違う所に ⚠ */
 async function compassInfo(b){
   const C = S.store.compass, FVK = '@OData.Community.Display.V1.FormattedValue';
-  const btns = [{label:'閉じる', fn:c=>c()}, {label:'もう一度入力', fn:c=>{ c(); compassResend(b); }},
-    {label:'🚢 変更を COMPASS に送る…', pri:true, fn:c=>{ c(); compassUpdate(b); }}];
+  /* ボタンは 必要な時だけ (違いがないのに「変更を送る」が出て紛らわしい — ユーザー 2026-11-25)。
+     違いがある・まだ比べていない → 「違いを直す」 / COMPASS にない → 「もう一度入力」 */
+  const nd0 = cpDiffN(b), cmp0 = cpCmpOf(b);
+  const btns = [{label:'閉じる', fn:c=>c()}];
+  if(nd0 || !cmp0) btns.push({label:'🚢 '+(nd0 ? 'COMPASS との違い '+nd0+' 件を直す…' : 'COMPASS と比べる…'), pri:true, fn:c=>{ c(); compassUpdate(b); }});
+  const btnsGone = [{label:'閉じる', fn:c=>c()}, {label:'🚢 もう一度入力', pri:true, fn:c=>{ c(); compassResend(b); }}];
   const title = '🔍 COMPASS に入っている内容 — '+esc(bkLabel(b));
   if(!C || !C.read || !b.compass_id){ modal(title, '<div class="muted">COMPASS ID がありません</div>', btns); return; }
   LEENAI.loading.show('COMPASS の内容を読んでいます（読み取りのみ）…');
@@ -5997,7 +6001,7 @@ async function compassInfo(b){
     if(C.detailRows){ [cps, D] = await Promise.all([C.detailRows(b.compass_id).catch(() => []), C.details ? C.details().catch(() => null) : null]); }
   }catch(e){
     LEENAI.loading.hide();
-    modal(title, '<div><span class="bdg d">✕</span> '+esc(e.status===404 ? 'COMPASS にこのブッキングがありません（COMPASS で削除されたようです）' : String(e.message || e).slice(0, 300))+'</div>', btns);
+    modal(title, '<div><span class="bdg d">✕</span> '+esc(e.status===404 ? 'COMPASS にこのブッキングがありません（COMPASS で削除されたようです）' : String(e.message || e).slice(0, 300))+'</div>', e.status===404 ? btnsGone : btns);
     return;
   }
   LEENAI.loading.hide();
@@ -6018,14 +6022,15 @@ async function compassInfo(b){
   const all = (L, id) => { const xs = D && D[L] ? (D[L].every || D[L].items || []) : []; return xs.find(y => y.id===id) || null; };
   h += '<div style="font-size:14px;font-weight:700;margin:14px 0 4px">📦 購買・販売・本数'+(dDiff.length ? ' <span class="bdg w" title="'+esc(dDiff.map(r => r.label+': COMPASS '+r.cp+' / B-06 '+r.b06).join('\n'))+'">⚠ B-06 と違う '+dDiff.length+'</span>' : '')+'</div>';
   if(!cps.length) h += '<div class="muted">COMPASS に 明細がありません</div>';
-  else h += '<table class="b6-s" style="width:100%"><tr><th>#</th><th>品目</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th class="num">本数</th><th class="num">重量</th></tr>'
+  else h += '<table class="b6-s" style="width:100%"><tr><th>#</th><th>販売の品目</th><th>販売CO</th><th>購買元</th><th>購買の品目</th><th>購買CO</th><th class="num">本数</th><th class="num">重量</th></tr>'
     + cps.map((cp, i) => { const si = all('sale', cp.s), pi = all('purch', cp.p);
-        return '<tr><td>'+(i+1)+'</td><td>'+v(si && si.item)+'</td><td>'+v(si && si.co)+'</td><td>'+v(pi && pi.party)+'</td><td>'+v(pi && pi.co)+'</td><td class="num">'+cp.hon+'</td><td class="num">'+dtlNum(cp.wt)+'</td></tr>'; }).join('')
-    + '<tr><th colspan="5" style="text-align:right">合計</th><th class="num">'+cps.reduce((t, x) => t + x.hon, 0)+'</th><th class="num">'+dtlNum(cps.reduce((t, x) => t + x.wt, 0))+'</th></tr></table>';
+        return '<tr><td>'+(i+1)+'</td><td>'+v(si && si.item)+'</td><td>'+v(si && si.co)+'</td><td>'+v(pi && pi.party)+'</td><td>'+v(pi && pi.item)+'</td><td>'+v(pi && pi.co)+'</td><td class="num">'+cp.hon+'</td><td class="num">'+dtlNum(cp.wt)+'</td></tr>'; }).join('')
+    + '<tr><th colspan="6" style="text-align:right">合計</th><th class="num">'+cps.reduce((t, x) => t + x.hon, 0)+'</th><th class="num">'+dtlNum(cps.reduce((t, x) => t + x.wt, 0))+'</th></tr></table>';
   h += '<div class="muted" style="font-size:11.5px;margin-top:8px">COMPASS の今の内容です（COMPASS の画面で直した分も入っています）。送った内容の記録は「↺ 変更履歴」で見られます。</div>';
   h += '<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:11.5px">詳細</summary><div class="muted" style="font-size:11.5px;line-height:1.7;padding:4px 0 0 14px">'
     + 'COMPASS ID: '+esc(b.compass_id)+'<br>COMPASS で作成: '+esc(fmtDT(rec.createdon))+'<br>COMPASS で最終更新: '+esc(fmtDT(rec.modifiedon))+'<br>B-06 から最後に入力・変更入力: '+esc(fmtDT(b.compass_at))
-    + '<br>・もう一度入力: COMPASS で削除した時だけ</div></details>';
+    + '</div></details>';
+  if(!nd0 && cmp0) h += '<div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:700">✔ B-06 と同じです — 送るものはありません</div>';
   modal(title, h, btns, true);
 }
 /* ══════════ COMPASS に変更入力 (2026-11-19 — ユーザーと決めた形) ══════════
