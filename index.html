@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.04', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.05', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1495,7 +1495,7 @@ function cellHtml(col, b, a){
       else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')+(r.tip ? '\n  '+r.tip.replace(/\n/g, '\n  ') : '')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
       /* 青の ↺ (Booking no. の変更回数) は やめた — ほとんど変わらない (ユーザー 2026-11-24)。履歴は メニューの「↺ 変更履歴」で見られる。
          COMPASS の Booking no. と違う時は 上の「COMPASS差」とセルの枠で出る */
-      const cpn = cpChgOf(b);
+      const cpn = cpChgLive(b);
       if(cpn) h += ' <span class="bkh cp" data-bkh="1" title="'+esc('COMPASS 入力（'+fmtDT(b.compass_at)+'）の後に '+cpn+' 件の変更\n— クリックで変更履歴・COMPASS に変更入力')+'">↺'+cpn+'</span>';
       h += hasBkMemo(b) ? memoIcon(bkMemoId(b), 'data-memo="1"')
                         : '<span class="bk-memo add" data-memo="1" title="このブッキングにメモを書く">📝+</span>';
@@ -2471,6 +2471,8 @@ function cpChgOf(b){
   if(b.compass_status!=='SENT' || !S.cpChg) return 0;
   const o = S.cpChg[b.bookkey]; return o && o.since===cpSince(b) ? o.n : 0;
 }
+/* 画面に出す「COMPASS 入力の後の変更」: COMPASS と比べて違いがない時は 0 (変えて戻した・送る必要のない項目だけ — 送るものがないのに ↺・「まだ送っていない変更」が出て紛らわしい: ユーザー 2026-11-25) */
+const cpChgLive = b => { const o = cpCmpOf(b); return o && o.rows && !cpDiffN(b) ? 0 : cpChgOf(b); };
 async function bumpCpChg(b, n){
   const since = cpSince(b); if(!since) return;
   for(let i=0;i<4;i++){
@@ -2558,7 +2560,7 @@ async function openBkHist(b){
   /* 送ったのに また「COMPASS に変更入力…」が出て 紛らわしい (ユーザー 2026-11-24):
      まだ送っていない変更・COMPASS との違い がある時だけ ボタンを出す。比較がまだの時は 確認用に出す */
   if(sent && !b.deleted){
-    const cmp = cpCmpOf(b), nd = cpDiffN(b), nc = cpChgOf(b);
+    const cmp = cpCmpOf(b), nd = cpDiffN(b), nc = cpChgLive(b);
     if(nd || nc || !cmp) btns.push({label:'🚢 '+(nd ? 'COMPASS との違い '+nd+' 件を直す…' : nc ? 'まだ送っていない変更を COMPASS に送る…' : 'COMPASS と比べる…'), pri:true, fn:c=>{ c(); compassUpdate(b); }});
     else x += '<div style="margin-top:8px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:700">✔ COMPASS と同じです — 送るものはありません</div>';
   }
@@ -4063,7 +4065,7 @@ function bookingMenu(ev, b){
       /* 分かりやすく (ユーザー 2026-11-24): 「COMPASS」の見出しの下に 見る／ヘッダーを送る／明細を送る。
          送るものがない時は「COMPASS と同じ」 */
       const o = cpCmpOf(b), live = o && o.rows ? o.rows.filter(r => !r.soft && !r.okd) : [];
-      const nH = live.filter(r => !r.dtl).length, nD = live.filter(r => r.dtl).length, nc = cpChgOf(b);
+      const nH = live.filter(r => !r.dtl).length, nD = live.filter(r => r.dtl).length, nc = cpChgLive(b);
       const st = (n, alt) => n ? '（違い '+n+'）' : alt ? '（'+alt+'）' : o ? '（COMPASS と同じ）' : '';
       /* 「ヘッダー・明細」は他の担当者に分かりにくい (ユーザー 2026-11-25) → 本船情報・購買/販売/本数 */
       items.push({head:'COMPASS に送る・見る'});
