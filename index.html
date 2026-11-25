@@ -816,7 +816,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.14', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.15', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -6170,6 +6170,7 @@ function cpDetailRows(b, d){
   /* Packer (購買元) ごとの本数 (ユーザー 2026-11-25: FUJI 3→2・MATEC 2→3 のように 合計が同じでも 違いを出す)。
      B-06 の行と COMPASS の明細が 購買元 で全部つながる時だけ (つながらない時は 合計だけ — 名前の違いで 間違った違いを出さない) */
   const per = cpPerPacker(live, d);
+  if(per && per.swap) rows.push({k:'packer', sub:'swap', dtl:true, label:'Packer（購買元）', cp:per.swap.cp || '（なし）', b06:per.swap.b06 || '（なし）'});
   if(per) per.forEach(g => { if(Math.round(g.b*100)!==Math.round(g.c*100)) rows.push({k:'qty_raw', sub:cpNorm(g.name), dtl:true, label:'本数（'+g.name+'）', cp:g.c+' 本', b06:g.b+' 本'}); });
   if(Math.round(hon*100)!==Math.round(d.hon*100) && !(per && rows.some(r => r.k==='qty_raw'))) rows.push({k:'qty_raw', dtl:true, label:'本数の合計', cp:d.hon+' 本', b06:hon+' 本'});
   if(d.items && d.items.length){
@@ -6192,11 +6193,21 @@ function cpPerPacker(live, d){
     let k = c && parties.has('id:'+String(c.id).toLowerCase()) ? 'id:'+String(c.id).toLowerCase() : '';
     if(!k) for(const [pk, g] of parties){ if(Array.from(g.names).some(n => nm.has(n))){ k = pk; break; } }
     if(k){ const g = parties.get(k); g.b += honOf(a); g.n++; if(g.n===1) g.name = str(a.packer).trim() || g.name; } else miss.push(a); });
-  /* つながらない行が 1 つ・行のない購買元が 1 つ なら それ同士 (名前の書き方が違うだけ)。それ以外は 比べない */
-  const empty = Array.from(parties.values()).filter(g => !g.n);
-  if(miss.length===1 && empty.length===1){ empty[0].b += honOf(miss[0]); empty[0].n++; empty[0].name = str(miss[0].packer).trim() || empty[0].name; }
-  else if(miss.length || empty.length) return null;
-  return Array.from(parties.values());
+  /* つながらない行 ↔ 行のない購買元: 名前が似ていれば (フジ ↔ FUJI・かなのローマ字も) 同じ購買元。
+     似ていないものは「Packer が違う」(FUJI → MATEC のように 本数・行数が同じでも 出す — ユーザー 2026-11-25) */
+  const empty = Array.from(parties.values()).filter(g => !g.n), left = [];
+  miss.forEach(a => {
+    const head = str(a.packer).split(/[\s(（・\/]/)[0], c = cpkOf(a), al = [a.packer, head, c && c.name];
+    al.slice().forEach(x => { if(x) al.push(...kanaRomaji(x)); });
+    const aliases = Array.from(new Set(al.map(cpNorm).filter(Boolean)));
+    let best = null, bs = 0;
+    empty.filter(g => !g.n).forEach(g => { const m = cpMatch([{id:'g', name:g.name, alt:Array.from(g.names)}], aliases); const sc = m[0] ? m[0].s : 0; if(sc > bs){ bs = sc; best = g; } });
+    if(best && bs >= 50){ best.b += honOf(a); best.n++; best.name = str(a.packer).trim() || best.name; } else left.push(a);
+  });
+  const out = Array.from(parties.values()).filter(g => g.n);   /* 本数を比べるのは つながった購買元だけ */
+  const gone = empty.filter(g => !g.n);
+  if(left.length || gone.length) out.swap = {cp:gone.map(g => g.name+' '+g.c+' 本').join('・'), b06:left.map(a => str(a.packer).trim()+' '+honOf(a)+' 本').join('・')};
+  return out;
 }
 async function compassDiff(b){
   const C = S.store.compass, id = b.compass_id;
