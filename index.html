@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.31', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.32', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5644,10 +5644,14 @@ function dtlHtml(D, coId, coName, opt){
   /* ② 販売アイテム */
   const sAll = coId ? D.sale.items.filter(x => x.coId===coId) : D.sale.items;
   const sL = dtlSaleShown(D, coId);
+  /* 販売の見出しは 販売先 だけ (ユーザー 2026-11-26 — Packer / Grade は購買の情報): 選んだ販売アイテムの販売先 → なければ 表の販売先 */
+  const sCur = cur && D.sale.items.find(x => x.id===cur.sale);
+  const sPs = sCur && sCur.party ? [sCur.party] : dtlUniq(sAll.map(x => x.party).filter(Boolean));
+  const whoS = sPs.length ? '販売先「'+esc(sPs.slice(0, 3).join('・'))+(sPs.length > 3 ? ' ほか '+(sPs.length-3) : '')+'」' : '';
   /* 販売 (左)・購買 (右) を 横に並べる (ユーザー 2026-11-19 — 前は 上下) */
   h += '<div class="cp-two cp-sp">';
   h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
-    + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
+    + (whoS ? ' <span class="muted" style="font-size:11px">→ '+whoS+'</span>' : '')+'</div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売先</th><th>販売CO</th><th title="販売単価 (S.unit)">単価</th>'+DTL_QTH+'</tr>'
     + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
       + dtlQtd(x)+'</tr>').join('')
