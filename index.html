@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.34', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.35', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5606,6 +5606,27 @@ function dtlSaleOverAsk(list){
     new MutationObserver((_, ob) => { if(!m.el.isConnected){ ob.disconnect(); fin(false); } }).observe(document.body, {childList:true});
   });
 }
+/* 明細の変更入力: 送る直前の確認 (はい → true)。追加は 送る行の全部、変更は 変わる所を出す */
+function dtlSendAsk(b, D, patch, post, foot){
+  return new Promise(res => {
+    let done = false; const fin = v => { if(!done){ done = true; res(v); } };
+    const td = (v, st) => '<td'+(st ? ' style="'+st+'"' : '')+'>'+(v ? esc(v) : '<span class="muted">—</span>')+'</td>';
+    const rowH = (x, add) => { const r = x.r, si = D.sale.items.find(y => y.id===r.sale) || {}, pi = D.purch.items.find(y => y.id===r.pur) || {};
+      return '<tr><td>'+(add ? '<span class="bdg o" style="background:#dbeafe;color:#1d4ed8">＋ 追加</span>' : '<span class="bdg w">変更</span>')+'</td>'
+        + td(r.packer || '追加の行')+td(si.party)+td(si.co)+td(pi.party)+td(pi.co)+td(si.item || pi.item)
+        + '<td class="num"><b>'+esc(String(r.hon))+'</b> 本</td><td class="num">'+esc(dtlNum(r.wt))+' t</td></tr>'
+        + (add ? '' : '<tr><td></td><td colspan="8" style="font-size:11.5px;color:#c2410c">'+x.ch.map(esc).join('<br>')+'</td></tr>'); };
+    const h = '<div>次の内容で <b>COMPASS の明細</b> に'+(post.length ? ' <b>追加 '+post.length+' 件</b>' : '')+(patch.length ? ' <b>変更 '+patch.length+' 件</b>' : '')+' を送ります。よろしいですか？</div>'
+      + '<table class="b6-s" style="margin-top:8px;width:100%"><tr><th></th><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>品目</th><th class="num">本数</th><th class="num">重量</th></tr>'
+      + post.map(x => rowH(x, true)).join('') + patch.map(x => rowH(x, false)).join('') + '</table>'
+      + (foot || '')
+      + '<div class="muted" style="margin-top:8px;font-size:12px">ブッキング: '+esc(bkLabel(b))+' — 送った後の取消・削除は COMPASS で行います</div>';
+    const m = modal('📦 COMPASS に送る前の確認', h,
+      [{label:'← 戻る', fn:c=>{ fin(false); c(); }}, {label:'COMPASS に送る', pri:true, fn:c=>{ fin(true); c(); }}], true);
+    /* ✕・外側で閉じた時は 送らない */
+    new MutationObserver((_, ob) => { if(!m.el.isConnected){ ob.disconnect(); fin(false); } }).observe(document.body, {childList:true});
+  });
+}
 const dtlPurOverMsg = list => '購買の残を超えるので入力できません（購買は 決まった本数に合わせてください）: '+list.join('、');
 function dtlHtml(D, coId, coName, opt){
   opt = opt || null;
@@ -6854,13 +6875,13 @@ async function compassDtlUpdate(b){
       if(X.err){ skip.push(X.err); continue; }
       if(!X.list.length){ skip.push(X.skip.join('、') || (r.packer || '行')); continue; }
       const full = X.list[0].body;
-      if(!r.cp){ post.push({label:X.list[0].label, body:full, allowed:X.allowed}); continue; }
+      if(!r.cp){ post.push({label:X.list[0].label, body:full, allowed:X.allowed, r:r}); continue; }
       const body = {}, allowed = new Set();
       const take = ks => ks.forEach(k => { if(k && k in full){ body[k] = full[k]; allowed.add(k); } });
       if(r.sale!==r.cp.s) take([kb(c.sale), kb(c.saleCo), kb(c.item)]);
       if(r.pur!==r.cp.p) take([kb(c.purch), kb(c.purCo)]);
       if(Math.round(r.hon*100)!==Math.round(r.cp.hon*100)) take([c.hon && c.hon.col, c.wt && c.wt.col]);
-      patch.push({label:(r.packer || '行')+' — '+cpName(r.cp), ch:ch, id:r.cp.id, etag:r.cp.etag, body:body, allowed:allowed});
+      patch.push({label:(r.packer || '行')+' — '+cpName(r.cp), ch:ch, id:r.cp.id, etag:r.cp.etag, body:body, allowed:allowed, r:r});
     }
     const only = cps.filter(cp => !D.rows.some(r => r.cp===cp));
     const skipH = skip.length ? '<div style="margin-top:6px"><span class="bdg w">⚠</span> 送らない行: '+esc(skip.join('、'))+'</div>' : '';
@@ -6875,6 +6896,8 @@ async function compassDtlUpdate(b){
         + skipH + onlyH, [{label:'閉じる', fn:c=>c()}], true);
       return false;   /* 変更入力の画面は開いたまま */
     }
+    /* 送る前の確認画面 (ユーザー 2026-11-26): 何を COMPASS に追加・変更するかを 1 つの表で */
+    if(!(await dtlSendAsk(b, D, patch, post, skipH + onlyH))) return false;
     const ok = [], ng = [];
     for(const x of patch){
       try{ await C.updateDetail(x.id, x.body, x.allowed, x.etag); ok.push('変更 '+x.label+'（'+x.ch.join('・')+'）'); }
