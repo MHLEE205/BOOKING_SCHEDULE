@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.29', date:'2026-11-25', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.30', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4176,7 +4176,7 @@ function bookingMenu(ev, b){
     items.push({label:'📝 メモ', fn:()=>openBookingMemo(b)});
     items.push({label:'↺ 変更履歴', sub:'B-06 で変えた内容・COMPASS に送った記録', fn:()=>openBkHist(b)});
     items.push({label:'＋ Packer 行を追加', sub:b.compass_status==='SENT' ? '同じ契約で台数を増やす時は 行を足さずに QTY の数を変える' : '', fn:()=>addRow(b)});
-    items.push({label:'🗑 このブッキングを削除', sub:b.compass_status==='SENT' ? 'B-06 からだけ削除（COMPASS は残ります）' : '', danger:true, fn:()=>deleteBooking(b)});
+    items.push({label:'🗑 このブッキングを削除', sub:b.compass_status==='SENT' && !(cpCmpOf(b) || {}).gone ? 'COMPASS にデータがある間は削除できません（先に COMPASS で削除）' : '', danger:true, fn:()=>deleteBooking(b)});
   } else items.push({label:'↩ ブッキングを復元', fn:()=>restoreBooking(b)});
   items.push({meta:metaHtml(b)});
   menu(ev, items);
@@ -4227,7 +4227,23 @@ async function deleteRow(b, a){
   await saveAsg(b, a, {deleted:true}, 'packer');
 }
 async function restoreRow(b, a){ await saveAsg(b, a, {deleted:false}, 'packer'); }
+/* COMPASS にデータがある間は B-06 から削除させない (ユーザー 2026-11-26): 先に COMPASS で削除 → その後 B-06 で削除。
+   COMPASS を その場で確かめる (読み取りのみ)。COMPASS にない (404) 時だけ 削除できる。確かめられない時も 止める */
 async function deleteBooking(b){
+  if(b.compass_status==='SENT' && b.compass_id){
+    const C = S.store && S.store.compass;
+    let has = true, why = '';
+    if(C && C.exists){ try{ has = await C.exists(String(b.compass_id)); }catch(e){ why = String(e.message || e).slice(0, 160); } }
+    else why = 'COMPASS に接続できません';
+    if(has){
+      modal('⚠ 削除できません — '+esc(bkLabel(b)),
+        '<div><span class="bdg d">✕</span> このブッキングは <b>COMPASS にデータがあります</b>（'+esc(cpPairTxt(b.bkgno, b.invoiceno))+'）。</div>'
+        + '<div style="margin-top:8px">削除をご希望の場合は、<b>先に COMPASS で削除してください</b>。COMPASS で削除した後に、B-06 で削除できます。</div>'
+        + (why ? '<div class="muted" style="margin-top:6px;font-size:12px">COMPASS を確かめられませんでした: '+esc(why)+'</div>' : ''),
+        [{label:'閉じる', fn:c=>c()}]);
+      return;
+    }
+  }
   if(!confirm('ブッキング「'+bkLabel(b)+'」を削除します（削除フラグ・「削除済みを表示」から復元できます）。よろしいですか？')) return;
   for(const a of b.rows.filter(x=>!x.deleted)) await saveAsg(b, a, {deleted:true}, 'packer');
   await saveBooking(b, {deleted:true}, 'port');
