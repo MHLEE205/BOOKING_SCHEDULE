@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.32', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.33', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2814,6 +2814,7 @@ async function saveAsg(b, a, patch, cellKey){
 const cselCls = (lv, id, k) => S.cellSel && S.cellSel.lv===lv && S.cellSel.id===id && S.cellSel.f===k ? ' csel' : '';
 function cellKeyOf(td){
   const tr = td && td.closest('tr'), b = tr && S.bk.get(tr.dataset.k); if(!b) return null;
+  S.curBk = b.bookkey;   /* 最後にカーソルがあったブッキング — ＋ ブッキング追加 の港に使う (ボタンを押すとカーソルは消えるので 別に覚える) */
   return {lv:td.dataset.lv, id:td.dataset.lv==='B' ? b.id : td.dataset.aid, f:td.dataset.f};
 }
 function setCellSel(td){
@@ -4255,13 +4256,16 @@ async function restoreBooking(b){
   for(const a of b.rows.filter(x=>x.deleted)) await saveAsg(b, a, {deleted:false}, 'packer');
 }
 async function addBooking(){
-  /* 地域: 選んでいる地域 → (全地域なら) 選んでいる港の地域 → 担当の港がある最初の地域 */
-  const r = REGIONS.find(x=>x.code===S.region)
+  /* 港を 1 つ選んでいない時 (複数の港を表示): 今カーソルがある (表に見えている) ブッキングの港・地域に追加 (ユーザー 2026-11-26 — 前は 一番下の港になった) */
+  const cb = !(S.port && S.port!=='__blank') && S.curBk && S.bk.get(S.curBk);
+  const cbOk = cb && !cb.deleted && str(cb.port).trim() && REGIONS.some(x=>x.code===cb.region) && document.querySelector('#b6-board tr[data-k="'+cb.bookkey+'"]');
+  /* 地域: カーソルのブッキング → 選んでいる地域 → (全地域なら) 選んでいる港の地域 → 担当の港がある最初の地域 */
+  const r = (cbOk && REGIONS.find(x=>x.code===cb.region)) || REGIONS.find(x=>x.code===S.region)
     || (S.port && S.port!=='__blank' && REGIONS.find(x=>x.code===regionOf(S.port)))
     || REGIONS.find(x=>x.ports.some(staffMatchPort)) || REGIONS[0];
   let seq = 0; S.bk.forEach(b => { if(b.region===r.code) seq = Math.max(seq, b.seq||0); });
   /* 港: 選んでいる港 → 選んでいる担当の港 → 地域の最初の港 */
-  const port = (S.port && S.port!=='__blank') ? S.port : (r.ports.find(staffMatchPort) || r.ports[0]);
+  const port = (S.port && S.port!=='__blank') ? S.port : cbOk ? str(cb.port).trim() : (r.ports.find(staffMatchPort) || r.ports[0]);
   const b = {bookkey:uuid(), region:r.code, seq:seq+10, port:port, approval:'NONE', approval_raw:'',
     bkgno:'', invoiceno:'', pod:'', carrier:'', vessel:'', cyopen:null, cycut:null, etd:null, eta:null,
     cy_note:'', etd_note:'', eta_note:'', delivery:'', source:'web', batch:null, importkey:null, createdby:userEmail(), deleted:false};
@@ -4277,7 +4281,7 @@ async function addBooking(){
     S.port = ''; if(!staffMatch(saved)) S.staff = '';
     fillFilterOptions(); renderBoard();
     const tr = document.querySelector('tr[data-k="'+saved.bookkey+'"]'); if(tr) tr.scrollIntoView({block:'center'});
-    toast('ブッキングを追加しました（ETD 未定 — 表の末尾）', 'ok');
+    toast('ブッキングを追加しました（港 '+(port||'？')+'・ETD 未定 — 表の末尾）', 'ok');
     setTimeout(()=>{ S.hl=null; renderBoard(); }, 4000);
   }catch(e){ toast('作成に失敗: '+e.message.slice(0,120), 'danger'); }
   finally{ LEENAI.loading.hide(); }
