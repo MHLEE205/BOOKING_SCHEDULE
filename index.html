@@ -229,28 +229,31 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-lk .cp-q{width:90px;font-size:11.5px}
 .cp-dl td,.cp-it td{font-size:12px}
 .cp-dl tr.cp-dr{cursor:pointer}
-.cp-dl tr.cp-cur td:not(.cp-gap),.cp-it tr.cp-cur td{background-image:linear-gradient(rgba(245,158,11,.13),rgba(245,158,11,.13))}
+.cp-dl tr.cp-cur td:not(.cp-gap),.cp-it tr.cp-cur td{background-image:linear-gradient(rgba(245,158,11,.07),rgba(245,158,11,.07))}
 .cp-dl tr.cp-cur td:first-child,.cp-it tr.cp-cur td:first-child{box-shadow:inset 4px 0 0 #f59e0b}
 .cp-pan{margin-top:8px;border:1px solid var(--border);border-radius:6px;padding:0 6px 6px;max-height:240px;overflow:auto}
 .cp-panh{position:sticky;top:0;z-index:1;background:var(--surface);padding:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .cp-panh select{max-width:200px;font-size:12px}
-/* 販売の枠・購買の枠 (ユーザー 2026-11-26 柔らかく): 枠ごとに ごく薄い色・間に すき間。見出しは 少し濃く。線は 薄く */
-.b6-s .cp-s{background:color-mix(in srgb,var(--info) 5%,var(--surface))}
-.b6-s .cp-p{background:color-mix(in srgb,var(--ok) 6%,var(--surface))}
+/* 販売の枠・購買の枠 (ユーザー 2026-11-26 — もっと薄く): 中身は ほぼ白・見出しも 淡く。文字の色で 販売 = 青・購買 = 緑 */
+.b6-s .cp-s{background:color-mix(in srgb,var(--info) 2.5%,var(--surface))}
+.b6-s .cp-p{background:color-mix(in srgb,var(--ok) 3%,var(--surface))}
 .b6-s th.cp-s,.b6-s th.cp-p{font-weight:600;font-size:11.5px}
-.b6-s th.cp-s{background:color-mix(in srgb,var(--info) 11%,var(--surface));color:color-mix(in srgb,var(--info) 65%,var(--text))}
-.b6-s th.cp-p{background:color-mix(in srgb,var(--ok) 12%,var(--surface));color:color-mix(in srgb,var(--ok) 65%,var(--text))}
-.b6-s th.cp-sg,.b6-s th.cp-pg{text-align:center;font-size:12.5px;padding:4px 8px;letter-spacing:.1em}
-.b6-s th.cp-sg{background:color-mix(in srgb,var(--info) 20%,var(--surface));color:color-mix(in srgb,var(--info) 75%,var(--text))}
-.b6-s th.cp-pg{background:color-mix(in srgb,var(--ok) 22%,var(--surface));color:color-mix(in srgb,var(--ok) 75%,var(--text))}
+.b6-s th.cp-s{background:color-mix(in srgb,var(--info) 6%,var(--surface));color:color-mix(in srgb,var(--info) 60%,var(--text))}
+.b6-s th.cp-p{background:color-mix(in srgb,var(--ok) 7%,var(--surface));color:color-mix(in srgb,var(--ok) 60%,var(--text))}
+.b6-s th.cp-sg,.b6-s th.cp-pg{text-align:center;font-size:12.5px;padding:4px 8px;letter-spacing:.15em}
+.b6-s th.cp-sg{background:color-mix(in srgb,var(--info) 10%,var(--surface));color:color-mix(in srgb,var(--info) 70%,var(--text))}
+.b6-s th.cp-pg{background:color-mix(in srgb,var(--ok) 11%,var(--surface));color:color-mix(in srgb,var(--ok) 70%,var(--text))}
 .b6-s .cp-gap{border-top:none!important;border-bottom:none!important;background:transparent!important;width:8px;min-width:8px;padding:0!important}
-.cp-dl th,.cp-dl td,.cp-dg th,.cp-dg td{border-color:color-mix(in srgb,var(--border) 55%,transparent)!important;padding:5px 8px}
-.cp-pan.cp-ps{border-color:color-mix(in srgb,var(--info) 50%,var(--border));border-top-width:4px}
-.cp-pan.cp-pp{border-color:color-mix(in srgb,var(--ok) 50%,var(--border));border-top-width:4px}
-.cp-pan.cp-ps th{background:color-mix(in srgb,var(--info) 18%,var(--surface))}
-.cp-pan.cp-pp th{background:color-mix(in srgb,var(--ok) 20%,var(--surface))}
-.cp-pan.cp-ps .cp-panh>b{color:color-mix(in srgb,var(--info) 75%,var(--text))}
-.cp-pan.cp-pp .cp-panh>b{color:color-mix(in srgb,var(--ok) 75%,var(--text))}
+.cp-dl th,.cp-dl td,.cp-dg th,.cp-dg td{border-color:color-mix(in srgb,var(--border) 40%,transparent)!important;padding:5px 8px}
+.cp-dl input.cp-dh{border-color:color-mix(in srgb,var(--ok) 35%,var(--border))}
+.cp-pan.cp-ps,.cp-pan.cp-pp{border-radius:10px;border-top-width:3px}
+.cp-pan.cp-ps{border-color:color-mix(in srgb,var(--info) 18%,var(--border));border-top-color:color-mix(in srgb,var(--info) 40%,var(--border))}
+.cp-pan.cp-pp{border-color:color-mix(in srgb,var(--ok) 18%,var(--border));border-top-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
+.cp-pan.cp-ps th{background:color-mix(in srgb,var(--info) 6%,var(--surface));color:color-mix(in srgb,var(--info) 60%,var(--text))}
+.cp-pan.cp-pp th{background:color-mix(in srgb,var(--ok) 7%,var(--surface));color:color-mix(in srgb,var(--ok) 60%,var(--text))}
+.cp-pan.cp-ps th,.cp-pan.cp-ps td,.cp-pan.cp-pp th,.cp-pan.cp-pp td{border-color:color-mix(in srgb,var(--border) 40%,transparent)}
+.cp-pan.cp-ps .cp-panh>b{color:color-mix(in srgb,var(--info) 70%,var(--text))}
+.cp-pan.cp-pp .cp-panh>b{color:color-mix(in srgb,var(--ok) 70%,var(--text))}
 .cp-it td.n{text-align:right;white-space:nowrap}
 .cp-dtl select{min-width:170px;max-width:260px;font-size:12px}
 .cp-dtl .cp-dq{width:60px;font-size:11.5px}
@@ -851,7 +854,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.38', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.39', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5626,11 +5629,13 @@ function dtlSaleOverAsk(list){
 }
 /* 明細の表の 見出し・セル (ユーザー 2026-11-26): 販売の枠 [販売先・販売CO・品目] | 購買の枠 [Packer・購買元・購買CO・品目] | 右 (本数…)
    right: 右側の見出し・left: 枠の前の見出し (どちらも rowspan=2 を付ける) */
-function dtlHead(right, left){
+function dtlHead(right, left, wtLb){
   const rs = x => (x || '').replace(/<th(?=[ >])/g, '<th rowspan="2"');
-  return '<tr>'+rs(left)+'<th colspan="3" class="cp-sg">販売</th><th class="cp-gap" rowspan="2"></th><th colspan="4" class="cp-pg">購買</th><th class="cp-gap" rowspan="2"></th>'+rs(right)+'</tr>'
-    + '<tr><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-s">品目</th><th class="cp-p">Packer</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th class="cp-p">品目</th></tr>';
+  return '<tr>'+rs(left)+'<th colspan="3" class="cp-sg">販売</th><th class="cp-gap" rowspan="2"></th><th colspan="6" class="cp-pg">購買</th>'+(right ? '<th class="cp-gap" rowspan="2"></th>'+rs(right) : '')+'</tr>'
+    + '<tr><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-s">品目</th><th class="cp-p">Packer</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th class="cp-p">品目</th><th class="cp-p num">本数</th><th class="cp-p num">'+(wtLb || '重量')+'</th></tr>';
 }
+/* 購買の枠の 本数・重量 のセル */
+const dtlHonTds = (hon, wt) => '<td class="cp-p num">'+hon+'</td><td class="cp-p num cp-dwt">'+dtlNum(wt)+'</td>';
 const DTL_GAP = '<td class="cp-gap"></td>';
 const dtlDash = v => v ? esc(v) : '<span class="muted">—</span>';
 /* x: 販売アイテム (なければ alt を 3 列に)。badge: CO の横 */
@@ -5644,11 +5649,10 @@ function dtlSendAsk(b, D, patch, post, foot){
     let done = false; const fin = v => { if(!done){ done = true; res(v); } };
     const rowH = (x, add) => { const r = x.r, si = D.sale.items.find(y => y.id===r.sale), pi = D.purch.items.find(y => y.id===r.pur);
       return '<tr><td>'+(add ? '<span class="bdg o" style="background:#dbeafe;color:#1d4ed8">＋ 追加</span>' : '<span class="bdg w">変更</span>')+'</td>'
-        + dtlSaleTds(si)+DTL_GAP+dtlPurTds(dtlDash(r.packer), pi)+DTL_GAP
-        + '<td class="num"><b>'+esc(String(r.hon))+'</b> 本</td><td class="num">'+esc(dtlNum(r.wt))+' t</td></tr>'
-        + (add ? '' : '<tr><td></td><td colspan="12" style="font-size:11.5px;color:#c2410c">'+x.ch.map(esc).join('<br>')+'</td></tr>'); };
+        + dtlSaleTds(si)+DTL_GAP+dtlPurTds(dtlDash(r.packer), pi)+dtlHonTds('<b>'+esc(String(r.hon))+'</b> 本', r.wt)+'</tr>'
+        + (add ? '' : '<tr><td></td><td colspan="10" style="font-size:11.5px;color:#c2410c">'+x.ch.map(esc).join('<br>')+'</td></tr>'); };
     const h = '<div>次の内容で <b>COMPASS の明細</b> に'+(post.length ? ' <b>追加 '+post.length+' 件</b>' : '')+(patch.length ? ' <b>変更 '+patch.length+' 件</b>' : '')+' を送ります。よろしいですか？</div>'
-      + '<table class="b6-s cp-dg" style="margin-top:8px;width:100%">'+dtlHead('<th class="num">本数</th><th class="num">重量</th>', '<th></th>')
+      + '<table class="b6-s cp-dg" style="margin-top:8px;width:100%">'+dtlHead('', '<th></th>')
       + post.map(x => rowH(x, true)).join('') + patch.map(x => rowH(x, false)).join('') + '</table>'
       + (foot || '')
       + '<div class="muted" style="margin-top:8px;font-size:12px">ブッキング: '+esc(bkLabel(b))+' — 送った後の取消・削除は COMPASS で行います</div>';
@@ -5677,7 +5681,7 @@ function dtlHtml(D, coId, coName, opt){
   /* ① 明細の一覧 */
   const warns = [];
   /* 列 (ユーザー 2026-11-26): 販売先・販売CO・購買元・購買CO を それぞれ 1 列に (品目は 販売CO にマウス) */
-  h += '<table class="b6-s cp-dl">'+dtlHead('<th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>'));
+  h += '<table class="b6-s cp-dl">'+dtlHead(opt ? opt.th : '<th></th>');
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
@@ -5685,8 +5689,8 @@ function dtlHtml(D, coId, coName, opt){
     const pk = esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')+(r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span>';
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'">'
       + dtlSaleTds(si, uc(r.howS), coId ? dtlCoOnly(D, coId, coName) : ng) + DTL_GAP
-      + dtlPurTds(pk, pi, uc(r.howP), ng) + DTL_GAP
-      + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:48px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
+      + dtlPurTds(pk, pi, uc(r.howP), ng)
+      + dtlHonTds('<input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:52px;text-align:right" value="'+r.hon+'">', r.wt) + DTL_GAP
       + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
   h += '</table>'+(opt ? '' : '<button class="b6-btn sm cp-dadd" style="margin-top:4px">＋ 明細を追加</button>');
@@ -5993,8 +5997,8 @@ function confirmCompass(b, R, picks){
     /* 販売の枠・購買の枠 (ユーザー 2026-11-26) */
     const scI = R.lookups.findIndex(L => L.kind==='saleco'), coId = scI>=0 ? picks[scI] : '';
     const nmS = id => { const x = D.sale.items.find(y => y.id===id); return dtlSaleTds(x, '', x || !coId ? '' : dtlCoOnly(D, coId, pickName(scI))); };
-    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s cp-dg">'+dtlHead('<th>本数</th><th>予想重量</th>')
-      + D.rows.map(r => '<tr>'+nmS(r.sale)+DTL_GAP+dtlPurTds(dtlDash(r.packer), D.purch.items.find(y => y.id===r.pur))+DTL_GAP+'<td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
+    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s cp-dg">'+dtlHead('', '', '予想重量')
+      + D.rows.map(r => '<tr>'+nmS(r.sale)+DTL_GAP+dtlPurTds(dtlDash(r.packer), D.purch.items.find(y => y.id===r.pur))+dtlHonTds(r.hon, r.wt)+'</tr>').join('')
       + '</table>';
     const miss = D.rows.filter(r => !D.sale.items.some(x => x.id===r.sale) || !D.purch.items.some(x => x.id===r.pur));
     if(miss.length) h += '<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fef2f2;color:#b91c1c;font-weight:600">⚠ 販売（品目）・購買が未選択の明細 '+miss.length+' 行は COMPASS に作成されません — 「← 戻って直す」で 販売・購買 の表の「選ぶ」を押してください</div>';
