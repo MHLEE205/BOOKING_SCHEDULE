@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.30', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.31', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5620,16 +5620,16 @@ function dtlHtml(D, coId, coName, opt){
   if(!opt) h += '</details>';
   /* ① 明細の一覧 */
   const warns = [];
-  /* シンプル版 (ユーザー 2026-11-16): ID の列をやめ、販売 = 品目+販売CO・購買 = 購買元+購買CO を 1 列ずつに */
-  h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>')+'</tr>';
+  /* 列 (ユーザー 2026-11-26): 販売先・販売CO・購買元・購買CO を それぞれ 1 列に (品目は 販売CO にマウス) */
+  h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>')+'</tr>';
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
     const uc = how => how==='auto' ? ' <span title="自動で入れた候補 — 下の表で確認して「確認 → 選ぶ」を押してください" style="display:inline-block;padding:0 6px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;font-weight:700">未確認</span>' : '';
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')
       + (r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span></td>'
-      + '<td>'+(si ? esc(si.item)+' <span class="muted">'+esc(si.co)+'</span>'+uc(r.howS) : coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>'
-      + '<td>'+(pi ? esc(pi.party)+' <span class="muted">'+esc(pi.co)+'</span>'+uc(r.howP) : ng)+'</td>'
+      + (si ? '<td>'+(esc(si.party) || '<span class="muted">—</span>')+'</td><td title="品目: '+esc(si.item)+'">'+esc(si.co)+uc(r.howS)+'</td>' : '<td colspan="2">'+(coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>')
+      + (pi ? '<td>'+(esc(pi.party) || '<span class="muted">—</span>')+'</td><td title="品目: '+esc(pi.item)+'">'+esc(pi.co)+uc(r.howP)+'</td>' : '<td colspan="2">'+ng+'</td>')
       + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:48px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
       + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
@@ -5648,10 +5648,10 @@ function dtlHtml(D, coId, coName, opt){
   h += '<div class="cp-two cp-sp">';
   h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
-    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売CO</th><th title="販売単価 (S.unit)">単価</th>'+DTL_QTH+'</tr>'
-    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
+    + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売先</th><th>販売CO</th><th title="販売単価 (S.unit)">単価</th>'+DTL_QTH+'</tr>'
+    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
       + dtlQtd(x)+'</tr>').join('')
-    + (sL.length ? '' : '<tr><td colspan="7" class="muted">該当なし</td></tr>') + '</table>'
+    + (sL.length ? '' : '<tr><td colspan="8" class="muted">該当なし</td></tr>') + '</table>'
     + (sL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目で絞り込んでください）</div>' : '') + '</div>';
   /* ③ 購買アイテム */
   const pL = dtlPurShown(D);
@@ -5930,11 +5930,12 @@ function confirmCompass(b, R, picks){
     + '<tr><th>Packer 行・本数</th><td>'+live.length+' 行・'+hon+' 本</td></tr></table>';
   const D = R.dtl;
   if(D && !D.err && D.rows && D.rows.length){
-    const nm = (L, id) => { const x = L.find(y => y.id===id); return x ? esc([x.item, x.co || x.name, x.party].filter(Boolean).join(' | ')) : '<span class="ng">未選択</span>'; };
+    /* 販売先・販売CO / 購買元・購買CO の 2 セル (ユーザー 2026-11-26) */
+    const nm = (L, id) => { const x = L.find(y => y.id===id); return x ? '<td>'+esc(x.party || '')+'</td><td title="品目: '+esc(x.item || '')+'">'+esc(x.co || x.name || '')+'</td>' : '<td colspan="2"><span class="ng">未選択</span></td>'; };
     const scI = R.lookups.findIndex(L => L.kind==='saleco'), coId = scI>=0 ? picks[scI] : '';
-    const nmS = id => D.sale.items.some(y => y.id===id) || !coId ? nm(D.sale.items, id) : dtlCoOnly(D, coId, pickName(scI));
-    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s"><tr><th>Packer</th><th>販売</th><th>購買</th><th>本数</th><th>予想重量</th></tr>'
-      + D.rows.map(r => '<tr><td>'+esc(r.packer)+'</td><td>'+nmS(r.sale)+'</td><td>'+nm(D.purch.items, r.pur)+'</td><td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
+    const nmS = id => D.sale.items.some(y => y.id===id) || !coId ? nm(D.sale.items, id) : '<td colspan="2">'+dtlCoOnly(D, coId, pickName(scI))+'</td>';
+    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s"><tr><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>本数</th><th>予想重量</th></tr>'
+      + D.rows.map(r => '<tr><td>'+esc(r.packer)+'</td>'+nmS(r.sale)+nm(D.purch.items, r.pur)+'<td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
       + '</table>';
     const miss = D.rows.filter(r => !D.sale.items.some(x => x.id===r.sale) || !D.purch.items.some(x => x.id===r.pur));
     if(miss.length) h += '<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fef2f2;color:#b91c1c;font-weight:600">⚠ 販売（品目）・購買が未選択の明細 '+miss.length+' 行は COMPASS に作成されません — 「← 戻って直す」で 販売・購買 の表の「選ぶ」を押してください</div>';
