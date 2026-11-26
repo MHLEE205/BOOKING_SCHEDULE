@@ -246,7 +246,7 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .b6-s .cp-gap{border-top:none!important;border-bottom:none!important;background:transparent!important;width:8px;min-width:8px;padding:0!important}
 .cp-dl th,.cp-dl td,.cp-dg th,.cp-dg td{border-color:color-mix(in srgb,var(--border) 40%,transparent)!important;padding:5px 8px}
 .cp-dl input.cp-dh{border-color:color-mix(in srgb,var(--ok) 35%,var(--border))}
-.cp-pan.cp-ps,.cp-pan.cp-pp{border-radius:10px;border-top-width:3px}
+.cp-pan.cp-ps,.cp-pan.cp-pp{border-radius:10px;border-top-width:3px;background:var(--surface)}
 .cp-pan.cp-ps{border-color:color-mix(in srgb,var(--info) 18%,var(--border));border-top-color:color-mix(in srgb,var(--info) 40%,var(--border))}
 .cp-pan.cp-pp{border-color:color-mix(in srgb,var(--ok) 18%,var(--border));border-top-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
 .cp-pan.cp-ps th{background:color-mix(in srgb,var(--info) 6%,var(--surface));color:color-mix(in srgb,var(--info) 60%,var(--text))}
@@ -300,6 +300,20 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-form .cp-why{font-size:11px;color:var(--text2);margin-top:2px}
 .cp-two .cp-pan{margin-top:6px}
 .cp-sp>.cp-pan{min-width:0;max-height:320px;margin-top:8px}
+/* 上の明細の表と 下の 販売・購買の表 の幅・高さ・文字をそろえる (ユーザー 2026-11-26 バランス) */
+.cp-dl{width:100%}
+.cp-dl th.cp-w1{width:24%}.cp-dl th.cp-w2{width:19%}.cp-dl th.cp-w3{width:calc(7% - 5px)}.cp-dl th.cp-w4{width:9%}   /* 販売の枠 = 左半分 (下の 販売の表と そろえる) */
+.cp-dl .cp-gap{width:10px;min-width:10px}
+.cp-sp{align-items:stretch;margin-top:10px}
+.cp-sp>.cp-pan{display:flex;flex-direction:column;padding:0 10px 10px;margin-top:0}
+.cp-sp .cp-panh{padding:8px 0 6px;gap:8px}
+.cp-sp .cp-panh>b{font-size:13.5px;margin-right:2px}
+.cp-sp .cp-panh select{height:26px}
+.cp-pan .cp-it{width:100%}
+.cp-it th{font-size:11.5px;font-weight:600;padding:5px 8px}
+.cp-it td{padding:5px 8px;white-space:nowrap;vertical-align:middle}
+.cp-it .pty{display:block;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp-sp .cp-pan>div.muted,.cp-sp .cp-pan>div[style*="font-size:11px"]{margin-top:6px;line-height:1.5}
 .cp-sp .cp-it td,.cp-sp .cp-it th{padding-left:4px;padding-right:4px}
 /* Invoice の次の番号 (ユーザー 2026-11-16) */
 .inv-help{position:fixed;z-index:60;width:auto;max-width:min(560px,calc(100vw - 16px));max-height:260px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:5px 7px;font-size:11px;line-height:1.3}
@@ -854,7 +868,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.39', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.40', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5629,10 +5643,10 @@ function dtlSaleOverAsk(list){
 }
 /* 明細の表の 見出し・セル (ユーザー 2026-11-26): 販売の枠 [販売先・販売CO・品目] | 購買の枠 [Packer・購買元・購買CO・品目] | 右 (本数…)
    right: 右側の見出し・left: 枠の前の見出し (どちらも rowspan=2 を付ける) */
-function dtlHead(right, left, wtLb){
+function dtlHead(right, left, wtLb, delCol){
   const rs = x => (x || '').replace(/<th(?=[ >])/g, '<th rowspan="2"');
-  return '<tr>'+rs(left)+'<th colspan="3" class="cp-sg">販売</th><th class="cp-gap" rowspan="2"></th><th colspan="6" class="cp-pg">購買</th>'+(right ? '<th class="cp-gap" rowspan="2"></th>'+rs(right) : '')+'</tr>'
-    + '<tr><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-s">品目</th><th class="cp-p">Packer</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th class="cp-p">品目</th><th class="cp-p num">本数</th><th class="cp-p num">'+(wtLb || '重量')+'</th></tr>';
+  return '<tr>'+rs(left)+'<th colspan="3" class="cp-sg">販売</th><th class="cp-gap" rowspan="2"></th><th colspan="'+(delCol ? 7 : 6)+'" class="cp-pg">購買</th>'+(right ? '<th class="cp-gap" rowspan="2"></th>'+rs(right) : '')+'</tr>'
+    + '<tr><th class="cp-s cp-w1">販売先</th><th class="cp-s cp-w2">販売CO</th><th class="cp-s cp-w3">品目</th><th class="cp-p cp-w4">Packer</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th class="cp-p">品目</th><th class="cp-p num">本数</th><th class="cp-p num">'+(wtLb || '重量')+'</th>'+(delCol ? '<th class="cp-p"></th>' : '')+'</tr>';
 }
 /* 購買の枠の 本数・重量 のセル */
 const dtlHonTds = (hon, wt) => '<td class="cp-p num">'+hon+'</td><td class="cp-p num cp-dwt">'+dtlNum(wt)+'</td>';
@@ -5681,7 +5695,7 @@ function dtlHtml(D, coId, coName, opt){
   /* ① 明細の一覧 */
   const warns = [];
   /* 列 (ユーザー 2026-11-26): 販売先・販売CO・購買元・購買CO を それぞれ 1 列に (品目は 販売CO にマウス) */
-  h += '<table class="b6-s cp-dl">'+dtlHead(opt ? opt.th : '<th></th>');
+  h += '<table class="b6-s cp-dl">'+dtlHead(opt ? opt.th : '', '', '', !opt);   /* ✕ は 購買の枠に (ユーザー 2026-11-26) */
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
@@ -5690,8 +5704,8 @@ function dtlHtml(D, coId, coName, opt){
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'">'
       + dtlSaleTds(si, uc(r.howS), coId ? dtlCoOnly(D, coId, coName) : ng) + DTL_GAP
       + dtlPurTds(pk, pi, uc(r.howP), ng)
-      + dtlHonTds('<input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:52px;text-align:right" value="'+r.hon+'">', r.wt) + DTL_GAP
-      + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
+      + dtlHonTds('<input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:52px;text-align:right" value="'+r.hon+'">', r.wt)
+      + (opt ? DTL_GAP + opt.td(r, i) : '<td class="cp-p" style="text-align:center"><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
   h += '</table>'+(opt ? '' : '<button class="b6-btn sm cp-dadd" style="margin-top:4px">＋ 明細を追加</button>');
   { const ov = dtlOver(D.rows, D.sale.items, D.purch.items, D.overOnly ? D.overOnly() : null);
@@ -5713,7 +5727,7 @@ function dtlHtml(D, coId, coName, opt){
   h += '<div class="cp-pan cp-ps"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
     + (whoS ? ' <span class="muted" style="font-size:11px">→ '+whoS+'</span>' : '')+'</div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売先</th><th>販売CO</th><th title="販売単価 (S.unit)">単価</th>'+DTL_QTH+'</tr>'
-    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
+    + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td><span class="pty" title="'+esc(x.party)+'">'+esc(x.party)+'</span></td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
       + dtlQtd(x)+'</tr>').join('')
     + (sL.length ? '' : '<tr><td colspan="8" class="muted">該当なし</td></tr>') + '</table>'
     + (sL.length > DTL_MAX ? '<div class="muted" style="font-size:11px">先頭 '+DTL_MAX+' 件だけ表示（品目で絞り込んでください）</div>' : '') + '</div>';
@@ -5727,11 +5741,11 @@ function dtlHtml(D, coId, coName, opt){
     + (S.store.compass.demo ? '' : ' <button class="b6-btn sm cp-dreload" title="COMPASS の 販売・購買（〆・残）を今すぐ読み直す">⟳</button>')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th title="購買単価 (B.unit)">単価</th>'+DTL_QTH+'<th title="購買の本数 − 明細で使った本数（本数が空の明細は N/W から推定 ≈）— 割り当て パネルと同じ">残り本数</th></tr>'
-    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td>'+dtlPickBtn('cp-padd', x.id, cur, cur && cur.pur===x.id, cur && cur.howP)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td'+(x.note ? ' title="備考: '+esc(x.note)+'"' : '')+'>'+esc(x.co)+(x.note ? ' <span class="muted" style="font-size:10px">📝</span>' : '')+'</td>'
+    + pL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.pur===x.id ? ' class="cp-cur"' : '')+' title="'+esc('購買重量 '+dtlNum(x.wt)+' / 割当量 '+dtlNum(x.alloc)+(x.remainHon!=null ? ' / '+honRemainTip(x) : ''))+'"><td>'+dtlPickBtn('cp-padd', x.id, cur, cur && cur.pur===x.id, cur && cur.howP)+'</td><td>'+esc(x.item)+'</td><td><span class="pty" title="'+esc(x.party)+'">'+esc(x.party)+'</span></td><td'+(x.note ? ' title="備考: '+esc(x.note)+'"' : '')+'>'+esc(x.co)+(x.note ? ' <span class="muted" style="font-size:10px">📝</span>' : '')+'</td>'
       + '<td class="n">'+esc(x.unit)+'</td>'+dtlQtd(x)
       + '<td class="n">'+(x.remainHon!=null ? '<b'+(x.remainHon<=0 ? ' style="color:var(--danger)"' : '')+'>'+(x.nEst ? '≈' : '')+x.remainHon+'本</b><span class="muted" style="font-size:10.5px"> / '+x.hon+' 本</span>' : '<span class="muted">—</span>')+'</td></tr>').join('')
     + (pL.length ? '' : '<tr><td colspan="9" class="muted">該当なし — 品目・購買元を変えてください</td></tr>')
-    + (D.showHidP ? pH.map(x => '<tr style="opacity:.55" title="この購買は使えません: '+esc(x.why)+'"><td><span class="ng" style="font-size:10.5px;white-space:nowrap">'+esc(x.why)+'</span></td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td>'
+    + (D.showHidP ? pH.map(x => '<tr style="opacity:.55" title="この購買は使えません: '+esc(x.why)+'"><td><span class="ng" style="font-size:10.5px;white-space:nowrap">'+esc(x.why)+'</span></td><td>'+esc(x.item)+'</td><td><span class="pty" title="'+esc(x.party)+'">'+esc(x.party)+'</span></td><td>'+esc(x.co)+'</td>'
       + '<td class="n">'+esc(x.unit)+'</td>'+dtlQtd(x)+'<td class="n muted">—</td></tr>').join('') : '') + '</table>'
     + (pH.length ? '<div style="font-size:11px;margin-top:3px"><span class="muted">この条件で 使えない購買（〆・残なし）'+pH.length+' 件 </span><button class="b6-btn sm cp-phid">'+(D.showHidP ? '隠す' : '表示')+'</button>'
       + ' <span class="muted">— COMPASS で 〆 を外した直後なら ⟳ で読み直してください</span></div>' : '')
