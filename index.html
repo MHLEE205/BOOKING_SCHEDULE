@@ -833,7 +833,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.33', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.34', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2900,7 +2900,7 @@ function invHelpHtml(X, err, val, b){
   const md = d => d ? d.slice(5).replace('-', '/') : '—';
   h += '<table><tr><th>販売契約</th><th>品目</th><th>販売先</th><th class="n">残</th><th>船積期限</th><th>最後</th><th>次</th></tr>'
     + rows.map(r => '<tr><td><b>'+esc(r.c.name)+'</b></td><td>'+(r.items.length ? esc(r.items.join('・')) : '<span class="muted">'+(X.remain ? '—' : '…')+'</span>')+'</td>'
-      + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyer || '')+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : dtlNum(r.remain)+'t')+'</td><td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
+      + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyer || '')+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : '<b style="color:var(--info)">'+dtlNum(r.remain)+'t</b>')+'</td><td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
       + '<td>'+(r.last ? esc(invFmt(r.pre, r.last.seq))+'<span class="src">'+(r.last.src==='COMPASS' ? 'C' : 'B')+'</span>' : '<span class="muted">なし</span>')+'</td>'
       + '<td>'+(r.over ? '<span class="dup" title="この契約の番号の帯を超えます">'+esc(r.next)+' ⚠</span>' : '<button class="go" data-inv="'+esc(r.next)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">'+esc(r.next)+'</button>')
       + (r.gaps.length ? r.gaps.slice(0, 3).map(g => '<button class="gap" title="空き番号（キャンセルなどで抜けた番号）— 押すと入ります。使う前に その番号がもう使われていないか確かめてください" data-inv="'+esc(g)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">空き '+esc(g.split('-').pop())+'</button>').join('')
