@@ -233,6 +233,15 @@ tr.hist-new td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-pan{margin-top:8px;border:1px solid var(--border);border-radius:6px;padding:0 6px 6px;max-height:240px;overflow:auto}
 .cp-panh{position:sticky;top:0;z-index:1;background:var(--surface);padding:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .cp-panh select{max-width:200px;font-size:12px}
+/* 販売・購買を 薄い色で分ける (ユーザー 2026-11-26): 販売 = 青・購買 = 緑 */
+.b6-s .cp-s{background:color-mix(in srgb,var(--info) 9%,transparent)}
+.b6-s .cp-p{background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.b6-s th.cp-s{background:color-mix(in srgb,var(--info) 16%,var(--surface))}
+.b6-s th.cp-p{background:color-mix(in srgb,var(--ok) 18%,var(--surface))}
+.cp-pan.cp-ps{border-color:color-mix(in srgb,var(--info) 45%,var(--border));border-top-width:3px}
+.cp-pan.cp-pp{border-color:color-mix(in srgb,var(--ok) 45%,var(--border));border-top-width:3px}
+.cp-pan.cp-ps th{background:color-mix(in srgb,var(--info) 14%,var(--surface))}
+.cp-pan.cp-pp th{background:color-mix(in srgb,var(--ok) 16%,var(--surface))}
 .cp-it td.n{text-align:right;white-space:nowrap}
 .cp-dtl select{min-width:170px;max-width:260px;font-size:12px}
 .cp-dtl .cp-dq{width:60px;font-size:11.5px}
@@ -833,7 +842,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.35', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.36', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -5610,14 +5619,14 @@ function dtlSaleOverAsk(list){
 function dtlSendAsk(b, D, patch, post, foot){
   return new Promise(res => {
     let done = false; const fin = v => { if(!done){ done = true; res(v); } };
-    const td = (v, st) => '<td'+(st ? ' style="'+st+'"' : '')+'>'+(v ? esc(v) : '<span class="muted">—</span>')+'</td>';
+    const td = (v, st, k) => '<td'+(k ? ' class="'+k+'"' : '')+(st ? ' style="'+st+'"' : '')+'>'+(v ? esc(v) : '<span class="muted">—</span>')+'</td>';
     const rowH = (x, add) => { const r = x.r, si = D.sale.items.find(y => y.id===r.sale) || {}, pi = D.purch.items.find(y => y.id===r.pur) || {};
       return '<tr><td>'+(add ? '<span class="bdg o" style="background:#dbeafe;color:#1d4ed8">＋ 追加</span>' : '<span class="bdg w">変更</span>')+'</td>'
-        + td(r.packer || '追加の行')+td(si.party)+td(si.co)+td(pi.party)+td(pi.co)+td(si.item || pi.item)
+        + td(r.packer || '追加の行')+td(si.party, 0, 'cp-s')+td(si.co, 0, 'cp-s')+td(pi.party, 0, 'cp-p')+td(pi.co, 0, 'cp-p')+td(si.item || pi.item)
         + '<td class="num"><b>'+esc(String(r.hon))+'</b> 本</td><td class="num">'+esc(dtlNum(r.wt))+' t</td></tr>'
         + (add ? '' : '<tr><td></td><td colspan="8" style="font-size:11.5px;color:#c2410c">'+x.ch.map(esc).join('<br>')+'</td></tr>'); };
     const h = '<div>次の内容で <b>COMPASS の明細</b> に'+(post.length ? ' <b>追加 '+post.length+' 件</b>' : '')+(patch.length ? ' <b>変更 '+patch.length+' 件</b>' : '')+' を送ります。よろしいですか？</div>'
-      + '<table class="b6-s" style="margin-top:8px;width:100%"><tr><th></th><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>品目</th><th class="num">本数</th><th class="num">重量</th></tr>'
+      + '<table class="b6-s" style="margin-top:8px;width:100%"><tr><th></th><th>Packer</th><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th>品目</th><th class="num">本数</th><th class="num">重量</th></tr>'
       + post.map(x => rowH(x, true)).join('') + patch.map(x => rowH(x, false)).join('') + '</table>'
       + (foot || '')
       + '<div class="muted" style="margin-top:8px;font-size:12px">ブッキング: '+esc(bkLabel(b))+' — 送った後の取消・削除は COMPASS で行います</div>';
@@ -5638,7 +5647,7 @@ function dtlHtml(D, coId, coName, opt){
     + (pc.shut ? '・〆 '+(D.purch.shutN||0)+' 件は非表示［'+esc(pc.shut.on+' の '+pc.shut.label)+'］' : '・<span style="color:#b45309">〆 の列が見つかりません</span>')
     + '・並び＝'+esc(pc.coAt ? pc.coAt.label : '契約番号')+' の新しい順）'
     + '・残＝'+esc(sc.remain ? sc.remain.label : '？')+' / '+esc(pc.remain ? pc.remain.label : '？')+'・予想重量 = 本数 × '+D.ton+' t（固定）</div>';
-  const ncs = nc(sc.item, '品目') + nc(sc.co, '販売CO') + nc(sc.party, '販売先') + nc(pc.co, '購買CO') + nc(pc.party, '購買元');
+  const ncs = nc(sc.party, '販売先') + nc(sc.co, '販売CO') + nc(pc.party, '購買元') + nc(pc.co, '購買CO') + nc(sc.item, '品目');   /* 順 (ユーザー 2026-11-26) */
   if(ncs && !opt) h += '<div style="margin:4px 0;font-size:11.5px">名前が番号や違う値で出る時: '+ncs+'</div>';
   if(opt){} else if(D.sale.all) h += '<div style="font-size:11px;margin-top:4px">販売 '+esc(D.sale.set)+' の列: '+esc(D.sale.all.join('、'))+'<br>購買 '+esc(D.purch.set)+' の列: '+esc(D.purch.all.join('、'))+'</div>';
   if(!pc.shut && !opt) h += '<div style="font-size:11px;color:#b45309;margin-top:4px">⚠ 〆 の列が見つかりません — 〆 の購買契約も出ています</div>';
@@ -5646,15 +5655,15 @@ function dtlHtml(D, coId, coName, opt){
   /* ① 明細の一覧 */
   const warns = [];
   /* 列 (ユーザー 2026-11-26): 販売先・販売CO・購買元・購買CO を それぞれ 1 列に (品目は 販売CO にマウス) */
-  h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>')+'</tr>';
+  h += '<table class="b6-s cp-dl"><tr><th>Packer</th><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th>本数</th><th>重量</th>'+(opt ? opt.th : '<th></th>')+'</tr>';
   D.rows.forEach((r, i) => {
     const si = D.sale.items.find(x => x.id===r.sale), pi = D.purch.items.find(x => x.id===r.pur);
     const ng = '<span class="ng">未選択</span>';
     const uc = how => how==='auto' ? ' <span title="自動で入れた候補 — 下の表で確認して「確認 → 選ぶ」を押してください" style="display:inline-block;padding:0 6px;border-radius:8px;background:#fef3c7;color:#b45309;font-size:11px;font-weight:700">未確認</span>' : '';
     h += '<tr class="cp-dr'+(i===D.cur ? ' cp-cur' : '')+(!si || !pi ? ' cp-need' : '')+'" data-r="'+i+'"><td>'+esc(r.packer || '（追加）')+' <span class="muted" style="font-size:11px">'+esc(r.grade || '')
       + (r.packer && !r.sup.list.length ? ' · 購買元？' : '')+'</span></td>'
-      + (si ? '<td>'+(esc(si.party) || '<span class="muted">—</span>')+'</td><td title="品目: '+esc(si.item)+'">'+esc(si.co)+uc(r.howS)+'</td>' : '<td colspan="2">'+(coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>')
-      + (pi ? '<td>'+(esc(pi.party) || '<span class="muted">—</span>')+'</td><td title="品目: '+esc(pi.item)+'">'+esc(pi.co)+uc(r.howP)+'</td>' : '<td colspan="2">'+ng+'</td>')
+      + (si ? '<td class="cp-s">'+(esc(si.party) || '<span class="muted">—</span>')+'</td><td class="cp-s" title="品目: '+esc(si.item)+'">'+esc(si.co)+uc(r.howS)+'</td>' : '<td class="cp-s" colspan="2">'+(coId ? dtlCoOnly(D, coId, coName) : ng)+'</td>')
+      + (pi ? '<td class="cp-p">'+(esc(pi.party) || '<span class="muted">—</span>')+'</td><td class="cp-p" title="品目: '+esc(pi.item)+'">'+esc(pi.co)+uc(r.howP)+'</td>' : '<td class="cp-p" colspan="2">'+ng+'</td>')
       + '<td><input class="b6-in cp-dh" data-r="'+i+'" type="number" min="0" step="1" style="width:48px" value="'+r.hon+'"></td><td class="cp-dwt" style="text-align:right">'+dtlNum(r.wt)+'</td>'
       + (opt ? opt.td(r, i) : '<td><button class="b6-btn sm cp-dx" data-r="'+i+'" title="この明細を消す">✕</button></td>')+'</tr>';
   });
@@ -5675,7 +5684,7 @@ function dtlHtml(D, coId, coName, opt){
   const whoS = sPs.length ? '販売先「'+esc(sPs.slice(0, 3).join('・'))+(sPs.length > 3 ? ' ほか '+(sPs.length-3) : '')+'」' : '';
   /* 販売 (左)・購買 (右) を 横に並べる (ユーザー 2026-11-19 — 前は 上下) */
   h += '<div class="cp-two cp-sp">';
-  h += '<div class="cp-pan"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
+  h += '<div class="cp-pan cp-ps"><div class="cp-panh"><b>販売</b> '+dtlSel('cp-fs', dtlUniq(sAll.map(x => x.item)), D.fS, '品目')+' <button class="b6-btn sm cp-fsall">All</button>'
     + (whoS ? ' <span class="muted" style="font-size:11px">→ '+whoS+'</span>' : '')+'</div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>販売先</th><th>販売CO</th><th title="販売単価 (S.unit)">単価</th>'+DTL_QTH+'</tr>'
     + sL.slice(0, DTL_MAX).map(x => '<tr'+(cur && cur.sale===x.id ? ' class="cp-cur"' : '')+' title="'+esc([x.party, '販売重量 '+dtlNum(x.wt), '割当量 '+dtlNum(x.alloc), x.tol, x.note].filter(Boolean).join(' / '))+'"><td>'+dtlPickBtn('cp-sadd', x.id, cur, cur && cur.sale===x.id, cur && cur.howS)+'</td><td>'+esc(x.item)+'</td><td>'+esc(x.party)+'</td><td>'+esc(x.co)+'</td><td class="n">'+esc(x.unit)+'</td>'
@@ -5688,7 +5697,7 @@ function dtlHtml(D, coId, coName, opt){
   const pParties = dtlUniq((D.fPi ? pOk.filter(x => x.item===D.fPi) : pOk).map(x => x.party));
   /* 隠した購買 (〆・残なし) のうち 今の条件 (購買元・品目) に合うもの */
   const pH = (D.purch.hid || []).filter(x => (!cur || !cur.sup.list.length || cur.sup.list.includes(x.party)) && (!D.fPp || x.party===D.fPp) && (!D.fPi || x.item===D.fPi)).slice(0, 50);
-  h += '<div class="cp-pan"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
+  h += '<div class="cp-pan cp-pp"><div class="cp-panh"><b>購買</b> '+dtlSel('cp-fpi', dtlUniq(D.purch.items.map(x => x.item)), D.fPi, '品目')+' '+dtlSel('cp-fpp', pParties, D.fPp, '購買元')
     + (S.store.compass.demo ? '' : ' <button class="b6-btn sm cp-dreload" title="COMPASS の 販売・購買（〆・残）を今すぐ読み直す">⟳</button>')
     + ' <span class="muted" style="font-size:11px">→ '+who+'</span></div>'
     + '<table class="b6-s cp-it"><tr><th></th><th>品目</th><th>購買元</th><th>購買CO</th><th title="購買単価 (B.unit)">単価</th>'+DTL_QTH+'<th title="購買の本数 − 明細で使った本数（本数が空の明細は N/W から推定 ≈）— 割り当て パネルと同じ">残り本数</th></tr>'
@@ -5960,11 +5969,11 @@ function confirmCompass(b, R, picks){
   const D = R.dtl;
   if(D && !D.err && D.rows && D.rows.length){
     /* 販売先・販売CO / 購買元・購買CO の 2 セル (ユーザー 2026-11-26) */
-    const nm = (L, id) => { const x = L.find(y => y.id===id); return x ? '<td>'+esc(x.party || '')+'</td><td title="品目: '+esc(x.item || '')+'">'+esc(x.co || x.name || '')+'</td>' : '<td colspan="2"><span class="ng">未選択</span></td>'; };
+    const nm = (L, id, k) => { const x = L.find(y => y.id===id); return x ? '<td class="'+k+'">'+esc(x.party || '')+'</td><td class="'+k+'" title="品目: '+esc(x.item || '')+'">'+esc(x.co || x.name || '')+'</td>' : '<td class="'+k+'" colspan="2"><span class="ng">未選択</span></td>'; };
     const scI = R.lookups.findIndex(L => L.kind==='saleco'), coId = scI>=0 ? picks[scI] : '';
-    const nmS = id => D.sale.items.some(y => y.id===id) || !coId ? nm(D.sale.items, id) : '<td colspan="2">'+dtlCoOnly(D, coId, pickName(scI))+'</td>';
-    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s"><tr><th>Packer</th><th>販売先</th><th>販売CO</th><th>購買元</th><th>購買CO</th><th>本数</th><th>予想重量</th></tr>'
-      + D.rows.map(r => '<tr><td>'+esc(r.packer)+'</td>'+nmS(r.sale)+nm(D.purch.items, r.pur)+'<td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
+    const nmS = id => D.sale.items.some(y => y.id===id) || !coId ? nm(D.sale.items, id, 'cp-s') : '<td class="cp-s" colspan="2">'+dtlCoOnly(D, coId, pickName(scI))+'</td>';
+    h += '<div style="margin-top:8px;font-weight:700">明細 <span class="muted" style="font-weight:400;font-size:11px">'+(CFG.COMPASS_DTL_WRITE ? '（ヘッダーの後に作成 — 販売・購買がそろった行だけ）' : '（試験 — ヘッダーの後に 送る内容を表示するだけ）')+'</span></div><table class="b6-s"><tr><th>Packer</th><th class="cp-s">販売先</th><th class="cp-s">販売CO</th><th class="cp-p">購買元</th><th class="cp-p">購買CO</th><th>本数</th><th>予想重量</th></tr>'
+      + D.rows.map(r => '<tr><td>'+esc(r.packer)+'</td>'+nmS(r.sale)+nm(D.purch.items, r.pur, 'cp-p')+'<td style="text-align:right">'+r.hon+'</td><td style="text-align:right">'+dtlNum(r.wt)+'</td></tr>').join('')
       + '</table>';
     const miss = D.rows.filter(r => !D.sale.items.some(x => x.id===r.sale) || !D.purch.items.some(x => x.id===r.pur));
     if(miss.length) h += '<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:#fef2f2;color:#b91c1c;font-weight:600">⚠ 販売（品目）・購買が未選択の明細 '+miss.length+' 行は COMPASS に作成されません — 「← 戻って直す」で 販売・購買 の表の「選ぶ」を押してください</div>';
