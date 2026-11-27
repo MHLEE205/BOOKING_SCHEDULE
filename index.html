@@ -323,14 +323,14 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-sp .cp-pan>div.muted,.cp-sp .cp-pan>div[style*="font-size:11px"]{margin-top:6px;line-height:1.5}
 .cp-sp .cp-it td,.cp-sp .cp-it th{padding-left:4px;padding-right:4px}
 /* Invoice の次の番号 (ユーザー 2026-11-16) */
-/* Invoice の次の番号 (ユーザー 2026-11-27 改め): 文字は v1.43 の 85%・使えそうな契約は ごく薄い緑・品目は 1 行ずつ 残 と並べる */
-.inv-help{position:fixed;z-index:60;width:auto;max-width:min(700px,calc(100vw - 16px));max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);padding:8px 10px 7px;font-size:10.6px;line-height:1.4}
+/* Invoice の次の番号 (ユーザー 2026-11-27 改め): 文字は v1.43 の 85%・使えそうな契約は ごく薄い青 (緑以外: ユーザー 2026-11-27)・品目は 1 行ずつ 残 と並べる */
+.inv-help{position:fixed;z-index:60;width:auto;max-width:min(540px,calc(100vw - 16px));max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);padding:8px 10px 7px;font-size:10.6px;line-height:1.4}
 .inv-help .t{font-weight:700;margin-bottom:3px;font-size:11.5px;letter-spacing:.02em}
-.inv-help table{border-collapse:separate;border-spacing:0;margin-top:3px;width:672px;table-layout:fixed}
+.inv-help table{border-collapse:separate;border-spacing:0;margin-top:3px;width:504px;table-layout:fixed}
 .inv-help td{overflow:hidden;text-overflow:ellipsis}
 .inv-help .iq .in{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.inv-help th{font-size:9.5px;color:var(--text3);font-weight:600;text-align:left;padding:3px 7px;border-bottom:1px solid var(--border);white-space:nowrap;letter-spacing:.03em}
-.inv-help td{padding:4px 7px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent);white-space:nowrap;vertical-align:top}
+.inv-help th{font-size:9.5px;color:var(--text3);font-weight:600;text-align:left;padding:3px 5px;border-bottom:1px solid var(--border);white-space:nowrap;letter-spacing:.03em}
+.inv-help td{padding:4px 5px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent);white-space:nowrap;vertical-align:top}
 .inv-help tr:last-child td{border-bottom:none}
 .inv-help th.n,.inv-help td.n{text-align:right}
 .inv-help td.co{font-weight:700}
@@ -341,11 +341,11 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .inv-help .iq.use .rq{color:var(--info)}
 .inv-help .iq.sum{border-top:1px dotted var(--border);margin-top:1px;padding-top:1px;font-size:9.5px;color:var(--text3)}
 .inv-help .iq.sum .rq{color:var(--text2)}
-.inv-help tr.ok td{background:color-mix(in srgb,var(--ok) 5%,var(--surface))}
-.inv-help tr.ok td:first-child{box-shadow:inset 2px 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}
+.inv-help tr.fit td{background:color-mix(in srgb,var(--info) 6%,var(--surface))}
+.inv-help tr.fit td:first-child{box-shadow:inset 2px 0 0 color-mix(in srgb,var(--info) 50%,transparent)}
 .inv-help tr.miss td{color:var(--text2)}
 .inv-help .src{font-size:8.5px;color:var(--text3);margin-left:3px}
-.inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:4px;padding:0 6px;font:inherit;font-size:10.6px;font-weight:700;line-height:1.5}
+.inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:4px;padding:0 5px;font:inherit;font-size:10.6px;font-weight:700;line-height:1.5;white-space:nowrap}
 .inv-help .go:hover{background:var(--accent);color:#fff}
 .inv-help td.nx{white-space:normal;line-height:1.9}
 .inv-help td.nx .gap{white-space:nowrap}
@@ -893,7 +893,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.51', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.52', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -3055,7 +3055,7 @@ function invHelpHtml(X, err, val, b){
   };
   h += '<table><tr><th>販売契約</th><th>販売先</th><th>品目・残</th><th>船積期限</th><th>最後</th><th>次</th></tr>'
     + rows.map(r => { const miss = invItemMiss(b, r.items), ok = hasG && r.items.length && !miss.length;
-      return '<tr'+(ok ? ' class="ok" title="B-06 の品目が この契約に全部あります"' : miss.length ? ' class="miss"' : '')+'><td class="co">'+esc(r.c.name)+'</td>'
+      return '<tr'+(ok ? ' class="fit" title="B-06 の品目が この契約に全部あります"' : miss.length ? ' class="miss"' : '')+'><td class="co">'+esc(r.c.name)+'</td>'
       + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyerShort || buyerShort(r.c.buyer))+'</td>'
       + '<td class="it">'+itemCell(r)+(miss.length ? '<div class="imiss" title="'+esc('この契約に B-06 の品目 '+miss.join('・')+' がありません')+'">⚠ '+esc(miss.join('・'))+' なし</div>' : '')+'</td>'
       + '<td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
@@ -3064,7 +3064,7 @@ function invHelpHtml(X, err, val, b){
       + (r.gaps.length ? r.gaps.slice(0, 3).map(g => '<button class="gap" title="空き番号（キャンセルなどで抜けた番号）— 押すと入ります。使う前に その番号がもう使われていないか確かめてください" data-inv="'+esc(g)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">空き '+esc(g.split('-').pop())+'</button>').join('')
         + (r.gaps.length > 3 ? '<span class="muted" style="font-size:10px" title="'+esc(r.gaps.join('、'))+'"> ほか '+(r.gaps.length - 3)+'</span>' : '') : '')+'</td></tr>'; }).join('')
     + '</table>' + (hidden ? '<div class="muted" style="margin-top:4px;font-size:9.5px">残 0 の契約 '+hidden+' 件は非表示</div>' : '')
-    + '<div class="muted" style="margin-top:5px;font-size:9px">番号を押すと入ります・薄い緑 = B-06 の品目が全部ある契約・太字 = B-06 の品目・最後: C = COMPASS / B = B-06・空き = 間で抜けている番号（キャンセルなど）</div>';
+    + '<div class="muted" style="margin-top:5px;font-size:9px">番号を押すと入ります・薄い青 = B-06 の品目が全部ある契約・太字 = B-06 の品目・最後: C = COMPASS / B = B-06・空き = 間で抜けている番号（キャンセルなど）</div>';
   return h;
 }
 /* Invoice no. のセルを編集している間、すぐ下に出す */
