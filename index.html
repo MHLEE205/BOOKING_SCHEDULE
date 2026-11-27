@@ -137,7 +137,10 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-map .rt-z button{width:17px;height:17px;padding:0;line-height:15px;font:inherit;font-size:12px;font-weight:700;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer;opacity:.85}
 .b6-map .rt-z button:hover{opacity:1;color:var(--accent);border-color:var(--accent)}
 .b6-map .rt-c{font-weight:400;color:var(--text3);font-size:10.5px}
-.b6-map.route svg{border-radius:5px;flex:none;width:100%;height:auto;max-height:none}
+.b6-map.route svg{border-radius:5px;flex:none;width:100%;height:auto;max-height:none;cursor:grab;touch-action:none;user-select:none}
+.b6-map.route svg.drag{cursor:grabbing}
+.b6-map .rt-hd .rt-c{margin-left:2px;flex:none}
+.b6-map .rt-hd .gmap{flex:none;margin-left:3px;font-size:9.5px;line-height:14px}
 .b6-map .sea{fill:color-mix(in srgb,var(--info) 9%,var(--read))}
 .b6-map.route .land{fill:color-mix(in srgb,var(--text3) 45%,var(--read));stroke:none}
 .b6-map .bd{fill:none;stroke:color-mix(in srgb,var(--read) 55%,var(--text3));stroke-linejoin:round;stroke-linecap:round}
@@ -889,7 +892,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.46', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.47', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2296,7 +2299,11 @@ function renderRoute(el, b){
   const podTxt = firstLine(b.pod) || '—';
   let days = '';
   if(b.etd && b.eta){ const n = dayDiff(b.etd, b.eta); if(n >= 0) days = n+' 日'; }
-  const head = '<div class="rt-hd"><b>'+esc(pol||'POL?')+'</b> → <b>'+esc(D ? D[2] : podTxt)+'</b><button class="rt-x" data-rtx="1" title="選択を解除 (Esc)">✕</button></div>';
+  /* 「⚓ POD 国 Maps↗」は 地図の下から 見出しの行へ (ユーザー 2026-11-27 — その分 地図を 110% に) */
+  const head = '<div class="rt-hd"><b>'+esc(pol||'POL?')+'</b> → <b>'+esc(D ? D[2] : podTxt)+'</b>'
+    + (D && POD_CTRY[D[2]] ? '<span class="rt-c">'+esc(POD_CTRY[D[2]])+'</span>' : '')
+    + (D ? '<button class="gmap" data-gmap="1" data-q="'+esc(D[2].replace(/\s*\(.*\)$/,'')+' port')+'" title="Google マップで開く（新しいタブ） — '+esc(D[2])+'">Maps ↗</button>' : '')
+    + '<button class="rt-x" data-rtx="1" title="選択を解除 (Esc)">✕</button></div>';
   if(!P || !D){
     el.innerHTML = head + '<div class="rt-na">'+(!P ? 'POL「'+esc(pol||'空')+'」の位置が分かりません' : 'POD「'+esc(podTxt)+'」の位置が分かりません')+'<br><span class="muted">'+esc(bkLabel(b))+'</span></div>';
     return;
@@ -2312,17 +2319,20 @@ function renderRoute(el, b){
   let w = Math.max(18, (x1-x0)+6)*k*ZOOM_OUT, h = Math.max(14, (y1-y0)+6)*ZOOM_OUT;
   /* 幅 / 高さ = 右上の枠の空き (見出しを除く) に合わせて、地図で枠を埋める */
   /* 枠の高さから比率を出すと、描くたびに地図が伸びて枠も伸びる (2026-11-12 不具合) → 高さは日本地図と同じ固定値 */
-  const RT_H = Math.max(60, Math.min(185, (S.mapH||185) - 74)), bw = el.getBoundingClientRect().width;
+  /* 地図の高さ: 枠の大きさは そのまま・地図は 前 (枠 − 74) の 110% (ユーザー 2026-11-27)。見出し・検索の分は残す */
+  const MH = S.mapH||185, RT_H = Math.max(60, Math.min(204, Math.round((MH - 74)*1.1), MH - 50)), bw = el.getBoundingClientRect().width;
   const AR = Math.max(0.55, Math.min(2.4, ((bw > 50 ? bw : 158) - 12) / RT_H));
   if(w/h > AR) h = w/AR; else w = h*AR;
   /* 地図の ＋ − で拡大・縮小 (選んだブッキングの間だけ — ユーザー 2026-11-19) */
   const z = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ.z : 1; w /= z; h /= z;
   /* 拡大するほど 中心を POD に寄せる (真ん中のままだと 両方の港が枠の外に出る) */
   const t = z > 1 ? 1 - 1/z : 0, zx = cx + (D[0] - cx)*t, zy = cy + (D[1] - cy)*t;
-  const vx = zx*k - w/2, vy = -zy - h/2;
+  /* ドラッグで動かした分 (地図の単位 — ユーザー 2026-11-27) */
+  const pan = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ : {};
+  const vx = zx*k - w/2 + (pan.px||0), vy = -zy - h/2 + (pan.py||0);
   const X = lon => lon*k, Y = lat => -lat;
   const pathOf = pts => 'M'+pts.map(p => X(p[0]).toFixed(2)+','+Y(p[1]).toFixed(2)).join('L');
-  const lon0 = vx/k, lon1 = (vx+w)/k, lat1 = -vy, lat0 = -(vy+h);
+  const lon0 = (vx-w)/k, lon1 = (vx+2*w)/k, lat1 = -(vy-h), lat0 = -(vy+2*h);   /* ドラッグで見える分も 前後 1 画面ずつ描く */
   let land = '';
   const inView = bb => !(bb[2]<lon0 || bb[0]>lon1 || bb[3]<lat0 || bb[1]>lat1);
   (S.world||[]).forEach(r => { if(inView(r.bb)) land += '<path class="land" d="'+pathOf(r.pts)+'Z"/>'; });
@@ -2339,18 +2349,17 @@ function renderRoute(el, b){
   });
   const lbl = (x, y, t, right, dy) => '<text class="rt-l" x="'+(x+(right?2.2:-2.2)*s).toFixed(2)+'" y="'+(y+(dy==null?1:dy)*s).toFixed(2)+'" text-anchor="'+(right?'start':'end')+'" style="font-size:'+(4.2*s).toFixed(2)+'px;stroke-width:'+(1.4*s).toFixed(2)+'px">'+esc(t)+'</text>';
   el.innerHTML = head
-    + '<div class="rt-w"><div class="rt-z"><button data-rtz="1.5" title="拡大">＋</button><button data-rtz="0.6667" title="縮小">−</button>'+(z!==1 ? '<button data-rtz="0" title="元の大きさ">↺</button>' : '')+'</div>'
+    + '<div class="rt-w"><div class="rt-z"><button data-rtz="1.5" title="拡大">＋</button><button data-rtz="0.6667" title="縮小">−</button>'+(z!==1 || pan.px || pan.py ? '<button data-rtz="0" title="元の大きさ・位置">↺</button>' : '')+'</div>'
     + '<svg viewBox="'+vx.toFixed(2)+' '+vy.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+'" preserveAspectRatio="xMidYMid meet" style="height:'+RT_H+'px">'
-    + '<defs><clipPath id="rtclip"><rect x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
-    + '<rect class="sea" x="'+vx+'" y="'+vy+'" width="'+w+'" height="'+h+'"/>' + land
+    + '<defs><clipPath id="rtclip"><rect x="'+(vx-w)+'" y="'+(vy-h)+'" width="'+3*w+'" height="'+3*h+'"/></clipPath></defs><g clip-path="url(#rtclip)">'
+    + '<rect class="sea" x="'+(vx-w)+'" y="'+(vy-h)+'" width="'+3*w+'" height="'+3*h+'"/>' + land
     + '<path class="rt" d="'+pathOf(route)+'" style="stroke-width:'+(1.1*s).toFixed(2)+'px;stroke-dasharray:'+(2.4*s).toFixed(2)+' '+(1.6*s).toFixed(2)+'"/>'
     + '<circle class="rt-pol" cx="'+px+'" cy="'+py+'" r="'+(1.8*s).toFixed(2)+'" style="stroke-width:'+(0.5*s).toFixed(3)+'px"/><circle class="rt-pod" cx="'+dx+'" cy="'+dy+'" r="'+(2.1*s).toFixed(2)+'" style="stroke-width:'+(0.5*s).toFixed(3)+'px"/>'
     + (Math.abs(px-dx) < 30*s && Math.abs(py-dy) < 10*s
         ? lbl(px, py, pol, false, -2.6) + lbl(dx, dy, D[2], false, 4.6)   /* 近い港同士: POL は上・POD は下 */
         : lbl(px, py, pol, px < dx) + lbl(dx, dy, D[2], dx < px || dx < vx + w*0.5))
     + '</g></svg></div>'
-    + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '')
-    + '<div class="cap">⚓ '+esc(D[2])+(POD_CTRY[D[2]] ? '<span class="rt-c">'+esc(POD_CTRY[D[2]])+'</span>' : '')+'<button class="gmap" data-gmap="1" data-q="'+esc(D[2].replace(/\s*\(.*\)$/,'')+' port')+'" title="Google マップで開く（新しいタブ） — '+esc(D[2])+'">Maps ↗</button></div>';
+    + (S.worldErr ? '<div class="rt-ft ng">世界地図を読めません（航路だけ表示）</div>' : '');
   /* 日付・距離は見出しのツールチップに */
   const hd = el.querySelector('.rt-hd');
   if(hd) hd.title = (fmtMD(b.etd)||'ETD?')+' → '+(fmtMD(b.eta)||'ETA?')+(days?' · '+days:'')+' · 約 '+Math.round(km/10)*10+' km（目安の航路・実際の航路とは異なります）';
@@ -7835,12 +7844,27 @@ function initUI(){
   sq.addEventListener('focus', () => { if(!S.siteListed){ S.siteListed = true; fillSiteList(); } });
   sq.addEventListener('keydown', ev => { if(ev.key==='Enter' && !ev.isComposing){ ev.preventDefault(); openSiteSearch(sq.value); } });
   sq.addEventListener('change', () => { const dl = document.getElementById('dl-site'); if(dl && Array.from(dl.options).some(o => o.value===sq.value)) openSiteSearch(sq.value); });
+  /* 航路地図をドラッグで動かす (手の形 — ユーザー 2026-11-27)。動かしている間は viewBox だけ変え、離したら 位置を覚えて描き直す。↺ で元に */
+  $('#b6-map').addEventListener('pointerdown', ev => {
+    const svg = ev.button===0 && ev.target.closest('.b6-map.route .rt-w svg'); if(!svg) return;
+    const b = S.selBk && S.bk.get(S.selBk); if(!b) return;
+    ev.preventDefault(); svg.setPointerCapture(ev.pointerId); svg.classList.add('drag');
+    const vb = svg.viewBox.baseVal, r = svg.getBoundingClientRect(), sc = Math.max(vb.width/r.width, vb.height/r.height);
+    const x0 = vb.x, y0 = vb.y, sx = ev.clientX, sy = ev.clientY;
+    const move = e => { vb.x = x0 - (e.clientX - sx)*sc; vb.y = y0 - (e.clientY - sy)*sc; };
+    const up = () => { svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up); svg.classList.remove('drag');
+      const dx = vb.x - x0, dy = vb.y - y0; if(!dx && !dy) return;
+      const p0 = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ : {z:1};
+      S.rtZ = {k:b.bookkey, z:p0.z||1, px:(p0.px||0) + dx, py:(p0.py||0) + dy}; renderMap(); };
+    svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+  });
   /* 地図の港をクリック → 港チップと同じ (もう一度で解除) */
   $('#b6-map').addEventListener('click', ev => {
     if(ev.target.closest('[data-rtx]')){ selectBooking(null); return; }
     const zb = ev.target.closest('[data-rtz]');
     if(zb){ const b = S.selBk && S.bk.get(S.selBk); if(!b) return; const f = +zb.dataset.rtz, z0 = S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ.z : 1;
-      S.rtZ = {k:b.bookkey, z:f ? Math.max(0.3, Math.min(8, z0*f)) : 1}; renderMap(); return; }
+      const p0 = f && S.rtZ && S.rtZ.k===b.bookkey ? S.rtZ : {};
+      S.rtZ = {k:b.bookkey, z:f ? Math.max(0.3, Math.min(8, z0*f)) : 1, px:p0.px||0, py:p0.py||0}; renderMap(); return; }
     const gm = ev.target.closest('[data-gmap]');
     if(gm){ if(gm.dataset.q) window.open(gmapSearch(gm.dataset.q), '_blank', 'noopener'); else openGoogleMap(); return; }
     const d = ev.target.closest('[data-port]'); if(!d) return;
