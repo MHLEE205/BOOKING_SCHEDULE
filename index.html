@@ -167,6 +167,13 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-split>.b6-wrap{flex:1;min-width:0}
 .b6-memo{position:relative;width:440px;flex:none;display:flex;flex-direction:column;background:var(--read);border:1px solid var(--border);border-radius:8px;min-height:300px;overflow:hidden}
 .b6-memo[hidden]{display:none}
+/* 自由に動かす・大きさを変える (ユーザー 2026-11-27): 見出しを ドラッグ → 浮かぶ窓。右下の角で 大きさ。⇥ で 右の枠に戻す */
+.b6-memo.float{position:fixed;z-index:55;resize:both;min-width:260px;min-height:200px;box-shadow:0 12px 32px rgba(0,0,0,.22),0 2px 6px rgba(0,0,0,.1)}
+.b6-memo.float .mp-grip{display:none}
+.b6-memo .mp-hd{cursor:move;user-select:none}
+.b6-memo .mp-hd select,.b6-memo .mp-hd button{cursor:pointer}
+.mp-dock{display:none}
+.b6-memo.float .mp-dock{display:inline-block}
 .mp-hd{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surface2)}
 .mp-hd select{flex:1;min-width:0}
 .mp-x{background:none;border:0;color:var(--text3);font-size:14px;cursor:pointer;padding:0 4px}
@@ -893,7 +900,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.55', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.56', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4200,11 +4207,12 @@ function toggleMemo(open){
   if(S.ready) renderChips();
   if(S.memoOpen){
     if(!S.memoEd){
-      p.innerHTML = '<div class="mp-hd" title="担当・港ごとのメモ帳。全員で共有・自動保存。Excel の範囲やスクショは Ctrl+V で画像として貼れます（Ctrl+Shift+V は文字だけ）。"><span>📝</span><select class="b6-sel" id="mp-sel"></select><button class="mp-x" id="mp-x" title="閉じる">✕</button></div>'
+      p.innerHTML = '<div class="mp-hd" title="担当・港ごとのメモ帳。全員で共有・自動保存。Excel の範囲やスクショは Ctrl+V で画像として貼れます（Ctrl+Shift+V は文字だけ）。"><span>📝</span><select class="b6-sel" id="mp-sel"></select><button class="mp-x mp-dock" id="mp-dock" title="右の枠に戻す">⇥</button><button class="mp-x" id="mp-x" title="閉じる">✕</button></div>'
         + '<div class="me-host" id="mp-host"></div><div class="mp-grip" title="ドラッグで幅を変更"></div>';
       S.memoEd = makeMemoEditor($('#mp-host'), {placeholder:'このメモ帳は空です — 連絡先・注意事項・画像などを自由に'});
       $('#mp-x').addEventListener('click', () => toggleMemo(false));
       $('#mp-sel').addEventListener('change', ev => { S.memoKey = ev.target.value; S.memoPin = true; memoShow(); });
+      memoFloatInit(p);
       const grip = $('.mp-grip', p);
       grip.addEventListener('mousedown', ev => {
         ev.preventDefault(); const x0 = ev.clientX, w0 = p.offsetWidth;
@@ -4215,6 +4223,37 @@ function toggleMemo(open){
     }
     S.memoPin = false; memoShow();
   }
+}
+/* 浮かぶメモ: 見出しを ドラッグで 移動 (初めて動かした時に 浮かぶ)・CSS の resize で 大きさ・位置と大きさは 覚える */
+function memoGeoSave(p){ if(!p.classList.contains('float')) { IDB.set('memoGeo', null); return; }
+  const r = p.getBoundingClientRect(); IDB.set('memoGeo', {x:Math.round(r.left), y:Math.round(r.top), w:Math.round(r.width), h:Math.round(r.height)}); }
+function memoFloatSet(p, g){
+  p.classList.add('float');
+  const w = Math.max(260, Math.min(innerWidth - 16, g.w)), h = Math.max(200, Math.min(innerHeight - 16, g.h));
+  p.style.width = w+'px'; p.style.height = h+'px';
+  p.style.left = Math.max(0, Math.min(innerWidth - 80, g.x))+'px'; p.style.top = Math.max(0, Math.min(innerHeight - 40, g.y))+'px';
+}
+function memoDock(p){
+  p.classList.remove('float'); p.style.left = p.style.top = p.style.height = '';
+  IDB.get('memoW').then(w => { p.style.width = (w || 440)+'px'; });
+  IDB.set('memoGeo', null);
+}
+function memoFloatInit(p){
+  $('#mp-dock').addEventListener('click', () => memoDock(p));
+  $('.mp-hd', p).addEventListener('mousedown', ev => {
+    if(ev.button!==0 || ev.target.closest('select,button,input')) return;
+    ev.preventDefault();
+    const r = p.getBoundingClientRect();
+    if(!p.classList.contains('float')) memoFloatSet(p, {x:r.left, y:r.top, w:r.width, h:Math.min(r.height, innerHeight - r.top - 8)});
+    const dx = ev.clientX - r.left, dy = ev.clientY - r.top;
+    const mv = e => { p.style.left = Math.max(0, Math.min(innerWidth - 80, e.clientX - dx))+'px'; p.style.top = Math.max(0, Math.min(innerHeight - 40, e.clientY - dy))+'px'; };
+    const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); memoGeoSave(p); };
+    addEventListener('mousemove', mv); addEventListener('mouseup', up);
+  });
+  /* 右下の角で 大きさを変えた後 */
+  let tm = null;
+  new ResizeObserver(() => { if(!p.classList.contains('float')) return; clearTimeout(tm); tm = setTimeout(() => memoGeoSave(p), 400); }).observe(p);
+  IDB.get('memoGeo').then(g => { if(g && g.w) memoFloatSet(p, g); });
 }
 /* 担当・港を選び直したらメモもそれに合わせる (手で選んだ時はそのまま) */
 function memoFollow(){ if(S.memoOpen && S.memoEd){ S.memoPin = false; memoShow(); } }
