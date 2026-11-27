@@ -876,7 +876,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.44', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.45', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1803,6 +1803,7 @@ function allocBoot(zoomOnly){
       + ' #content-alloc .sp>div>.card:first-child table.dt th{background:color-mix(in srgb,var(--b6c) 7%,var(--surface2))}'
       + ' #content-alloc .sp>div>.card:first-child .pol-row{background:linear-gradient(90deg,var(--b6c) 3px,color-mix(in srgb,var(--b6c) 9%,var(--surface3)) 3px)}'
       + ' #content-alloc .sp>div>.card:first-child .pol-name{color:color-mix(in srgb,var(--b6c) 85%,var(--text))}'
+      + ' #content-alloc #fPOD{margin-bottom:8px}'   /* POL・POD を 品目タブの上へ移したので 間を少し */
       + ' .b6-lbl{font-size:24px;font-weight:700;line-height:1;color:color-mix(in srgb,var(--b6c) 80%,var(--text))}';
     d.head.appendChild(s);
   }
@@ -1812,25 +1813,31 @@ function allocBoot(zoomOnly){
   allocRemainHon();
   return true;
 }
-/* 割り当て: POL・POD の絞り込みを 品目タブ (担当) ごとに記憶 (ユーザー 2026-11-27)
-   元の sel() は タブを押すと POL・POD を全部 解除していた → タブごとに 前に選んだものを戻す。最後に開いたタブも記憶 (人ごと = この PC の localStorage) */
+/* 割り当て: POL・POD の絞り込み (ユーザー 2026-11-27 改め)
+   v1.42 の「品目タブごとに記憶」は 動きが分かりにくい → やめて 元に戻す。変えるのは 2 つだけ:
+   ① POL・POD の行を 品目タブの上へ
+   ② 品目タブを押しても 選んだ港は 解除しない (元の sel() は全部 解除・buildFilterChips は その品目に無い港を外していた)。
+      その品目に無い港でも 選んでいれば チップを出す (外せるように)。記憶は 開いている間だけ (読み直すと 元どおり 全) */
 function allocFilterMemo(w){
   if(w._b6flt) return; w._b6flt = true;
-  try{ w.eval(`(function(){
-    const K='b6_alloc_flt';
-    const load=()=>{try{return JSON.parse(localStorage.getItem(K)||'null')||{f:{}};}catch(e){return {f:{}};}};
-    const save=()=>{try{const m=load();m.last=SI;m.f[SI]={pol:[...SF_POL],pod:[...SF_POD]};localStorage.setItem(K,JSON.stringify(m));}catch(e){}};
-    const use=i=>{const f=load().f[i]||{};SF_POL=new Set(f.pol||[]);SF_POD=new Set(f.pod||[]);};
-    const oPol=selPOL,oPod=selPOD,oRender=render;let first=true;
-    window.selPOL=function(v){oPol(v);save();};
-    window.selPOD=function(v){oPod(v);save();};
-    window.sel=function(i){SI=i;use(i);render();save();};
-    window.render=function(){
-      if(first&&BD.length){first=false;const m=load();
-        if(m.last&&(m.last==='ALL'||BD.some(b=>b._it===m.last)||SD.some(s=>s._it===m.last)))SI=m.last;
-        use(SI);}
-      return oRender.apply(this,arguments);};
-  })()`); }catch(e){ console.warn('割り当て: 絞り込みの記憶を付けられません', e); }
+  try{
+    const d = w.document, iT = d.getElementById('iT'), fP = d.getElementById('fPOL'), fD = d.getElementById('fPOD');
+    if(iT && fP && fD) iT.parentNode.insertBefore(fP, iT), iT.parentNode.insertBefore(fD, iT);
+    w.eval(`(function(){
+    window.sel=function(i){SI=i;render();};
+    window.buildFilterChips=function(){
+      const bf=SI==='ALL'?BD:BD.filter(b=>b._it===SI);
+      const sf=SI==='ALL'?SD:SD.filter(s=>s._it===SI);
+      const pols=[...new Set(bf.map(b=>b._pol).filter(p=>p&&p!=='-').concat([...SF_POL]))].sort();
+      const pods=[...new Set(sf.map(s=>s._pd).filter(p=>p&&p!=='?'&&p!=='国内転売'&&p!=='国内').concat([...SF_POD]))].sort();
+      let ph='<span class="flt-label">POL</span><div class="fchip all-chip '+(SF_POL.size===0?'on':'')+'" onclick="selPOL(&quot;ALL&quot;)">全</div>';
+      pols.forEach(p=>{ph+='<div class="fchip '+(SF_POL.has(p)?'on':'')+'" onclick="selPOL(&quot;'+p+'&quot;)">'+p+'</div>';});
+      $('fPOL').innerHTML=ph;
+      let dh='<span class="flt-label">POD</span><div class="fchip all-chip '+(SF_POD.size===0?'on':'')+'" onclick="selPOD(&quot;ALL&quot;)">全</div>';
+      pods.forEach(p=>{dh+='<div class="fchip '+(SF_POD.has(p)?'on':'')+'" onclick="selPOD(&quot;'+encodeURI(p)+'&quot;)" title="'+p+'">'+p+'</div>';});
+      $('fPOD').innerHTML=dh;
+    };
+  })()`); }catch(e){ console.warn('割り当て: 絞り込みを付けられません', e); }
 }
 /* 割り当て: Sales・Buy の表の見出しに ◀▶ — 左右を入れ替えて 人ごとに記憶 (次に開いても同じ — ユーザー 2026-11-18) */
 function allocSide(d){
