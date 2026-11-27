@@ -167,6 +167,12 @@ if(!window.LEENAI){document.addEventListener('DOMContentLoaded',function(){docum
 .b6-split>.b6-wrap{flex:1;min-width:0}
 .b6-memo{position:relative;width:440px;flex:none;display:flex;flex-direction:column;background:var(--read);border:1px solid var(--border);border-radius:8px;min-height:300px;overflow:hidden}
 .b6-memo[hidden]{display:none}
+/* 今 開いている人 (Excel の共同編集のように 丸いアイコン) */
+.b6-pres{display:inline-flex;align-items:center;margin-right:8px}
+.b6-pres .pv{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;margin-left:-3px;border:2px solid var(--surface);box-shadow:0 0 0 1.5px var(--pc);background:var(--pc);overflow:hidden;cursor:default}
+.b6-pres .pv:first-child{margin-left:0}
+.b6-pres .pv img{width:100%;height:100%;object-fit:cover}
+.b6-pres .pv.more{background:var(--surface2);color:var(--text2);box-shadow:0 0 0 1.5px var(--border)}
 /* 自由に動かす・大きさを変える (ユーザー 2026-11-27): 見出しを ドラッグ → 浮かぶ窓。右下の角で 大きさ。⇥ で 右の枠に戻す */
 .b6-memo.float{position:fixed;z-index:55;resize:both;min-width:260px;min-height:200px;box-shadow:0 12px 32px rgba(0,0,0,.22),0 2px 6px rgba(0,0,0,.1)}
 .b6-memo.float .mp-grip{display:none}
@@ -900,7 +906,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.56', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.57', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1517,8 +1523,8 @@ function resortNow(quiet){
   if(!quiet) renderBoard();
 }
 function fxClass(lv, id, k){ const v = S.cellFx[lv+'|'+id+'|'+k]; return (v ? ' '+v : '') + (remoteOf(lv, id, k) ? ' rfx' : ''); }
-/* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、20 秒間 紫の枠 + 名前 ══════════ */
-const REMOTE_MS = 20*1000;   /* 2026-11-12 ユーザー: 30 分 → 20 秒 */
+/* ══════════ 他の人が変更したセル (Excel の共同編集の表示のように) — 20 秒の自動更新で値を比べて、1 分間 紫の枠 + 名前 ══════════ */
+const REMOTE_MS = 60*1000;   /* 2026-11-12 ユーザー: 30 分 → 20 秒 / 2026-11-27: 1 分 */
 /* 原文・付随の列は画面の列に読み替える */
 const REMOTE_COL = {approval_raw:'approval', cy_note:'cyopen', etd_note:'etd', eta_note:'eta', slots:'qty_raw', totalhon:'qty_raw', datefrom:'qty_raw', dateto:'qty_raw', parse:'qty_raw', pol:'port'};
 const REMOTE_SKIP = new Set(['name','bookkey','seq','region','source','batch','importkey','createdby','compass_id','compass_status','compass_at','fmt']);
@@ -3989,6 +3995,61 @@ const SpMemo = {
     try{ return (await LEENAI.sp.list(MEMO_ROOT+'/'+folder)).map(f=>f.name); }catch(e){ return []; }
   },
 };
+/* ══════════ 今 開いている人 (ユーザー 2026-11-27: Excel のように) ══════════
+   SharePoint B-06_MEMO/presence/<自分>.json を 1 分ごとに書き直す。フォルダの一覧 (1 回の読み取り) を 30 秒ごとに見て、
+   2 分半以内に書いた人を 丸いアイコンで出す。名前は ファイルを最後に書いた人 (lastModifiedBy) — ファイルの中身は読まない。
+   写真は 読めれば (権限がなければ 頭文字) */
+const PRES_LIVE = 150e3;
+const presColor = s => { let h = 0; for(const c of str(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return 'hsl('+(h % 360)+' 55% 45%)'; };
+const presInit = n => { n = str(n).trim(); if(/^[^ -]/.test(n)) return n[0]; const w = n.split(/[\s._@-]+/).filter(Boolean); return (w.length > 1 ? w[0][0]+w[1][0] : n.slice(0, 2)).toUpperCase(); };
+function presBox(){
+  let el = document.getElementById('b6-pres'); if(el) return el;
+  const host = document.querySelector('.ln-header .ln-hdr-right'); if(!host) return null;
+  el = document.createElement('span'); el.id = 'b6-pres'; el.className = 'b6-pres'; host.insertBefore(el, host.firstChild); return el;
+}
+function presRender(list){
+  const el = presBox(); if(!el) return;
+  const me = userEmail().toLowerCase();
+  list = list.slice().sort((a, b) => (a.email===me ? -1 : b.email===me ? 1 : 0) || a.name.localeCompare(b.name));
+  const MAX = 6, shown = list.slice(0, MAX);
+  el.title = '今 開いている人 '+list.length+' 人\n'+list.map(u => u.name+(u.email===me ? '（自分）' : '')).join('\n');
+  el.innerHTML = shown.map(u => '<span class="pv" style="--pc:'+presColor(u.email || u.name)+'" title="'+esc(u.name)+(u.email===me ? '（自分）' : '')+'">'
+      + (S.presPh && S.presPh.get(u.id) ? '<img src="'+S.presPh.get(u.id)+'" alt="">' : esc(presInit(u.name)))+'</span>').join('')
+    + (list.length > MAX ? '<span class="pv more">+'+(list.length - MAX)+'</span>' : '');
+}
+async function presPhoto(u){
+  S.presPh = S.presPh || new Map(); if(!u.id || S.presPh.has(u.id)) return;
+  S.presPh.set(u.id, '');
+  try{ const r = await SpMemo._f(GRAPH+'users/'+encodeURIComponent(u.id)+'/photos/48x48/$value');
+    if(r.ok) S.presPh.set(u.id, URL.createObjectURL(await r.blob())); }catch(e){}
+}
+async function presBeat(){
+  const me = userEmail(); if(!me) return;
+  try{ await SpMemo.put('presence/'+me.toLowerCase().replace(/[^a-z0-9._-]/g, '_')+'.json', {email:me, name:myName(), at:new Date().toISOString(), sys:APP.sys}); }catch(e){}
+}
+async function presRead(){
+  if(document.hidden) return;
+  try{
+    const r = await SpMemo._f(GRAPH+'drives/'+LEENAI.SP.DRIVE_ID+'/root:/'+spPath('presence')+':/children?$select=name,lastModifiedDateTime,lastModifiedBy&$top=200');
+    if(!r.ok) return;
+    const now = Date.now(), seen = new Map();
+    ((await r.json()).value || []).forEach(f => {
+      if(now - Date.parse(f.lastModifiedDateTime) > PRES_LIVE) return;
+      const u = (f.lastModifiedBy && f.lastModifiedBy.user) || {}, email = str(u.email).toLowerCase() || f.name.replace(/\.json$/, '');
+      if(!seen.has(email)) seen.set(email, {id:str(u.id), email:email, name:str(u.displayName) || email});
+    });
+    const me = userEmail().toLowerCase(); if(me && !seen.has(me)) seen.set(me, {id:'', email:me, name:myName() || me});
+    const list = Array.from(seen.values());
+    presRender(list);
+    await Promise.all(list.map(presPhoto)); presRender(list);
+  }catch(e){}
+}
+function presStart(){
+  if(CFG.DEMO){ presRender([{email:userEmail(), name:'デモユーザー'}, {email:'a@example.invalid', name:'Taro Sample'}, {email:'b@example.invalid', name:'Hanako Test'}]); return; }
+  presBeat().then(presRead);
+  setInterval(presBeat, 60e3); setInterval(presRead, 30e3);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden){ presBeat(); presRead(); } });
+}
 /* デモ用 (メモリ) */
 function makeMemMemo(){
   const T = new Map(), I = new Map(); let v = 1;
@@ -8255,6 +8316,7 @@ async function startTool(){
   if(S.hasCpk) cpkLoadNames();
   await loadBoard();
   await restoreMemo();
+  presStart();
   /* COMPASS の一覧・明細を裏で先読み (権限がなければ何もしない) */
   setTimeout(() => compassWarm(), 4000);
   /* COMPASS の一覧 (販売・購買・残・契約) を裏で 3 分ごとに読み直す — 画面が見えていて、入力画面を開いていない時だけ */
@@ -8293,6 +8355,7 @@ function startDemo(){
   });
   initUI();
   restorePrefs().then(loadBoard).then(fillDatalists).then(restoreMemo).then(applyStaffPin);
+  presStart();
 }
 
 if(CFG.DEMO){
