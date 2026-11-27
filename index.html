@@ -876,7 +876,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.43', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.44', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1605,7 +1605,10 @@ function cellHtml(col, b, a){
     if(k==='carrier' && S.hasQty) return esc(carrierText(b)) + ' ' + qtyBadge(b);
     if(k==='invoiceno'){ const co = cpContracts(b);
       const cw = ((cpCmpOf(b) || {}).rows || []).filter(r => r.k==='saleco' && !r.okd);
-      return esc(v) + (co && co.sale.length ? '<div class="cpco'+(cw.length ? ' ng' : '')+'" title="'+esc(cw.length ? 'COMPASS の販売契約 — 確認してください\n'+cw.map(r => r.label+': '+r.cp+' / '+r.b06).join('\n') : 'COMPASS の販売契約')+'">'+esc(co.sale.join('・'))+(cw.length ? ' ⚠' : '')+'</div>' : ''); }
+      /* Invoice no. はあるのに まだ COMPASS 入力していない (ユーザー 2026-11-27)。失敗は Booking no. の方に「COMPASS失敗」が出るので ここは 未入力 だけ */
+      const notYet = !blank(v) && b.compass_status!=='SENT' && b.compass_status!=='ERROR'
+        ? '<br><span class="bdg w" title="Invoice no. はありますが まだ COMPASS に入力していません">COMPASS未入力</span>' : '';
+      return esc(v) + notYet + (co && co.sale.length ? '<div class="cpco'+(cw.length ? ' ng' : '')+'" title="'+esc(cw.length ? 'COMPASS の販売契約 — 確認してください\n'+cw.map(r => r.label+': '+r.cp+' / '+r.b06).join('\n') : 'COMPASS の販売契約')+'">'+esc(co.sale.join('・'))+(cw.length ? ' ⚠' : '')+'</div>' : ''); }
     return esc(v);
   }
   const v = a[k];
