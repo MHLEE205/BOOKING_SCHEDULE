@@ -320,20 +320,24 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-sp .cp-pan>div.muted,.cp-sp .cp-pan>div[style*="font-size:11px"]{margin-top:6px;line-height:1.5}
 .cp-sp .cp-it td,.cp-sp .cp-it th{padding-left:4px;padding-right:4px}
 /* Invoice の次の番号 (ユーザー 2026-11-16) */
-.inv-help{position:fixed;z-index:60;width:auto;max-width:min(560px,calc(100vw - 16px));max-height:260px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18);padding:5px 7px;font-size:11px;line-height:1.3}
-.inv-help .t{font-weight:700;margin-bottom:2px;font-size:11px}
-.inv-help table{border-collapse:collapse}
-.inv-help th{font-size:10px;color:var(--text2);font-weight:400;text-align:left;padding:1px 4px;border-bottom:1px solid var(--border)}
-.inv-help td{padding:1px 4px;border-bottom:1px solid var(--border);white-space:nowrap}
-.inv-help td.n{text-align:right}
-.inv-help td.by{max-width:90px;overflow:hidden;text-overflow:ellipsis}
-.inv-help .src{font-size:9px;color:var(--text3);margin-left:2px}
-.inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:3px;padding:0 5px;font:inherit;font-size:11px;font-weight:700;line-height:1.4}
+/* 見やすく (ユーザー 2026-11-27): 文字を少し大きく・行の間を広く・見出しに色・行を交互に薄く・販売先は略称 */
+.inv-help{position:fixed;z-index:60;width:auto;max-width:min(680px,calc(100vw - 16px));max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.18);padding:8px 10px;font-size:12.5px;line-height:1.4}
+.inv-help .t{font-weight:700;margin-bottom:4px;font-size:13px}
+.inv-help table{border-collapse:collapse;margin-top:2px}
+.inv-help th{font-size:11px;color:var(--text2);font-weight:600;text-align:left;padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap}
+.inv-help td{padding:5px 8px;border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent);white-space:nowrap;vertical-align:middle}
+.inv-help tr:nth-child(odd) td{background:color-mix(in srgb,var(--surface2) 45%,transparent)}
+.inv-help th.n,.inv-help td.n{text-align:right}
+.inv-help td.by{max-width:130px;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.inv-help .src{font-size:10px;color:var(--text3);margin-left:3px}
+.inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);border-radius:4px;padding:1px 7px;font:inherit;font-size:12.5px;font-weight:700;line-height:1.4}
 .pod-help .pod-o{padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;font-size:11.5px}
 .pod-help .pod-o:hover{background:var(--surface2)}
 .pod-help .pod-o.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-weight:700}
 .inv-help .gap{cursor:pointer;border:1px dashed var(--text3);color:var(--text2);background:transparent;border-radius:3px;padding:0 4px;font:inherit;font-size:10px;margin-left:3px}
 .inv-help .gap:hover{border-style:solid;color:var(--accent);border-color:var(--accent)}
+.inv-help tr.miss td{background:color-mix(in srgb,#f59e0b 9%,var(--surface))}
+.inv-help .imiss{color:#c2410c;font-weight:700;font-size:11px;margin-left:4px}
 .inv-help .dup{color:var(--danger);font-weight:700;margin-top:4px}
 .cp-more{margin-top:12px;font-size:11.5px;color:var(--text2)}
 .cp-more summary{cursor:pointer}
@@ -872,7 +876,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.42', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.43', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2923,6 +2927,15 @@ function cellNeighbor(td, dir){
 /* ══════════ Invoice の次の番号 (ユーザー 2026-11-16) ══════════
    Invoice「NXX2611-21」= N + 販売先コード XX + 契約の年月 2611 + 連番。販売契約「LRS-2611XX2」の末尾 2 が連番の帯:
    1 → 01〜19、2 → 21〜、3 → 31〜 (末尾 0 の契約はない)。最後の番号は COMPASS (その販売CO のブッキング) と B-06 の両方から */
+/* 販売先の名前を短く (COMPASS に略称の列がない時 — ユーザー 2026-11-27): 「PT. ABC XYZ」→「ABC」・「X.Y.Z. PAPER MFG」→「XYZ PAPER」のように
+   会社の形 (PT・CV・CO.,LTD・SDN BHD・CORPORATION など) を外して 最初の 1 語 (2 語目が PAPER・INDUSTRY などなら 2 語) */
+function buyerShort(s){
+  const LEGAL = /^(PT|CV|TBK|CO|COMPANY|LTD|LIMITED|INC|CORP|CORPORATION|SDN|BHD|JSC|LLC|PLC|PTE|PVT|GROUP|THE|M\/S|株式会社|有限会社)$/;
+  const w = str(firstLine(s)).toUpperCase().replace(/(?<=\b[A-Z])\.(?=[A-Z]\b)/g, '').replace(/[.,()]/g, ' ').split(/\s+/).filter(x => x && !LEGAL.test(x));
+  if(!w.length) return str(s);
+  const GEN = /^(PAPER|PULP|INDUSTR(Y|IES|IAL)|MILLS?|TRADING|PACKAGING|BOARD|RECYCL\w*)$/;
+  return w.length > 1 && GEN.test(w[1]) ? w[0]+' '+w[1] : w[0];
+}
 const invNorm = s => PARSE.nfkcSame(firstLine(s)).toUpperCase().replace(/\s+/g, '');
 function invParse(s){ const m = invNorm(s).match(/^N([A-Z]+)(\d{4})-(\d{2,3})$/); return m ? {code:m[1], yymm:m[2], seq:+m[3], pre:'N'+m[1]+m[2]} : null; }
 function coParse(s){ const m = invNorm(s).match(/^[A-Z]+-(\d{4})([A-Z]+?)(\d+)$/); return m ? {yymm:m[1], code:m[2], k:+m[3]} : null; }
@@ -2944,6 +2957,14 @@ function invRowsFor(X, code, b){
     const it = X.remain ? X.remain.get(c.id) : undefined;
     return {c:c, p:p, pre:pre, last:last, next:invFmt(pre, next), over:invK(next)!==p.k, gaps:gaps, remain:it ? it.remain : X.remain ? null : undefined, items:it ? it.items : []};
   }).sort((x, y) => y.p.yymm.localeCompare(x.p.yymm) || x.p.k - y.p.k);
+}
+/* B-06 のこのブッキングの Grade で、販売契約の品目 (items) に無いもの (ユーザー 2026-11-27 — 契約に その品目が無い時は 警告)。
+   品目がまだ読めていない時・Grade が空の時は 何も言わない */
+function invItemMiss(b, items){
+  if(!b || !items || !items.length) return [];
+  const have = items.map(cpNorm).filter(Boolean);
+  const gs = Array.from(new Set((b.rows || []).filter(a => !a.deleted && str(a.grade).trim()).map(a => str(a.grade).trim())));
+  return gs.filter(g => !gradeWants(b, g).some(w => have.some(h => h===w || (w.length >= 3 && h.includes(w)))));
 }
 /* 同じ Invoice no. がもうあるか (COMPASS・B-06 のほかのブッキング) */
 function invDup(v, b){
@@ -2979,12 +3000,14 @@ function invHelpHtml(X, err, val, b){
   if(!rows.length) return h + '<div class="muted">「'+esc(m && !byName ? m[1] : firstLine(val))+'」の販売契約が見つかりません'+(hidden ? '（残 0 の契約 '+hidden+' 件は非表示）' : '')+'</div>';
   const md = d => d ? d.slice(5).replace('-', '/') : '—';
   h += '<table><tr><th>販売契約</th><th>品目</th><th>販売先</th><th class="n">残</th><th>船積期限</th><th>最後</th><th>次</th></tr>'
-    + rows.map(r => '<tr><td><b>'+esc(r.c.name)+'</b></td><td>'+(r.items.length ? esc(r.items.join('・')) : '<span class="muted">'+(X.remain ? '—' : '…')+'</span>')+'</td>'
-      + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyer || '')+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : '<b style="color:var(--info)">'+dtlNum(r.remain)+'t</b>')+'</td><td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
+    + rows.map(r => { const miss = invItemMiss(b, r.items);
+      return '<tr'+(miss.length ? ' class="miss"' : '')+'><td><b>'+esc(r.c.name)+'</b></td><td>'+(r.items.length ? esc(r.items.join('・')) : '<span class="muted">'+(X.remain ? '—' : '…')+'</span>')
+      + (miss.length ? ' <span class="imiss" title="'+esc('この契約に B-06 の品目 '+miss.join('・')+' がありません')+'">⚠ '+esc(miss.join('・'))+' なし</span>' : '')+'</td>'
+      + '<td class="by" title="'+esc(r.c.buyer || '')+'">'+esc(r.c.buyerShort || buyerShort(r.c.buyer))+'</td><td class="n">'+(r.remain==null ? (X.remain ? '—' : '…') : '<b style="color:var(--info)">'+dtlNum(r.remain)+'t</b>')+'</td><td title="最終船積日 '+esc(r.c.last || '')+'">'+esc(md(r.c.last))+'</td>'
       + '<td>'+(r.last ? esc(invFmt(r.pre, r.last.seq))+'<span class="src">'+(r.last.src==='COMPASS' ? 'C' : 'B')+'</span>' : '<span class="muted">なし</span>')+'</td>'
       + '<td>'+(r.over ? '<span class="dup" title="この契約の番号の帯を超えます">'+esc(r.next)+' ⚠</span>' : '<button class="go" data-inv="'+esc(r.next)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">'+esc(r.next)+'</button>')
       + (r.gaps.length ? r.gaps.slice(0, 3).map(g => '<button class="gap" title="空き番号（キャンセルなどで抜けた番号）— 押すと入ります。使う前に その番号がもう使われていないか確かめてください" data-inv="'+esc(g)+'" data-co="'+esc(r.c.id)+'" data-con="'+esc(r.c.name)+'">空き '+esc(g.split('-').pop())+'</button>').join('')
-        + (r.gaps.length > 3 ? '<span class="muted" style="font-size:10px" title="'+esc(r.gaps.join('、'))+'"> ほか '+(r.gaps.length - 3)+'</span>' : '') : '')+'</td></tr>').join('')
+        + (r.gaps.length > 3 ? '<span class="muted" style="font-size:10px" title="'+esc(r.gaps.join('、'))+'"> ほか '+(r.gaps.length - 3)+'</span>' : '') : '')+'</td></tr>'; }).join('')
     + '</table>' + (hidden ? '<div class="muted" style="margin-top:4px;font-size:11px">残 0 の契約 '+hidden+' 件は非表示</div>' : '')
     + '<div class="muted" style="margin-top:3px;font-size:10.5px">番号を押すと入ります・最後: C = COMPASS / B = B-06・空き = 間で抜けている番号（キャンセルなど）</div>';
   return h;
@@ -3014,7 +3037,10 @@ function invHelpOpen(el, td, b, pick){
   box.addEventListener('mousedown', ev => { ev.preventDefault(); const g = ev.target.closest('[data-inv]'); if(!g) return;
     /* この番号はこの販売契約 — COMPASS 入力で 販売CO を自動で選ぶのに覚える (チームで共有) */
     if(g.dataset.co) cpMapLearn([{kind:'invco', key:invNorm(g.dataset.inv), id:g.dataset.co, name:g.dataset.con || ''}]).catch(() => {});
-    pick(g.dataset.inv); });
+    /* 契約に B-06 の品目が無い時は 警告 (番号は入れる — ユーザー 2026-11-27)。問題ない時は 今までどおり */
+    const it = X && X.remain && g.dataset.co ? X.remain.get(g.dataset.co) : null, miss = it ? invItemMiss(b, it.items) : [];
+    pick(g.dataset.inv);
+    if(miss.length) toast('⚠ 販売契約 '+(g.dataset.con || '')+' に B-06 の品目 '+miss.join('・')+' がありません（契約の品目: '+it.items.join('・')+'）— 契約・品目を確かめてください', 'warn'); });
   const bw = $('#b6-board'); bw.addEventListener('scroll', place);
   el._closeHelp = () => { box.remove(); bw.removeEventListener('scroll', place); };
 }
@@ -4848,11 +4874,15 @@ const DvCompass = {
       dvGetAll(CE.entity.EntitySetName+'?$select='+[cid].concat(lsc ? [lsc.col] : [], pc ? ['_'+pc.col+'_value'] : []).join(',')),
       dvGetAll(COMPASS.ES+'?$select=cr49f_invoice_no,_'+scCol+'_value')]);
     let BN = null; if(pc){ try{ BN = await cpNames(pc.rel.target); }catch(e){} }
+    /* 販売先の 略称 (例 ABC・XYZ PAPER — ユーザー 2026-11-27)。販売先の一覧に 略称 の列があれば それ、なければ buyerShort で短く */
+    let BS = null; if(pc){ try{ const BE = await cpEntMeta(pc.rel.target), sc = BE.cols.find(c => c.type==='String' && /略称|略名|短縮|short/i.test(c.label+' '+c.col));
+      if(sc){ const bid = BE.entity.PrimaryIdAttribute; BS = new Map((await dvGetAll(BE.entity.EntitySetName+'?$select='+bid+','+sc.col)).map(r => [r[bid], str(r[sc.col]).trim()]).filter(x => x[1])); } }catch(e){} }
     const jst = v => !v ? '' : String(v).includes('T') ? new Date(Date.parse(v) + 9*3600e3).toISOString().slice(0, 10) : String(v).slice(0, 10);
     /* 〆 の販売契約は候補に出さない (使った Invoice No. は番号を決めるのに全部使う) */
     let shut = null; try{ const D = await this.details(); shut = D.sale.shutCo; }catch(e){}
     const contracts = crows.filter(r => !(shut && shut.has(r[cid]))).map(r => { const o = N.map.get(r[cid]);
-      return {id:r[cid], name:o ? o.name : '', last:lsc ? jst(r[lsc.col]) : '', buyer:pc && BN ? ((BN.map.get(r['_'+pc.col+'_value']) || {}).name || '') : ''}; });
+      const bid = pc ? r['_'+pc.col+'_value'] : null, full = pc && BN ? ((BN.map.get(bid) || {}).name || '') : '';
+      return {id:r[cid], name:o ? o.name : '', last:lsc ? jst(r[lsc.col]) : '', buyer:full, buyerShort:(BS && BS.get(bid)) || buyerShort(full)}; });
     const inv = bks.map(r => ({no:str(r.cr49f_invoice_no).trim(), co:r['_'+scCol+'_value'] || null})).filter(x => x.no);
     return this._inv = {at:Date.now(), contracts:contracts, inv:inv};
   },
