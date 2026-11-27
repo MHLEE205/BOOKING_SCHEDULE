@@ -893,7 +893,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.54', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.55', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2676,7 +2676,10 @@ async function flushHist(b){
   const keep = () => { S.histBuf[b.bookkey] = add.concat(S.histBuf[b.bookkey] || []); };
   for(let i=0;i<4;i++){
     const r = await memoStore().get(histPath(b)).catch(e => ({err:e}));
-    if(r.err){ keep(); toast('変更履歴を保存できません（読めません）: '+r.err.message, 'warn'); return; }
+    if(r.err){ keep();
+      /* 回数制限 (429) が続いた時は 知らせずに 30 秒後に もう一度 (変更は残してある) */
+      if(/\((429|503)\)/.test(str(r.err.message))){ if(!b._hRetry) b._hRetry = setTimeout(() => { b._hRetry = null; S.histQ[b.bookkey] = (S.histQ[b.bookkey] || Promise.resolve()).then(() => flushHist(b)).catch(() => {}); }, 30000); return; }
+      toast('変更履歴を保存できません（読めません）: '+r.err.message, 'warn'); return; }
     const list = ((r.doc && r.doc.list) || []).concat(add);
     try{ await memoStore().put(histPath(b), {bookkey:b.bookkey, list:list, updated_at:add[add.length-1].at}, r.etag); return; }
     catch(e){ if(e.status!==412){ keep(); toast('変更履歴を保存できません: '+e.message, 'warn'); return; } }
@@ -3924,10 +3927,21 @@ const GRAPH = 'https://graph.microsoft.com/v1.0/';
 function spPath(p){ return (MEMO_ROOT+'/'+p).split('/').map(encodeURIComponent).join('/'); }
 const SpMemo = {
   _img: new Map(),
+  /* 429 (Graph の 回数制限・ユーザー 2026-11-27 で 変更履歴の保存が 続けて失敗): 同時は 3 本まで・429/503 は Retry-After だけ待って やり直す (最大 5 回) */
+  _run:0, _wait:[],
   async _f(url, opt){
-    const tok = await LEENAI.auth.token('graph'); if(!tok) throw new Error('Graph トークンがありません（再ログインしてください）');
-    opt = opt || {}; opt.headers = Object.assign({Authorization:'Bearer '+tok}, opt.headers||{});
-    return fetch(url, opt);
+    while(this._run >= 3) await new Promise(r => this._wait.push(r));
+    this._run++;
+    try{
+      for(let i=0;;i++){
+        const tok = await LEENAI.auth.token('graph'); if(!tok) throw new Error('Graph トークンがありません（再ログインしてください）');
+        const o = Object.assign({}, opt || {}); o.headers = Object.assign({Authorization:'Bearer '+tok}, (opt && opt.headers)||{});
+        const r = await fetch(url, o);
+        if((r.status!==429 && r.status!==503) || i>=5) return r;
+        const ra = parseFloat(r.headers.get('Retry-After'));
+        await new Promise(res => setTimeout(res, Math.min(30, isNaN(ra) ? 2*(i+1) : ra)*1000 + Math.random()*500));
+      }
+    }finally{ this._run--; const n = this._wait.shift(); if(n) n(); }
   },
   _item(p){ return GRAPH+'drives/'+LEENAI.SP.DRIVE_ID+'/root:/'+spPath(p); },
   async get(p){
