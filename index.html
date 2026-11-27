@@ -4001,7 +4001,7 @@ const SpMemo = {
    写真は 読めれば (権限がなければ 頭文字) */
 const PRES_LIVE = 150e3;
 const presColor = s => { let h = 0; for(const c of str(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return 'hsl('+(h % 360)+' 55% 45%)'; };
-const presInit = n => { n = str(n).trim(); if(/^[^ -]/.test(n)) return n[0]; const w = n.split(/[\s._@-]+/).filter(Boolean); return (w.length > 1 ? w[0][0]+w[1][0] : n.slice(0, 2)).toUpperCase(); };
+const presInit = n => { n = str(n).trim(); if(/^[^\x00-\x7f]/.test(n)) return n[0]; const w = n.split(/[\s._@-]+/).filter(Boolean); return (w.length > 1 ? w[0][0]+w[1][0] : n.slice(0, 2)).toUpperCase(); };
 function presBox(){
   let el = document.getElementById('b6-pres'); if(el) return el;
   const host = document.querySelector('.ln-header .ln-hdr-right'); if(!host) return null;
