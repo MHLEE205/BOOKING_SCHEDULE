@@ -872,7 +872,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.41', date:'2026-11-26', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.42', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1584,8 +1584,9 @@ function cellHtml(col, b, a){
         h += ' <span class="bdg '+(sameInv ? 'd' : 'w')+'" data-bkdup="1" style="cursor:pointer" title="'+esc('同じ Booking no. が ほかに '+dps.length+' 件'
           + (sameInv ? '（Invoice no. も同じ — 二重登録かも）' : '（Invoice no. は違う — 分割なら OK）')+'\n'
           + dps.map(x => '・'+cpPairTxt(x.bkgno, x.invoiceno)+'  '+str(x.port)+(x.compass_status==='SENT' ? '  COMPASS済' : '')).join('\n')+'\n— クリックで そのブッキングへ')+'">重複'+(dps.length > 1 ? ' '+(dps.length+1) : '')+'</span>'; }
-      if(b.compass_status==='SENT') h += ' <span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
-      if(b.compass_status==='ERROR') h += ' <span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
+      /* COMPASS済・COMPASS失敗 は Booking no. の下の行に (ユーザー 2026-11-27 — 横に出たり 下に折り返したり ばらばらだった) */
+      if(b.compass_status==='SENT') h += '<br><span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
+      if(b.compass_status==='ERROR') h += '<br><span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
       if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
       else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')+(r.tip ? '\n  '+r.tip.replace(/\n/g, '\n  ') : '')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
@@ -1788,13 +1789,41 @@ function allocBoot(zoomOnly){
       + ' .b6-mv{display:inline-flex;gap:2px;margin-left:8px;vertical-align:middle} .b6-mv button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:4px;font-size:10px;line-height:16px;padding:0 5px;cursor:pointer}'
       + ' .b6-mv button:hover:not(:disabled){color:#f76b15;border-color:#f76b15} .b6-mv button:disabled{opacity:.3;cursor:default}'
       /* 残本 はオレンジ (太字にしない)・0 本は黒に近い灰色・マイナスは赤 (ユーザー 2026-11-18) */
-      + ' .b6-rh{margin-left:4px;font-size:10px;font-weight:400;color:#f76b15;white-space:nowrap} .b6-rh.z{color:#555} .b6-rh.neg{color:var(--danger)}';
+      + ' .b6-rh{margin-left:4px;font-size:10px;font-weight:400;color:#f76b15;white-space:nowrap} .b6-rh.z{color:#555} .b6-rh.neg{color:var(--danger)}'
+      /* 販売 (Sales) = 薄い青・購買 (Buy) = 薄い緑 で 枠・見出し・POD/POL の行を 少しだけ色分け。見出しに 大きく「販売」「購買」(ユーザー 2026-11-27) */
+      + ' #content-alloc .sp>div>.card:first-child{--b6c:#2563eb} #content-alloc .sp>div:last-child>.card:first-child{--b6c:#16a34a}'
+      + ' #content-alloc .sp>div>.card:first-child{background:color-mix(in srgb,var(--b6c) 2.5%,var(--surface));border-color:color-mix(in srgb,var(--b6c) 22%,var(--border))}'
+      + ' #content-alloc .sp>div>.card:first-child table.dt th{background:color-mix(in srgb,var(--b6c) 7%,var(--surface2))}'
+      + ' #content-alloc .sp>div>.card:first-child .pol-row{background:linear-gradient(90deg,var(--b6c) 3px,color-mix(in srgb,var(--b6c) 9%,var(--surface3)) 3px)}'
+      + ' #content-alloc .sp>div>.card:first-child .pol-name{color:color-mix(in srgb,var(--b6c) 85%,var(--text))}'
+      + ' .b6-lbl{font-size:24px;font-weight:700;line-height:1;color:color-mix(in srgb,var(--b6c) 80%,var(--text))}';
     d.head.appendChild(s);
   }
+  allocFilterMemo(w);
   if(!w._allocLoaded) w.switchTab('alloc');
   allocSide(d);
   allocRemainHon();
   return true;
+}
+/* 割り当て: POL・POD の絞り込みを 品目タブ (担当) ごとに記憶 (ユーザー 2026-11-27)
+   元の sel() は タブを押すと POL・POD を全部 解除していた → タブごとに 前に選んだものを戻す。最後に開いたタブも記憶 (人ごと = この PC の localStorage) */
+function allocFilterMemo(w){
+  if(w._b6flt) return; w._b6flt = true;
+  try{ w.eval(`(function(){
+    const K='b6_alloc_flt';
+    const load=()=>{try{return JSON.parse(localStorage.getItem(K)||'null')||{f:{}};}catch(e){return {f:{}};}};
+    const save=()=>{try{const m=load();m.last=SI;m.f[SI]={pol:[...SF_POL],pod:[...SF_POD]};localStorage.setItem(K,JSON.stringify(m));}catch(e){}};
+    const use=i=>{const f=load().f[i]||{};SF_POL=new Set(f.pol||[]);SF_POD=new Set(f.pod||[]);};
+    const oPol=selPOL,oPod=selPOD,oRender=render;let first=true;
+    window.selPOL=function(v){oPol(v);save();};
+    window.selPOD=function(v){oPod(v);save();};
+    window.sel=function(i){SI=i;use(i);render();save();};
+    window.render=function(){
+      if(first&&BD.length){first=false;const m=load();
+        if(m.last&&(m.last==='ALL'||BD.some(b=>b._it===m.last)||SD.some(s=>s._it===m.last)))SI=m.last;
+        use(SI);}
+      return oRender.apply(this,arguments);};
+  })()`); }catch(e){ console.warn('割り当て: 絞り込みの記憶を付けられません', e); }
 }
 /* 割り当て: Sales・Buy の表の見出しに ◀▶ — 左右を入れ替えて 人ごとに記憶 (次に開いても同じ — ユーザー 2026-11-18) */
 function allocSide(d){
@@ -1803,6 +1832,7 @@ function allocSide(d){
   const sp = d.querySelector('#content-alloc .sp'); if(!sp) return;
   Array.from(sp.children).forEach((col, i) => {
     const ct = col.querySelector('.ct'); if(!ct) return;
+    if(!ct.querySelector('.b6-lbl')){ const l = d.createElement('span'); l.className = 'b6-lbl'; l.textContent = i===1 ? '購買' : '販売'; ct.insertBefore(l, ct.firstChild); }
     let m = ct.querySelector('.b6-mv');
     if(!m){
       m = d.createElement('span'); m.className = 'b6-mv';
