@@ -893,7 +893,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.52', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.53', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -2907,7 +2907,7 @@ async function saveAsg(b, a, patch, cellKey){
   /* Packer の文字を変えたら COMPASS 購買元も合わせる: 同じ表記の行がつながっていればそれ、なければ空 (違う会社のままにしない) */
   if(S.hasCpk && 'packer' in patch && !('cpacker' in patch) && pkKey(patch.packer)!==pkKey(a.packer)){
     const sib = pkRows(patch.packer).find(x => x.a!==a && cpkOf(x.a));
-    patch = Object.assign({}, patch, {cpacker: sib ? sib.a.cpacker : ''});
+    patch = Object.assign({}, patch, {cpacker: sib ? sib.a.cpacker : cpkGuess(patch.packer)});
   }
   const prev = {}; Object.keys(patch).forEach(k => prev[k] = a[k]);
   Object.assign(a, patch); a.name = asName(b, a);
@@ -3738,6 +3738,24 @@ function cpkSuggest(list, text){
   const head = pkKey(text).split(/[\s(（・\/]/)[0], al = [text, head];
   al.slice().forEach(a => al.push(...kanaRomaji(a)));
   return cpMatch(list, Array.from(new Set(al.map(cpNorm).filter(Boolean))));
+}
+/* 同じ表記の行がない時: 英語 (ローマ字) で書いても COMPASS 購買元に自動でつなぐ (ユーザー 2026-11-27)。
+   購買元の名前・ほかの名前 に加えて、もう つながっている行の Packer の表記 (かな → ローマ字も) を その購買元の別名にする。
+   長音は ある/なし どちらでも (KYOUWA = KYOWA)。1 つの購買元に はっきり決まる時 (80 点以上・同点なし) だけ — 決まらなければ 空 (🔗? のまま) */
+function cpkGuess(text){
+  if(!S.cpkName || !S.cpkName.size || !str(text).trim()) return '';
+  const shortV = x => x.replace(/OU/g, 'O').replace(/UU/g, 'U').replace(/OO/g, 'O');
+  const alt = new Map();
+  S.bk.forEach(b => { if(!b.deleted) b.rows.forEach(a => { const k = !a.deleted && cpkOf(a); if(!k) return;
+    const t = pkKey(a.packer), hd = t.split(/[\s(（・\/]/)[0], m = alt.get(k.id) || alt.set(k.id, new Set()).get(k.id);
+    [t, hd].forEach(x => { m.add(x); kanaRomaji(x).forEach(y => m.add(y)); }); }); });
+  const list = Array.from(S.cpkName.values()).map(o => { const xs = [o.name].concat(o.alt || [], Array.from(alt.get(o.id) || []));
+    return {id:o.id, name:o.name, alt:xs.concat(xs.map(x => shortV(cpNorm(x))))}; });
+  const head = pkKey(text).split(/[\s(（・\/]/)[0], al = [text, head];
+  al.slice().forEach(a => al.push(...kanaRomaji(a)));
+  const c = cpMatch(list, Array.from(new Set(al.map(cpNorm).concat(al.map(x => shortV(cpNorm(x)))).filter(Boolean))));
+  if(!c.length || c[0].s < 80 || (c[1] && c[1].s===c[0].s)) return '';
+  return c[0].id+'|'+c[0].name;
 }
 /* 同じ表記の行 (今読み込んでいる全ブッキング) */
 function pkRows(text){
