@@ -906,7 +906,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.57', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.58', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1622,10 +1622,11 @@ function cellHtml(col, b, a){
           + (sameInv ? '（Invoice no. も同じ — 二重登録かも）' : '（Invoice no. は違う — 分割なら OK）')+'\n'
           + dps.map(x => '・'+cpPairTxt(x.bkgno, x.invoiceno)+'  '+str(x.port)+(x.compass_status==='SENT' ? '  COMPASS済' : '')).join('\n')+'\n— クリックで そのブッキングへ')+'">重複'+(dps.length > 1 ? ' '+(dps.length+1) : '')+'</span>'; }
       /* COMPASS済・COMPASS失敗 は Booking no. の下の行に (ユーザー 2026-11-27 — 横に出たり 下に折り返したり ばらばらだった) */
-      if(b.compass_status==='SENT') h += '<br><span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
+      /* COMPASS で削除された時は COMPASS済 を出さない (ユーザー 2026-11-27: 済 と 削除 が並んで 紛らわしい) — Invoice no. の方に 未入力 */
+      if(b.compass_status==='SENT' && !(cpCmpOf(b) || {}).gone) h += '<br><span class="bdg o" title="COMPASS 入力済み '+esc(fmtDT(b.compass_at))+'">COMPASS済</span>';
       if(b.compass_status==='ERROR') h += '<br><span class="bdg d" title="COMPASS 入力に失敗 '+esc(fmtDT(b.compass_at))+'">COMPASS失敗</span>';
       const cmp = cpCmpOf(b), cdn = cpDiffN(b);
-      if(cmp && cmp.gone) h += ' <span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
+      if(cmp && cmp.gone) h += '<br><span class="bdg d" data-cpg="1" style="cursor:pointer" title="COMPASS にこのブッキングがありません（COMPASS で削除）— クリックで 再入力">COMPASS削除</span>';
       else if(cdn) h += ' <span class="bkh cpd" data-cpd="1" title="'+esc('COMPASS と違う項目 '+cdn+' 件\n'+cmp.rows.filter(r => !r.soft && !r.okd).map(r => r.label+': COMPASS '+(r.cp || '（空）')+' / B-06 '+(r.b06 || '（空）')+(r.tip ? '\n  '+r.tip.replace(/\n/g, '\n  ') : '')).join('\n')+'\n— クリックで 比べる・変更入力')+'">COMPASS差 '+cdn+'</span>';
       /* 青の ↺ (Booking no. の変更回数) は やめた — ほとんど変わらない (ユーザー 2026-11-24)。履歴は メニューの「↺ 変更履歴」で見られる。
          COMPASS の Booking no. と違う時は 上の「COMPASS差」とセルの枠で出る */
@@ -1639,7 +1640,7 @@ function cellHtml(col, b, a){
     if(k==='invoiceno'){ const co = cpContracts(b);
       const cw = ((cpCmpOf(b) || {}).rows || []).filter(r => r.k==='saleco' && !r.okd);
       /* Invoice no. はあるのに まだ COMPASS 入力していない (ユーザー 2026-11-27)。失敗は Booking no. の方に「COMPASS失敗」が出るので ここは 未入力 だけ */
-      const notYet = !blank(v) && b.compass_status!=='SENT' && b.compass_status!=='ERROR'
+      const notYet = !blank(v) && ((b.compass_status!=='SENT' && b.compass_status!=='ERROR') || (cpCmpOf(b) || {}).gone)
         ? '<br><span class="bdg w" title="Invoice no. はありますが まだ COMPASS に入力していません">COMPASS未入力</span>' : '';
       return esc(v) + notYet + (co && co.sale.length ? '<div class="cpco'+(cw.length ? ' ng' : '')+'" title="'+esc(cw.length ? 'COMPASS の販売契約 — 確認してください\n'+cw.map(r => r.label+': '+r.cp+' / '+r.b06).join('\n') : 'COMPASS の販売契約')+'">'+esc(co.sale.join('・'))+(cw.length ? ' ⚠' : '')+'</div>' : ''); }
     return esc(v);
