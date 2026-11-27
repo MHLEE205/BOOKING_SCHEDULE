@@ -324,16 +324,17 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .cp-sp .cp-it td,.cp-sp .cp-it th{padding-left:4px;padding-right:4px}
 /* Invoice の次の番号 (ユーザー 2026-11-16) */
 /* Invoice の次の番号 (ユーザー 2026-11-27 改め): 文字は v1.43 の 85%・使えそうな契約は ごく薄い緑・品目は 1 行ずつ 残 と並べる */
-.inv-help{position:fixed;z-index:60;width:auto;max-width:min(620px,calc(100vw - 16px));max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);padding:8px 10px 7px;font-size:10.6px;line-height:1.4}
+.inv-help{position:fixed;z-index:60;width:auto;max-width:min(700px,calc(100vw - 16px));max-height:340px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid color-mix(in srgb,var(--border) 80%,transparent);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);padding:8px 10px 7px;font-size:10.6px;line-height:1.4}
 .inv-help .t{font-weight:700;margin-bottom:3px;font-size:11.5px;letter-spacing:.02em}
-.inv-help table{border-collapse:separate;border-spacing:0;margin-top:3px;width:100%}
+.inv-help table{border-collapse:separate;border-spacing:0;margin-top:3px;width:672px;table-layout:fixed}
+.inv-help td{overflow:hidden;text-overflow:ellipsis}
+.inv-help .iq .in{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .inv-help th{font-size:9.5px;color:var(--text3);font-weight:600;text-align:left;padding:3px 7px;border-bottom:1px solid var(--border);white-space:nowrap;letter-spacing:.03em}
 .inv-help td{padding:4px 7px;border-bottom:1px solid color-mix(in srgb,var(--border) 45%,transparent);white-space:nowrap;vertical-align:top}
 .inv-help tr:last-child td{border-bottom:none}
 .inv-help th.n,.inv-help td.n{text-align:right}
 .inv-help td.co{font-weight:700}
 .inv-help td.by{max-width:110px;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:var(--text2)}
-.inv-help td.it{min-width:120px}
 .inv-help .iq{display:flex;justify-content:space-between;gap:10px;color:var(--text2)}
 .inv-help .iq .rq{font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--info) 75%,var(--text))}
 .inv-help .iq.use{color:var(--text);font-weight:700}
@@ -346,7 +347,7 @@ tr.cp-need td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .inv-help .src{font-size:8.5px;color:var(--text3);margin-left:3px}
 .inv-help .go{cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:4px;padding:0 6px;font:inherit;font-size:10.6px;font-weight:700;line-height:1.5}
 .inv-help .go:hover{background:var(--accent);color:#fff}
-.inv-help td.nx{white-space:normal;max-width:150px;line-height:1.9}
+.inv-help td.nx{white-space:normal;line-height:1.9}
 .inv-help td.nx .gap{white-space:nowrap}
 .pod-help .pod-o{padding:2px 6px;border-radius:3px;cursor:pointer;white-space:nowrap;font-size:11.5px}
 .pod-help .pod-o:hover{background:var(--surface2)}
@@ -892,7 +893,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.50', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.51', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
