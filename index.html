@@ -892,7 +892,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.48', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.49', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -4697,7 +4697,15 @@ function b05MapReport(){
    - CFG.COMPASS_WRITE=false の間は ④ をしない (試験モード)
    - 品目明細 (cr49f_booking_details) は 2次。B-06 から COMPASS の修正・削除はしない */
 /* COMPASS の 本船名: 1 行目の 括弧 ( / （ より前だけ。括弧の中は 運航サービス名・本船の参考情報 (例 ITX HIGO 275S(1ST) → ITX HIGO 275S) — ユーザー 2026-11-17 */
-const vesselForCompass = v => firstLine(v).split(/[(（]/)[0].replace(/\s+/g, ' ').trim();
+/* 2 行目が 航海番号 (英数字だけ・数字を含む 例 AB12C3W45・2612W) なら つなぐ (ユーザー 2026-11-27 — 「SHIP ALPHA」+ 改行 +「AB12C3W45」の
+   2 行目が COMPASS に入っていなかった)。1 行目に括弧がある時・2 行目が メモ (日本語・括弧・空白入り) の時は つながない */
+function vesselForCompass(v){
+  const ls = str(v).split(/\r?\n/).map(s => s.trim()).filter(Boolean), l1 = ls[0] || '';
+  let s = l1.split(/[(（]/)[0];
+  const l2 = ls[1] ? PARSE.nfkcSame(ls[1]).trim() : '';
+  if(l2 && !/[(（]/.test(l1) && /^[A-Za-z0-9][A-Za-z0-9\-\/.]{1,15}$/.test(l2) && /\d/.test(l2)) s += ' '+l2;
+  return s.replace(/\s+/g, ' ').trim();
+}
 const COMPASS = {
   ES: 'cr49f_bookings', LOGICAL: 'cr49f_booking',
   FIELDS: [   /* B-06 → COMPASS 列 (DOC-Z-06) */
