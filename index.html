@@ -892,7 +892,7 @@ const PARSE = (function(){
    ════════════════════════════════════════════ */
 
 /* ══════════ CONFIG ══════════ */
-const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.47', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
+const APP = {sys:'B-06', name:'ブッキングスケジュール', version:'1.48', date:'2026-11-27', desc:'ブッキング承認・Packer日程配分の管理'};
 const CFG = {
   DV_URL: 'https://orgde512c6f.crm7.dynamics.com',
   API:    '/api/data/v9.2/',
@@ -1151,6 +1151,9 @@ function fromDv(kind, r){
   DATE_FIELDS.forEach(f => { if(o[f]) o[f] = String(o[f]).slice(0,10); });
   if(kind==='A'){ try{ o.slots = o.slots ? JSON.parse(o.slots) : []; }catch(e){ o.slots = []; } }
   o.deleted = !!o.deleted;
+  /* 地域は 港で決める (ユーザー 2026-11-27 — ISHIKARI の表で作って 港を NAHA に直しても 北エリア のままだった)。
+     決まった港 (REGIONS の ports) なら その地域で表示。Dataverse の値 (_regionDb) と違えば 次に保存する時に一緒に直す */
+  if(kind==='B'){ o._regionDb = o.region; const rg = PORT_REGION[str(o.port).trim().toUpperCase()]; if(rg) o.region = rg; }
   return o;
 }
 function toDv(o, fields){
@@ -2859,6 +2862,11 @@ async function undoStep(redo){
   if(td){ setCellSel(td); td.scrollIntoView({block:'nearest', inline:'nearest'}); }
 }
 async function saveBooking(b, patch, cellKey){
+  /* 港を変えた時・表示の地域が Dataverse と違う時は 地域も一緒に保存 (上の fromDv を参照)。別の地域へ移る時は その地域の最後に */
+  { const port = 'port' in patch ? patch.port : b.port, rg = PORT_REGION[str(port).trim().toUpperCase()];
+    if(rg && rg!==(b._regionDb || b.region) && !('region' in patch)){
+      patch = Object.assign({}, patch, {region:rg});
+      if(rg!==b.region){ let mx = 0; S.bk.forEach(x => { if(x!==b && x.region===rg) mx = Math.max(mx, x.seq||0); }); patch.seq = mx + 10; } } }
   const prev = {}; Object.keys(patch).forEach(k => prev[k] = b[k]);
   Object.assign(b, patch); b.name = bkName(b);
   const fields = Object.keys(patch).concat(['name']);
@@ -2870,6 +2878,7 @@ async function saveBooking(b, patch, cellKey){
     b._q = job;
     const saved = await job;
     b.etag = saved.etag; b.modifiedon = saved.modifiedon; b.modifiedby = saved.modifiedby;
+    if('region' in patch) b._regionDb = b.region;
     setFx('B', b.id, fk, 'saved');
     undoRec('B', b, null, prev, patch);
     /* 空 → 番号 (はじめての入力) は変更ではないので残さない — ユーザー 2026-11-17 */
